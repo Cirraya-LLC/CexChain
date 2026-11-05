@@ -11,28 +11,68 @@ verifiers' reports can be compared field by field.
 
 from __future__ import annotations
 
-import datetime
-
 from . import cbor, crypto, rules
 from .evidence import Report
 from .protocol import (AGENT, CONTRACT_CALL, ORGANIZATION, PERSON, RECORD_ENDORSE, RECORD_REGISTER, RECORD_REVOKE,
                        RECORD_TRANSITION)
 
-_EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 INCOMPLETE = ("The checkpoint does not end with a state commitment, so the bundle cannot prove that nothing, "
               "such as a later revocation, was left out.")
+
+
+def _utc(ms: int) -> tuple:
+    """(year, month, day, hour, minute, second, millisecond) of a POSIX time
+    in milliseconds, in the proleptic Gregorian calendar, for any integer:
+    a network witness's time is 8 bytes, beyond the years datetime knows
+    (days to civil date, as in H. Hinnant's "chrono-Compatible Low-Level
+    Date Algorithms")."""
+    days, rest = divmod(ms, 86_400_000)
+    z = days + 719_468
+    era = z // 146_097
+    doe = z - era * 146_097
+    yoe = (doe - doe // 1460 + doe // 36_524 - doe // 146_096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    month = mp + 3 if mp < 10 else mp - 9
+    year = yoe + era * 400 + (month <= 2)
+    seconds, millis = divmod(rest, 1000)
+    return year, month, day, seconds // 3600, seconds // 60 % 60, seconds % 60, millis
 
 
 def iso_time(ms: int | None) -> str | None:
     if ms is None:
         return None
-    t = _EPOCH + datetime.timedelta(milliseconds=ms)
-    return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
+    y, mo, d, h, mi, s, millis = _utc(ms)
+    return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:{s:02d}.{millis:03d}Z"
 
 
 def human_time(ms: int) -> str:
-    t = _EPOCH + datetime.timedelta(milliseconds=ms)
-    return t.strftime("%Y-%m-%d %H:%M:%S UTC")
+    y, mo, d, h, mi, s, _ = _utc(ms)
+    return f"{y:04d}-{mo:02d}-{d:02d} {h:02d}:{mi:02d}:{s:02d} UTC"
+
+
+def witnesses_json(report: Report) -> dict:
+    """The witnesses (section 11, "A report states"): how many trusted ones
+    cosigned, each once, the open networks' among them, how many others did,
+    and each open-network cosignature with the size it cosigned and its
+    time (v0.13)."""
+    return {"trusted": report.witnesses_trusted, "untrusted": report.witnesses_untrusted,
+            "network": [{"witness": n.witness, "size": n.size, "time": iso_time(n.time * 1000), "trusted": n.trusted}
+                        for n in report.network]}
+
+
+def witnesses_text(report: Report) -> list:
+    line = f"  Witnesses    {report.witnesses_trusted} trusted"
+    if report.witnesses_untrusted:
+        line += f", {report.witnesses_untrusted} not trusted (not counted)"
+    lines = [line]
+    for n in report.network:
+        trust = "a network witness you trust" if n.trusted else "not trusted, not checked"
+        lines.append(f"               {n.witness} saw size {n.size} by {human_time(n.time * 1000)} ({trust})")
+    if report.network:
+        lines.append("               (a network witness's time is its own clock's, relied on for nothing)")
+    return lines
 
 
 def json_value(value):
@@ -191,7 +231,7 @@ def to_json(report: Report) -> dict:
                        "timestamp": iso_time(checkpoint.timestamp)},
         "keys": {"log_key": _key(report.log_key), "log_key_rotations": len(ledger.log_keys) - 1,
                  "root_key_rotations": ledger.root_rotations},
-        "witnesses": {"trusted": report.witnesses_trusted, "untrusted": report.witnesses_untrusted},
+        "witnesses": witnesses_json(report),
         "timestamps": {
             "trusted_authorities": report.trusted_authorities,
             "existed_by": iso_time(report.existed_by.get(registration)),
@@ -224,10 +264,7 @@ def to_text(report: Report) -> str:
     if log_rotations or ledger.root_rotations:
         lines.append(f"  Keys         log key rotated {log_rotations} time(s), root key "
                      f"{ledger.root_rotations} time(s); every rotation checked")
-    witnesses = f"  Witnesses    {report.witnesses_trusted} trusted"
-    if report.witnesses_untrusted:
-        witnesses += f", {report.witnesses_untrusted} not trusted (not counted)"
-    lines.append(witnesses)
+    lines += witnesses_text(report)
     if report.tokens:
         lines.append(f"  Time-stamps  {report.trusted_authorities} trusted authorit"
                      f"{'y' if report.trusted_authorities == 1 else 'ies'}")
@@ -287,4 +324,4 @@ def to_text(report: Report) -> str:
 
 
 __all__ = ["actor_json", "authority_json", "by_whom", "human_time", "iso_time", "presence_json", "provenance_json",
-           "to_json", "to_text"]
+           "to_json", "to_text", "witnesses_json", "witnesses_text"]

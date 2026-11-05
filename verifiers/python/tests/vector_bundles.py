@@ -10,8 +10,14 @@ can sign the receipts a bundle needs. This module packs those logs into
 evidence bundles, one per record: every entry of the log, its receipt, and
 a state proof for every object. Both verifiers must accept them.
 
+protocol-v0.13.json's anchor carries two open-network witnesses'
+cosignatures (Ed25519 and ML-DSA-44) of the note of the v0.10 SHA-256
+ledger's checkpoint: network_bundles() adds it to that ledger's bundles.
+
 Usage: python3 vector_bundles.py OUT_DIR   (writes OUT_DIR/*.cbor and
-OUT_DIR/index.json, which lists each bundle's ledger id and record)
+OUT_DIR/index.json, which lists each bundle's ledger id and record, and
+OUT_DIR/network.json, which lists the bundles with the v0.13 anchor, each
+with its ledger id and the witnesses' verifier keys)
 """
 
 from __future__ import annotations
@@ -109,9 +115,25 @@ def all_bundles():
                 yield name, ledger["ledger_id"], record["id"], data
 
 
+def network_bundles():
+    """Yields (name, ledger id, record id, bundle bytes, the witnesses'
+    verifier keys): the v0.10 SHA-256 ledger's bundles, with the anchor of
+    protocol-v0.13.json, whose checkpoint is theirs."""
+    document = json.loads((VECTORS / "protocol-v0.13.json").read_text())
+    anchor = cbor.decode(bytes.fromhex(document["anchor"]))
+    vkeys = [case["vkey"] for case in document["cases"] if case["valid"]]
+    for name, ledger_id, record, data in all_bundles():
+        if ledger_id != document["ledger_id"]:
+            continue
+        bundle = cbor.decode(data)
+        assert bundle[3] == anchor[1], "the v0.13 anchor is not over the v0.10 checkpoint"
+        bundle[8] = [anchor]
+        yield f"network-{name}", ledger_id, record, cbor.encode(bundle), vkeys
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
-        print(__doc__.strip().splitlines()[-2], file=sys.stderr)
+        print(next(line for line in __doc__.splitlines() if line.startswith("Usage:")), file=sys.stderr)
         return 1
     out = pathlib.Path(argv[1])
     out.mkdir(parents=True, exist_ok=True)
@@ -120,7 +142,12 @@ def main(argv: list[str]) -> int:
         (out / f"{name}.cbor").write_bytes(data)
         index.append({"file": f"{name}.cbor", "ledger_id": ledger_id, "record": record})
     (out / "index.json").write_text(json.dumps(index, indent=1) + "\n")
-    print(f"wrote {len(index)} bundles to {out}")
+    network = []
+    for name, ledger_id, record, data, vkeys in network_bundles():
+        (out / f"{name}.cbor").write_bytes(data)
+        network.append({"file": f"{name}.cbor", "ledger_id": ledger_id, "record": record, "vkeys": vkeys})
+    (out / "network.json").write_text(json.dumps(network, indent=1) + "\n")
+    print(f"wrote {len(index) + len(network)} bundles to {out}")
     return 0
 
 

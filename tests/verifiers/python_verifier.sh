@@ -8,7 +8,8 @@
 # must reach the same verdict and report the same facts (the record or the
 # instance, its events or calls with their outcomes, consents, requests and
 # answers, who acted under whose authority, presence, provenance, witnesses,
-# time-stamps, completeness). Damaged evidence must fail in both. Evidence
+# open witness networks' cosignatures, time-stamps, completeness). Damaged
+# evidence must fail in both. Evidence
 # packed from the independent test vectors (testvectors/), and the contract
 # evidence the examples leave behind, must verify in both. Ledgers forged at
 # the specification's edges show where the two agree and where the text
@@ -35,7 +36,12 @@ sys.exit(sys.version_info < (3, 11))' 2> /dev/null; then
     exit 77
 fi
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+SERVERS=()
+cleanup() {
+    for pid in ${SERVERS[@]+"${SERVERS[@]}"}; do kill "$pid" 2> /dev/null || true; done
+    rm -rf "$WORK"
+}
+trap cleanup EXIT
 cd "$WORK"
 
 export CEXCHAIN_PASSPHRASE="python verifier test"
@@ -54,7 +60,9 @@ issue() { run record issue "$@" --json | json 'd["record"]["id"]'; }
 
 COMPARED=0
 # compare NAME BUNDLE EXPECT [verify options...]: both verifiers, one bundle.
-# EXPECT is verified, failed, or any (they need only agree).
+# EXPECT is verified, failed, or any (they need only agree). With KNOWN set
+# (a regular expression), differences at the report fields whose paths match
+# it are known ones: printed, and not failures.
 compare() {
     local name="$1" bundle="$2" expect="$3"
     shift 3
@@ -63,6 +71,7 @@ compare() {
     run verify "$bundle" --json "$@" > bb.json 2> bb.err || be=$?
     local args=(py.json "$pe" bb.json "$be")
     [ "$expect" = any ] || args+=(--expect "$expect")
+    [ -z "${KNOWN:-}" ] || args+=(--known "$KNOWN")
     if ! "$PYTHON" "$VERIFIER/tests/compare_reports.py" "${args[@]}" > cmp.txt; then
         cat cmp.txt py.err bb.err
         fail "$name"
@@ -291,6 +300,104 @@ token one.cnf "$(printf 'ab%.0s' {1..32})" sha256 other.tst
 mutate c-c1.cbor c-other.cbor add-anchor other.tst
 compare "a token over another checkpoint" c-other.cbor failed
 
+# --- Open witness networks (spec v0.13, section 10.2) ------------------------------
+# Witnesses written from c2sp.org's texts (c2sp_witness.py, beside this
+# script) cosign a SHA-256 ledger's checkpoint notes, with Ed25519 and with
+# ML-DSA-44; exports carry their cosignatures in anchors.
+echo "Open witness networks: C2SP witnesses' cosignatures of checkpoint notes, in anchors"
+export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
+# start_witness DIR NAME KIND LEDGER NOTE_KEY: an open network's witness of the
+# ledger in LEDGER, listed there; its verifier key is then in DIR/witness.vkey.
+start_witness() {
+    local dir="$1" name="$2" kind="$3" ledger="$4" note="$5" entry
+    entry="$(run witness network-entry --ledger "$ledger" --note-key "$note" --contact "ops (at) example.org" --json)"
+    mkdir -p "$dir"
+    "$PYTHON" "$REPO/tests/verifiers/c2sp_witness.py" "$dir" "$name" "$(json 'd["origin"]' <<< "$entry")" \
+        "$(json 'd["vkey"]' <<< "$entry")" "$kind" 2> "$dir.log" &
+    SERVERS+=("$!")
+    for _ in $(seq 1 300); do [ -s "$dir/port" ] && break; sleep 0.1; done
+    [ -s "$dir/port" ] || { cat "$dir.log"; fail "the witness $name did not start"; }
+    run witness register "http://127.0.0.1:$(cat "$dir/port")/add-checkpoint" --vkey "$(cat "$dir/witness.vkey")" \
+        --ledger "$ledger" > /dev/null
+}
+export CEXCHAIN_LEDGER="$WORK/n"
+key nroot; key nlog; key nnote; key nwit esp256
+N_ID="$(run init --name "Network Witnessed Org" --root-key nroot.key --log-key nlog.key --json | json 'd["ledger_id"]')"
+N1="$(issue --as nroot.key --type example.org.deed/1 --field parcel=31)"
+run checkpoint create --log-key nlog.key > /dev/null
+start_witness nw-ed witness.example/ed25519 ed25519 "$WORK/n" nnote.key
+start_witness nw-ml witness.example/ml-dsa-44 ml-dsa-44 "$WORK/n" nnote.key
+NV_ED="$(cat nw-ed/witness.vkey)" NV_ML="$(cat nw-ml/witness.vkey)"
+run checkpoint network-cosign --note-key nnote.key > /dev/null
+run export "$N1" --log-key nlog.key --out n-n1.cbor > /dev/null
+compare "two network witnesses, neither trusted" n-n1.cbor verified --ledger-id "$N_ID"
+compare "the Ed25519 network witness trusted, one required" n-n1.cbor verified --witness-vkey "$NV_ED" --min-witnesses 1
+compare "the ML-DSA-44 network witness trusted, one required" n-n1.cbor verified --witness-vkey "$NV_ML" \
+    --min-witnesses 1
+compare "both trusted, two required" n-n1.cbor verified --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 2
+compare "one trusted, two required" n-n1.cbor failed --witness-vkey "$NV_ML" --min-witnesses 2
+compare "neither trusted, one required" n-n1.cbor failed --min-witnesses 1
+# A ledger witness and a time-stamp authority on the same checkpoint: counted together.
+run ledger genesis --out ngenesis.cbor > /dev/null
+run witness add-log --dir nw --genesis ngenesis.cbor --ledger-id "$N_ID" --name network > /dev/null
+run checkpoint cosign-request --witness nwit.pub --out nreq.cbor --from 0 > /dev/null
+run witness cosign nreq.cbor --dir nw --key nwit.key --out ncosig.cbor > /dev/null
+run checkpoint add-cosignature ncosig.cbor --witness nwit.pub > /dev/null
+stamp one.cnf sha256
+run export "$N1" --log-key nlog.key --out n-n1-all.cbor > /dev/null
+compare "a ledger witness, two network witnesses, a time-stamp, all trusted, three required" n-n1-all.cbor verified \
+    --witness nwit.pub --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 3 --tsa-root one-root.pem \
+    --min-timestamps 1
+compare "the same, four required" n-n1-all.cbor failed --witness nwit.pub --witness-vkey "$NV_ED" \
+    --witness-vkey "$NV_ML" --min-witnesses 4
+compare "the ledger witness and one network witness trusted" n-n1-all.cbor verified --witness nwit.pub \
+    --witness-vkey "$NV_ML" --min-witnesses 2
+# A later checkpoint: the network's anchor is proven consistent with it; then
+# one witness cosigns that one too (exports carry each witness's latest).
+run record endorse "$N1" --as nroot.key --role surveyor > /dev/null
+run checkpoint create --log-key nlog.key > /dev/null
+run export "$N1" --log-key nlog.key --out n-n1-later.cbor > /dev/null
+compare "a later checkpoint, the network's anchor proven consistent with it" n-n1-later.cbor verified \
+    --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 2
+run checkpoint network-cosign --note-key nnote.key --witness witness.example/ed25519 > /dev/null
+run export "$N1" --log-key nlog.key --out n-n1-two.cbor > /dev/null
+"$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor
+sys.exit(len([a for a in cbor.decode(open('n-n1-two.cbor', 'rb').read())[8] if 4 in a]) != 2)" \
+    || fail "n-n1-two.cbor holds network cosignatures in two anchors"
+compare "network cosignatures of two sizes, in two anchors" n-n1-two.cbor verified \
+    --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 2
+compare "the same, three required" n-n1-two.cbor failed --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 3
+compare "the same, neither trusted" n-n1-two.cbor verified
+# Damaged: a trusted witness's cosignature must verify, an untrusted one's is only counted.
+for i in 0 1; do
+    damage "network cosignature $i damaged, both witnesses trusted" n-n1.cbor failed break-network-cosignature "$i" \
+        -- --witness-vkey "$NV_ED" --witness-vkey "$NV_ML"
+    damage "network cosignature $i damaged, neither trusted" n-n1.cbor verified break-network-cosignature "$i"
+    damage "network cosignature $i damaged, one witness trusted" n-n1.cbor any break-network-cosignature "$i" \
+        -- --witness-vkey "$NV_ML"
+    damage "network cosignature $i with another time, both trusted" n-n1.cbor failed network-time "$i" \
+        -- --witness-vkey "$NV_ED" --witness-vkey "$NV_ML"
+    damage "network cosignature $i with another time, neither trusted" n-n1.cbor verified network-time "$i"
+done
+for i in 0 1; do
+    damage "n-n1-two: network cosignature $i damaged, both trusted" n-n1-two.cbor failed break-network-cosignature \
+        "$i" -- --witness-vkey "$NV_ED" --witness-vkey "$NV_ML"
+done
+damage "network cosignatures left out, one required" n-n1.cbor failed drop-network-cosignatures \
+    -- --witness-vkey "$NV_ED" --min-witnesses 1
+damage "network cosignatures left out, the time-stamp kept" n-n1-all.cbor verified drop-network-cosignatures \
+    -- --tsa-root one-root.pem --min-timestamps 1 --witness nwit.pub --min-witnesses 1
+damage "n-n1-two: anchors left out" n-n1-two.cbor failed drop-anchors -- --witness-vkey "$NV_ED" --min-witnesses 1
+# The command line: a verifier key that is no network witness's is a usage error.
+N_LOG_VKEY="$(run witness network-entry --note-key nnote.key --contact x --json | json 'd["vkey"]')"
+for bad in "$N_LOG_VKEY" "${NV_ED/+/ +}" "${NV_ED^^}" "${NV_ML%=}" "not a key" ""; do
+    pe=0; pyverify n-n1.cbor --witness-vkey "$bad" > /dev/null 2>&1 || pe=$?
+    be=0; run verify n-n1.cbor --witness-vkey "$bad" > /dev/null 2>&1 || be=$?
+    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "--witness-vkey '$bad' is a usage error: python $pe, cexchain verify $be"
+done
+echo "  agree: verifier keys that are no network witness's are usage errors"
+pyverify n-n1-two.cbor --witness-vkey "$NV_ED" | grep -q "witness.example/ed25519 saw size" || fail "the text report"
+
 # --- Proof of presence with a hardware key (SoftHSM) -------------------------
 # SoftHSM leaks what it decodes for EdDSA keys (tests/cli/lsan-softhsm.supp):
 # not ours. Matching it needs full stacks, which slow ASan down, so only
@@ -340,6 +447,12 @@ echo "Bundles packed from testvectors/ (passkeys, hardware keys, rotations, vers
 while read -r file ledger; do
     compare "vectors: $file" "vectors/$file" verified --ledger-id "$ledger"
 done < <(json '"\n".join(x["file"] + " " + x["ledger_id"] for x in d)' < vectors/index.json)
+# With protocol-v0.13.json's anchor: an Ed25519 and an ML-DSA-44 network witness.
+while read -r file ledger ed ml; do
+    compare "vectors: $file, both network witnesses trusted" "vectors/$file" verified --ledger-id "$ledger" \
+        --witness-vkey "$ed" --witness-vkey "$ml" --min-witnesses 2
+    compare "vectors: $file, neither trusted" "vectors/$file" verified --ledger-id "$ledger"
+done < <(json '"\n".join(" ".join([x["file"], x["ledger_id"]] + x["vkeys"]) for x in d)' < vectors/network.json)
 
 # --- Damaged bundles ------------------------------------------------------------
 echo "Damaged bundles"
@@ -397,6 +510,7 @@ ccompare() {
     run contract verify "$file" --json "$@" > bb.json 2> bb.err || be=$?
     local args=(py.json "$pe" bb.json "$be")
     [ "$expect" = any ] || args+=(--expect "$expect")
+    [ -z "${KNOWN:-}" ] || args+=(--known "$KNOWN")
     if ! "$PYTHON" "$VERIFIER/tests/compare_reports.py" "${args[@]}" > cmp.txt; then
         cat cmp.txt py.err bb.err
         fail "$name"
@@ -528,6 +642,51 @@ compare "the tier-3 part's bundle alone, as verify reports it" g-A1-inner.cbor v
     --tsa-root one-root.pem --witness gwit.pub
 mutate g-A1-witnessed.cbor g-consent.cbor consent 0
 compare "a consent's bundle alone" g-consent.cbor verified --witness pwit.pub
+
+echo "Contracts: open-network witnesses on the home and on a party's consent"
+key gnote; key pnote
+start_witness gnw witness.example/home ed25519 "$G" gnote.key
+start_witness pnw witness.example/party ml-dsa-44 "$P" pnote.key
+GV="$(cat gnw/witness.vkey)" PV="$(cat pnw/witness.vkey)"
+# The tier-3 part is the SHA-256 party's again: its consent, cosigned by its network witness.
+consent p "$A1" transfer "h'$Q_ID'" c-net.cbor proot.key plog.key
+p checkpoint network-cosign --note-key pnote.key > /dev/null
+p export "$(subject_of c-net.cbor)" --log-key plog.key --out c-net2.cbor > /dev/null
+g contract call "$A1" transfer --args "h'$Q_ID'" --consent c-net2.cbor --as groot.key > /dev/null
+g checkpoint create --log-key glog.key > /dev/null
+g checkpoint network-cosign --note-key gnote.key > /dev/null
+g contract evidence "$A1" --log-key glog.key --out g-A1-net.cbor > /dev/null
+# Network witnesses are trusted on every ledger: the home's and each party's.
+ccompare "network witnesses of the home and of a party, both trusted, one required" \
+    g-A1-net.cbor verified --ledger-id "$G_ID" --witness-vkey "$GV" --witness-vkey "$PV" --min-witnesses 1
+ccompare "the home's network witness trusted, two required" g-A1-net.cbor failed --witness-vkey "$GV" --min-witnesses 2
+ccompare "the same, neither trusted" g-A1-net.cbor verified
+ccompare "the party's network witness only, one required" g-A1-net.cbor failed \
+    --witness-vkey "$PV" --min-witnesses 1
+ccompare "with the ledger witnesses and the time-stamp authority too" g-A1-net.cbor \
+    verified --witness gwit.pub --witness pwit.pub --witness-vkey "$GV" --witness-vkey "$PV" --tsa-root one-root.pem
+cdamage "the home's network cosignature damaged, trusted" g-A1-net.cbor failed "inner:break-network-cosignature" 0 \
+    -- --witness-vkey "$GV"
+cdamage "the home's network cosignature damaged, not trusted" g-A1-net.cbor verified \
+    "inner:break-network-cosignature" 0
+cdamage "the party's network cosignature damaged: no longer the consent the call pins" g-A1-net.cbor failed \
+    "consents:break-network-cosignature" 0
+mutate g-A1-net.cbor g-net-consent.cbor consent "$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER')
+from cexchain_verify import cbor
+consents = cbor.decode(open('g-A1-net.cbor', 'rb').read())[2]
+print(next(i for i, c in enumerate(consents) if any(4 in a for a in cbor.decode(c).get(8, []))))")"
+compare "the party's consent with its network cosignature, alone" g-net-consent.cbor verified --witness-vkey "$PV" \
+    --min-witnesses 1
+damage "the party's consent alone, its network cosignature damaged, trusted" g-net-consent.cbor failed \
+    break-network-cosignature 0 -- --witness-vkey "$PV"
+damage "the party's consent alone, its network cosignature damaged, not trusted" g-net-consent.cbor verified \
+    break-network-cosignature 0
+for bad in "$N_LOG_VKEY" "not a key"; do
+    pe=0; pyverify contract g-A1-net.cbor --witness-vkey "$bad" > /dev/null 2>&1 || pe=$?
+    be=0; run contract verify g-A1-net.cbor --witness-vkey "$bad" > /dev/null 2>&1 || be=$?
+    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "contract: --witness-vkey '$bad' is a usage error: python $pe, cexchain $be"
+done
+pyverify contract g-A1-net.cbor --witness-vkey "$GV" | grep -q "witness.example/home saw size" || fail "the contract text"
 
 echo "Contracts: requests and answers, by executors, an AI agent, a keeper, and a person; late, expired, overdue"
 GCLERK="$(g actor add --as groot.key --kind person --name "Service Clerk" --key gclerk.pub --json | json 'd["actor"]["id"]')"
@@ -713,6 +872,8 @@ echo "Probes of the contract rules' edges (home and party ledgers forged by the 
 # --- Forged ledgers at the specification's edges -----------------------------------
 echo "Probes of the specification's edges (ledgers forged by the test)"
 "$PYTHON" "$VERIFIER/tests/probes.py" "$CEXCHAIN"
+echo "Probes of open witness networks (anchors forged by the test, verified with the witnesses' verifier keys)"
+"$PYTHON" "$VERIFIER/tests/network_probes.py" "$CEXCHAIN"
 
 # --- The verifier's own tests against testvectors/ ---------------------------------
 echo "Unit tests against testvectors/"

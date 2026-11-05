@@ -7,8 +7,9 @@ It verifies evidence bundles (spec section 11), a record's or an instance's:
 deterministic CBOR, COSE_Sign1, the log and its receipts, checkpoints and the
 log key in effect, a replay of the ledger rules (contracts included: every
 call's contract runs again, section 14), proof of presence, disclosures and
-attachments, state proofs (completeness), witness cosignatures, and RFC 3161
-time-stamp tokens. And it verifies an instance's contract evidence (section
+attachments, state proofs (completeness), witness cosignatures, RFC 3161
+time-stamp tokens, and open witness networks' cosignatures of checkpoint
+notes (section 10.2). And it verifies an instance's contract evidence (section
 15): its bundle, every consent its calls cite, and the requests and answers
 the calls derive.
 

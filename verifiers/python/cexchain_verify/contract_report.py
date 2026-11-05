@@ -126,8 +126,7 @@ class _Json:
                 "presence": presence_words(ledger, registration),
                 "provenance": report.provenance_json(registration.statement.provenance),
                 "given_at": iso_time(registration.registered_at), "until": iso_time(c.terms["until"]),
-                "reference": c.terms.get("reference"),
-                "witnesses": {"trusted": c.report.witnesses_trusted, "untrusted": c.report.witnesses_untrusted}}
+                "reference": c.terms.get("reference"), "witnesses": report.witnesses_json(c.report)}
 
     def call(self, applied: rules.Applied) -> dict:
         f = applied.statement.fields
@@ -216,8 +215,7 @@ def to_text(r: ContractReport) -> str:
     lines.append(f"  State        {diagnostic(i.state)}")
     lines.append(f"  Checkpoint   size {b.checkpoint.tree_size}, signed {human_time(b.checkpoint.timestamp)} "
                  "by the home's log key")
-    lines.append(f"  Witnesses    {b.witnesses_trusted} trusted" +
-                 (f", {b.witnesses_untrusted} not trusted (not counted)" if b.witnesses_untrusted else ""))
+    lines += report.witnesses_text(b)
     if b.tokens:
         lines.append(f"  Time-stamps  {b.trusted_authorities} trusted authorities")
     lines += ["", "  Calls" + (" (its ancestors' first, up to each one that created the next generation)"

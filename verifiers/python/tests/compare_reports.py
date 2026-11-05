@@ -4,10 +4,14 @@
 or `cexchain contract verify --json`.
 
 Usage: python3 compare_reports.py PYTHON_JSON PYTHON_EXIT BLACKBOX_JSON BLACKBOX_EXIT [--expect verified|failed]
+                                  [--known REGEX]
 
 The verdicts (and exit codes) must agree. When both verified, every field
 must agree, except a summary (events[].summary, calls[].summary), a sentence
-for people: a difference there is only reported.
+for people: a difference there is only reported. So is a known difference:
+one at a field whose path (as .calls[6].consents[0].witnesses.trusted)
+matches REGEX, which a test names when the verifiers are known to differ
+there and the difference is reported.
 
 Exit status 0 if they agree, 1 otherwise.
 """
@@ -15,6 +19,7 @@ Exit status 0 if they agree, 1 otherwise.
 from __future__ import annotations
 
 import json
+import re
 import sys
 
 
@@ -49,7 +54,8 @@ def _walk(a, b, path: str, out: list, soft: list):
         out.append(f"{path}: python {json.dumps(a)[:120]} / cexchain {json.dumps(b)[:120]}")
 
 
-def compare(py, py_exit: int, bb, bb_exit: int, expect: str | None = None) -> tuple[list, list]:
+def compare(py, py_exit: int, bb, bb_exit: int, expect: str | None = None,
+            known: str | None = None) -> tuple[list, list]:
     problems, soft = [], []
     if py_exit != bb_exit:
         problems.append(f"exit codes differ: python {py_exit}, cexchain verify {bb_exit}")
@@ -65,19 +71,26 @@ def compare(py, py_exit: int, bb, bb_exit: int, expect: str | None = None) -> tu
     # A full report also comes with a failure the verifier was asked to
     # check beside the bundle (an attachment, too few witnesses).
     if (py_ok and bb_ok) or (py and bb and any(k in py and k in bb for k in ("record", "instance"))):
-        _walk(py, bb, "", problems, soft)
+        fields = []
+        _walk(py, bb, "", fields, soft)
+        for line in fields:
+            path = line.split(":", 1)[0]
+            if known is not None and re.search(known, path):
+                soft.append(f"{line} (a known difference)")
+            else:
+                problems.append(line)
     return problems, soft
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (5, 7):
+    options = dict(zip(argv[5::2], argv[6::2]))
+    if len(argv) < 5 or len(argv) % 2 == 0 or not set(options) <= {"--expect", "--known"}:
         print(__doc__, file=sys.stderr)
         return 2
-    expect = argv[6] if len(argv) == 7 and argv[5] == "--expect" else None
     py, bb = _load(argv[1]), _load(argv[3])
-    problems, soft = compare(py, int(argv[2]), bb, int(argv[4]), expect)
+    problems, soft = compare(py, int(argv[2]), bb, int(argv[4]), options.get("--expect"), options.get("--known"))
     for line in soft:
-        print(f"    note: wording differs at {line}")
+        print(f"    note: {'differs' if line.endswith('(a known difference)') else 'wording differs'} at {line}")
     if problems:
         for line in problems:
             print(f"    DISAGREE: {line}")

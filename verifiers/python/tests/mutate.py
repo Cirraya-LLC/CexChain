@@ -22,6 +22,13 @@ Operations (indices are positions in the bundle's lists, from 0):
   add-cosignatures-of B    add the cosignatures another bundle B carries (of its checkpoint)
   subject HEX              name another record as the bundle's subject
 
+Open-network witnesses' cosignatures in anchors (spec v0.13; N counts them
+across the anchors, in order):
+  break-network-cosignature N  flip the lowest bit of the N-th one's last byte (its signature)
+  network-time N               add a second to the N-th one's time
+                               (both leave a bundle without an N-th one as it is)
+  drop-network-cosignatures    leave them all out (and the anchors left with nothing)
+
 On contract evidence (spec section 15):
   drop-consent N           leave out the N-th consent bundle
   drop-consents            leave out every consent bundle (key 2)
@@ -31,6 +38,7 @@ On contract evidence (spec section 15):
   empty-consents           an empty list of consent bundles
   bundle-of FILE           put another bundle (or the instance bundle of other contract evidence) in its place
   inner:OP [ARGUMENT]      apply a bundle operation above to the instance's bundle
+  consents:OP [ARGUMENT]   apply a bundle operation above to every consent bundle
   unwrap                   write the instance's bundle alone
   consent N                write the N-th consent bundle alone
 
@@ -80,6 +88,8 @@ def mutate_contract(data: bytes, operation: str, argument: str | None) -> bytes:
         return consents[n]
     if operation.startswith("inner:"):
         evidence[1] = mutate(evidence[1], operation[len("inner:"):], argument)
+    elif operation.startswith("consents:"):
+        consents[:] = [mutate(c, operation[len("consents:"):], argument) for c in consents]
     elif operation == "drop-consent":
         del consents[n]
     elif operation == "drop-consents":
@@ -109,7 +119,7 @@ CONTRACT_OPERATIONS = ("unwrap", "consent", "drop-consent", "drop-consents", "du
 
 
 def mutate(data: bytes, operation: str, argument: str | None) -> bytes:
-    if operation in CONTRACT_OPERATIONS or operation.startswith("inner:"):
+    if operation in CONTRACT_OPERATIONS or operation.startswith(("inner:", "consents:")):
         return mutate_contract(data, operation, argument)
     if operation == "flip":
         out = bytearray(data)
@@ -144,6 +154,23 @@ def mutate(data: bytes, operation: str, argument: str | None) -> bytes:
     elif operation == "add-anchor":
         token = pathlib.Path(argument).read_bytes()
         bundle.setdefault(8, []).append({1: bundle[3], 2: [token]})
+    elif operation in ("break-network-cosignature", "network-time"):
+        cosignatures = [c for anchor in bundle.get(8, []) for c in anchor.get(4, [])]
+        if n >= len(cosignatures):
+            return data
+        signature = cosignatures[n][1]
+        if operation == "break-network-cosignature":
+            signature = signature[:-1] + bytes([signature[-1] ^ 0x01])
+        else:
+            later = int.from_bytes(signature[4:12], "big") + 1
+            signature = signature[:4] + later.to_bytes(8, "big") + signature[12:]
+        cosignatures[n][1] = signature
+    elif operation == "drop-network-cosignatures":
+        for anchor in bundle.get(8, []):
+            anchor.pop(4, None)
+        bundle[8] = [anchor for anchor in bundle.get(8, []) if 2 in anchor]
+        if not bundle[8]:
+            del bundle[8]
     elif operation == "add-cosignatures-of":
         other = cbor.decode(pathlib.Path(argument).read_bytes())
         bundle.setdefault(4, []).extend(other.get(4, []))

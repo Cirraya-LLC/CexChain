@@ -15,7 +15,7 @@ import argparse
 import json
 import sys
 
-from . import cbor, contract_report, crypto, report, timestamps
+from . import cbor, contract_report, crypto, network, report, timestamps
 from .contract_evidence import verify_contract_evidence
 from .errors import UsageError, VerifyError
 from .evidence import verify_bundle
@@ -35,6 +35,10 @@ def _common(p: argparse.ArgumentParser, issuer: str):
     p.add_argument("--ledger-id", metavar="HEX", help=f"the {issuer}'s ledger id (64 hex digits), learned out of band")
     p.add_argument("--witness", metavar="PUBKEY_FILE", action="append", default=[],
                    help="trust this witness's public key file (CBOR [alg, key]) [repeatable]")
+    p.add_argument("--witness-vkey", metavar="VKEY", action="append", default=[],
+                   help="trust this open network's witness, by its verifier key, <name>+<key ID>+<key> of "
+                        "signature type 0x04 (Ed25519) or 0x06 (ML-DSA-44) (spec section 10.2); it counts toward "
+                        "--min-witnesses [repeatable]")
     p.add_argument("--min-witnesses", metavar="N", type=int, default=0,
                    help="fail unless at least N trusted witnesses cosigned")
     p.add_argument("--tsa-root", metavar="CERT_FILE", action="append", default=[],
@@ -94,6 +98,18 @@ def _witness_key(path: str) -> crypto.PublicKey:
         raise UsageError(f"{path} is not a public key file: {e}") from e
 
 
+def _witness_vkeys(texts: list[str]) -> list:
+    keys = []
+    for text in texts:
+        try:
+            key = network.parse_witness_key(text)
+        except VerifyError as e:
+            raise UsageError(f"--witness-vkey takes a network witness's verifier key: {e} ({text!r})") from e
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
 def _ledger_id(text: str | None) -> bytes | None:
     if text is None:
         return None
@@ -149,6 +165,7 @@ def _bundle_main(argv: list[str]) -> int:
         contents[name] = path
     try:
         ledger_id = _ledger_id(args.ledger_id)
+        vkeys = _witness_vkeys(args.witness_vkey)
     except UsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return EXIT_USAGE
@@ -162,7 +179,7 @@ def _bundle_main(argv: list[str]) -> int:
         return EXIT_INPUT
     try:
         result = verify_bundle(data, ledger_id=ledger_id, witnesses=witnesses, tsa_roots_pem=roots,
-                               attachments=files)
+                               attachments=files, network_witnesses=vkeys)
     except VerifyError as e:
         return _not_verified(args, e)
     failure = _required(result, args)
@@ -175,6 +192,7 @@ def _contract_main(argv: list[str]) -> int:
     args = _contract_parser().parse_args(argv)
     try:
         ledger_id = _ledger_id(args.ledger_id)
+        vkeys = _witness_vkeys(args.witness_vkey)
     except UsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return EXIT_USAGE
@@ -186,7 +204,8 @@ def _contract_main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_INPUT
     try:
-        result = verify_contract_evidence(data, ledger_id=ledger_id, witnesses=witnesses, tsa_roots_pem=roots)
+        result = verify_contract_evidence(data, ledger_id=ledger_id, witnesses=witnesses, tsa_roots_pem=roots,
+                                          network_witnesses=vkeys)
     except VerifyError as e:
         return _not_verified(args, e)
     if args.deploy_out is not None:

@@ -10,16 +10,17 @@ verify_bundle follows the verifier's steps of section 11 in order:
 3. a replay of the included statements under the ledger rules;
 4. the checkpoint's and the receipts' signatures with the log key in effect;
 5. disclosed fields and attachment contents;
-6. witness cosignatures;
+6. witness cosignatures, counted with the open-network witnesses' of step 8;
 7. completeness against the state commitment the checkpoint ends with;
-8. anchors: time-stamp tokens over checkpoints, and the clock rule.
+8. anchors: time-stamp tokens over checkpoints, and the clock rule; and
+   open-network witnesses' cosignatures of checkpoint notes (section 10.2).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import contracts, cose, crypto, merkle, protocol, rules, statetree, timestamps
+from . import contracts, cose, crypto, merkle, network, protocol, rules, statetree, timestamps
 from .errors import VerifyError
 from .protocol import AGENT
 
@@ -28,6 +29,17 @@ from .protocol import AGENT
 class TokenReport:
     checkpoint_size: int
     info: timestamps.TokenInfo
+
+
+@dataclass
+class NetworkCosignature:
+    """An open-network witness's cosignature of an anchor's checkpoint note
+    (section 10.2): who, the size it cosigned, and its time T, which is
+    reported and relied on for nothing."""
+    witness: str
+    size: int
+    time: int  # POSIX seconds, the witness's own clock
+    trusted: bool
 
 
 @dataclass
@@ -51,6 +63,7 @@ class Report:
     commitment_index: int | None
     entries: int = 0
     notes: list = field(default_factory=list)
+    network: list = field(default_factory=list)  # [NetworkCosignature], in the bundle's order
 
 
 def fail(message: str):
@@ -58,13 +71,16 @@ def fail(message: str):
 
 
 def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: list | None = None,
-                  tsa_roots_pem: bytes = b"", attachments: dict | None = None) -> Report:
+                  tsa_roots_pem: bytes = b"", attachments: dict | None = None,
+                  network_witnesses: list | None = None) -> Report:
     """Verifies an evidence bundle. Raises VerifyError if it does not
     verify; returns the report otherwise.
 
     witnesses: trusted witness public keys (crypto.PublicKey);
     tsa_roots_pem: trusted time-stamp authority roots, PEM;
-    attachments: attachment contents by name.
+    attachments: attachment contents by name;
+    network_witnesses: trusted open-network witnesses' verifier keys
+    (network.VerifierKey).
     """
     bundle = protocol.parse_bundle(data)
     checkpoint = protocol.parse_tree_head(bundle.checkpoint, cose.CHECKPOINT_TYPE, "the checkpoint")
@@ -138,7 +154,8 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
     attachment_report = (_check_attachments(h, record, bundle.openings, attachments or {})
                          if record is not None else [])
 
-    # Step 6: cosignatures, by witnesses it trusts, each witness once.
+    # Step 6: cosignatures, by witnesses it trusts, each witness once (the
+    # open-network witnesses' are counted with them after step 8).
     trusted, untrusted = _count_cosignatures(h, checkpoint, bundle.cosignatures, witnesses or [])
 
     # Step 7: completeness.
@@ -147,17 +164,19 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
     complete, commitment = _check_completeness(ledger, subject, size, included, bundle.proofs)
 
     # Step 8: anchors.
-    tokens, authorities, existed_by = _check_anchors(ledger, checkpoint, included, bundle.anchors,
-                                                     tsa_roots_pem)
+    tokens, authorities, existed_by, cosigned = _check_anchors(ledger, checkpoint, included, bundle.anchors,
+                                                               tsa_roots_pem, network_witnesses or [])
+    trusted |= {("network",) + w for w, n in cosigned if n.trusted}
+    untrusted |= {("network",) + w for w, n in cosigned if not n.trusted}
 
     events = [ledger.applied[i] for i in event_indices(ledger, subject)]
     return Report(
         ledger=ledger, id_checked=ledger_id is not None, checkpoint=checkpoint, log_key=log_key,
         record=record, instance=instance, events=events, disclosed=disclosed, attachments=attachment_report,
-        witnesses_trusted=trusted, witnesses_untrusted=untrusted, tokens=tokens,
+        witnesses_trusted=len(trusted), witnesses_untrusted=len(untrusted), tokens=tokens,
         trusted_authorities=authorities, existed_by=existed_by, complete=complete,
         commitment=commitment, commitment_index=size - 1 if commitment is not None else None,
-        entries=len(entries))
+        entries=len(entries), network=[n for _, n in cosigned])
 
 
 def _check_disclosures(h, record: rules.Record, disclosures: list) -> list:
@@ -206,6 +225,8 @@ def _check_attachments(h, record: rules.Record, openings: list, contents: dict) 
 
 
 def _count_cosignatures(h, checkpoint: protocol.TreeHead, cosignatures: list, witnesses: list):
+    """The witnesses (by kid) whose cosignatures the bundle carries: those
+    it trusts, each of whose cosignatures verifies, and the others."""
     by_kid = {key.kid(h): key for key in witnesses}
     trusted, untrusted = set(), set()
     for encoded in cosignatures:
@@ -219,7 +240,7 @@ def _count_cosignatures(h, checkpoint: protocol.TreeHead, cosignatures: list, wi
         if sign1.alg != key.alg or not crypto.verify_signature(key, sign1.to_be_signed(), sign1.signature):
             fail("a cosignature by a trusted witness does not verify")
         trusted.add(sign1.kid)
-    return len(trusted), len(untrusted)
+    return trusted, untrusted
 
 
 def event_indices(ledger: rules.Ledger, subject) -> list:
@@ -290,10 +311,10 @@ def _check_completeness(ledger: rules.Ledger, subject, size: int, included: dict
 
 
 def _check_anchors(ledger: rules.Ledger, checkpoint: protocol.TreeHead, included: dict, anchors: list,
-                   roots_pem: bytes):
+                   roots_pem: bytes, network_witnesses: list):
     h = ledger.h
     size = checkpoint.tree_size
-    reports, authorities, existed_by = [], set(), {}
+    reports, authorities, existed_by, cosigned = [], set(), {}, []
     for anchor in anchors:
         head = protocol.parse_tree_head(anchor.checkpoint, cose.CHECKPOINT_TYPE, "an anchor's checkpoint")
         if head.ledger_id != ledger.id or head.hash != ledger.hash_alg:
@@ -307,6 +328,7 @@ def _check_anchors(ledger: rules.Ledger, checkpoint: protocol.TreeHead, included
         elif anchor.consistency is None or not merkle.verify_consistency(
                 h, head.tree_size, size, head.root, checkpoint.root, anchor.consistency):
             fail("an anchor's checkpoint is not proven consistent with the bundle's")
+        cosigned += _check_network(ledger, head, anchor.cosignatures, network_witnesses)
         imprint = h(head.sign1.payload)
         for token in anchor.tokens:
             info = timestamps.check_token(token, imprint, ledger.hash_alg, roots_pem)
@@ -325,7 +347,42 @@ def _check_anchors(ledger: rules.Ledger, checkpoint: protocol.TreeHead, included
             for index in included:
                 if index < head.tree_size and (index not in existed_by or seen < existed_by[index]):
                     existed_by[index] = seen
-    return reports, len(authorities), existed_by
+    return reports, len(authorities), existed_by, cosigned
 
 
-__all__ = ["Report", "VerifyError", "event_indices", "involved_objects", "verify_bundle"]
+def _check_network(ledger: rules.Ledger, head: protocol.TreeHead, cosignatures: list, trusted: list) -> list:
+    """Section 11, step 8, for an anchor's open-network cosignatures
+    (section 10.2): none in an SM3 ledger's bundle; one whose name and key ID
+    are a trusted witness's must verify against the note of the anchor's
+    checkpoint, and counts as that witness's; the others are counted, by
+    name and key ID, and relied on for nothing. The time T of each is
+    reported, and not put to the clock rule.
+
+    Returns [(witness identity, NetworkCosignature)], in the anchor's order:
+    a trusted witness is identified by its verifier key, another by its name
+    and key ID."""
+    if cosignatures and ledger.hash_alg != crypto.SHA256:
+        fail("an SM3 ledger's anchor carries network cosignatures: only SHA-256 ledgers are witnessed so "
+             "(section 10.2)")
+    note_origin = network.origin(ledger.id)
+    out = []
+    for name, data in cosignatures:
+        key_id = network.cosignature_key_id(data)
+        keys = [k for k in trusted if k.name == name and k.key_id == key_id]
+        report = NetworkCosignature(witness=name, size=head.tree_size, time=network.cosignature_time(data),
+                                    trusted=bool(keys))
+        if not keys:
+            out.append(((name, key_id), report))
+            continue
+        # Two trusted keys could share a name and a 4-byte key ID: the
+        # cosignature is that of the first one it verifies with.
+        key = next((k for k in keys if network.verify_cosignature(k, note_origin, head.tree_size, head.root, data)),
+                   None)
+        if key is None:
+            fail(f"a trusted network witness's cosignature does not verify against the note of the checkpoint of "
+                 f"size {head.tree_size} ({name})")
+        out.append(((key.name, key.key_id, key.kind, key.public.key), report))
+    return out
+
+
+__all__ = ["NetworkCosignature", "Report", "VerifyError", "event_indices", "involved_objects", "verify_bundle"]

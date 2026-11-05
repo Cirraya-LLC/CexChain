@@ -17,7 +17,10 @@ It verifies an evidence bundle (spec section 11), a record's or an instance's, e
 - disclosed fields and attachments;
 - completeness against the state commitment;
 - witness cosignatures;
-- RFC 3161 time-stamp tokens and the clock rule.
+- RFC 3161 time-stamp tokens and the clock rule;
+- open witness networks (C2SP): their witnesses' cosignatures of a SHA-256 ledger's checkpoint
+  notes, Ed25519 (`cosignature/v1`) and ML-DSA-44 (a `CosignedSubtree`), trusted by their
+  verifier keys and counted with the ledger's own witnesses.
 
 And it verifies an instance's contract evidence (sections 14 and 15):
 
@@ -61,8 +64,8 @@ JSON fields:
 
 | This verifier | Mirrors | Options besides `--json` |
 |---|---|---|
-| `python3 -m cexchain_verify BUNDLE` | `cexchain verify` | `--ledger-id`, `--witness`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--attachment NAME=FILE` |
-| `python3 -m cexchain_verify contract FILE` | `cexchain contract verify` | `--ledger-id`, `--witness`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--require-presence`, `--require-answered`, `--deploy-out FILE` |
+| `python3 -m cexchain_verify BUNDLE` | `cexchain verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--attachment NAME=FILE` |
+| `python3 -m cexchain_verify contract FILE` | `cexchain contract verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--require-presence`, `--require-answered`, `--deploy-out FILE` |
 
 Exit codes: 0 verified, 1 a usage error, 2 an input file that cannot be read (or a
 `--deploy-out` file that cannot be written), 3 not verified.
@@ -78,6 +81,11 @@ Nothing cryptographic is implemented here:
 - SHA-256 and SM3 come from `hashlib`;
 - SM2 and the CMS signatures of time-stamp tokens come from the `openssl` command line.
 
+`--witness-vkey` takes an open network's witness by its verifier key,
+`<name>+<key ID>+<base64(type || key)>` (c2sp.org/signed-note), of signature type 0x04 (Ed25519)
+or 0x06 (ML-DSA-44); any other key is a usage error. The report lists each network cosignature
+with the size it cosigned and the witness's own time, which is relied on for nothing.
+
 ## Tests
 
 [`tests/verifiers/python_verifier.sh`](../../tests/verifiers/python_verifier.sh) is CTest's
@@ -88,7 +96,12 @@ many algorithms and actors:
 - SHA-256 and SM3 ledgers;
 - Ed25519, ESP256, SM2, and ML-DSA keys;
 - an AI agent, delegation chains, and key rotations;
-- witnesses, time-stamp authorities, and hardware keys on SoftHSM.
+- witnesses, time-stamp authorities, and hardware keys on SoftHSM;
+- open witness networks: witnesses written from c2sp.org's texts
+  ([`c2sp_witness.py`](../../tests/verifiers/c2sp_witness.py), with the `openssl` command line)
+  cosign checkpoint notes with Ed25519 and ML-DSA-44, through `checkpoint network-cosign`; their
+  cosignatures trusted or not, at two sizes, beside a ledger witness and a time-stamp, damaged,
+  and on a contract's home and a party's consent.
 
 Contract evidence is compared with `cexchain contract verify --json` the same way, field by
 field:
@@ -115,7 +128,10 @@ It also checks other inputs:
 - bundles packed from the test vectors, which must verify in both;
 - ledgers forged at the specification's edges (`tests/probes.py`, `tests/contract_probes.py`),
   where both must agree when the specification decides the outcome. Where it does not, they are
-  printed but do not fail.
+  printed but do not fail;
+- anchors forged with open-network cosignatures at the edges of sections 10.2 and 11
+  (`tests/network_probes.py`), verified with the witnesses' verifier keys: both kinds, trusted
+  and not, damaged, repeated, of other sizes, roots, origins, and times, and the CDDL's sizes.
 
 [`testvectors/evidence-v1.json`](../../testvectors/evidence-v1.json) is a conformance suite that
 every verifier must pass: evidence bundles and contract evidence forged from the specification by
@@ -125,7 +141,9 @@ failure names the section and step that decide it), and facts its JSON report mu
 `tests/test_conformance.py` runs this verifier's command line on every case.
 
 The verifier's own unit tests run against `testvectors/`: `tests/test_vectors.py` for records,
-and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and
+`tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
+the note key's signed note, verifier keys, every cosignature's verdict and time, the anchor, in
+bundles too, and signed-note's own example), and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and
 answers (`protocol-v0.6.json` to `protocol-v0.8.json`: every statement, every refused one, every
 contract run's input and outcome, the state, and the signed evidence), and Bo's calls
 (`bo-v1.json`: each call's input as the ledger encodes it, and its outcome).

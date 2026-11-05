@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from . import cbor, cose, crypto
+from . import cbor, cose, crypto, network
 from .errors import VerifyError
 
 # Statement types (section 4). 20 is reserved and unknown, like every type
@@ -548,8 +548,9 @@ class StateProof:
 @dataclass
 class Anchor:
     checkpoint: bytes
-    tokens: list
+    tokens: list  # time-stamp tokens over its payload (v0.11)
     consistency: list | None
+    cosignatures: list  # [(name, bytes)]: open-network witnesses' cosignatures of its note (v0.13)
 
 
 @dataclass
@@ -611,20 +612,35 @@ def parse_bundle(data: bytes) -> Bundle:
         _hashes(siblings, "a state proof's siblings")
         _check(len(siblings) <= 256, "a state proof has more than 256 siblings")
         proofs.append(StateProof(kind=leaf[0], id=leaf[1], history=list(leaf[2]), siblings=siblings))
-    anchors = []
-    for a in (_nonempty_list(m[8], "the anchors") if 8 in m else []):
-        am = _map(a, "an anchor", {1, 2}, {3})
-        _check(isinstance(am[1], bytes), "an anchor's checkpoint is not a byte string")
-        tokens = _nonempty_list(am[2], "an anchor's tokens")
-        _check(all(isinstance(t, bytes) for t in tokens), "a time-stamp token is not a byte string")
-        consistency = None
-        if 3 in am:
-            consistency = _hashes(_nonempty_list(am[3], "an anchor's consistency proof"),
-                                  "an anchor's consistency proof")
-        anchors.append(Anchor(checkpoint=am[1], tokens=tokens, consistency=consistency))
+    anchors = [parse_anchor(a) for a in (_nonempty_list(m[8], "the anchors") if 8 in m else [])]
     return Bundle(subject=_id(m[1], "the bundle's subject"), entries=entries,
                   checkpoint=_bstr(m[3], "the checkpoint"), cosignatures=cosignatures,
                   disclosures=disclosures, openings=openings, proofs=proofs, anchors=anchors)
+
+
+def parse_anchor(value) -> Anchor:
+    """An anchor (v0.11): a checkpoint with time-stamp tokens over its
+    payload (key 2), open-network witnesses' cosignatures of its note (key 4,
+    v0.13), or both; and a consistency proof to the bundle's checkpoint
+    unless it is that checkpoint (key 3)."""
+    am = _map(value, "an anchor", {1}, {2, 3, 4})
+    _check(isinstance(am[1], bytes), "an anchor's checkpoint is not a byte string")
+    _check(2 in am or 4 in am, "an anchor holds neither time-stamp tokens nor network cosignatures")
+    tokens = []
+    if 2 in am:
+        tokens = _nonempty_list(am[2], "an anchor's tokens")
+        _check(all(isinstance(t, bytes) for t in tokens), "a time-stamp token is not a byte string")
+    consistency = None
+    if 3 in am:
+        consistency = _hashes(_nonempty_list(am[3], "an anchor's consistency proof"),
+                              "an anchor's consistency proof")
+    cosignatures = []
+    for c in (_nonempty_list(am[4], "an anchor's network cosignatures") if 4 in am else []):
+        _check(isinstance(c, list) and len(c) == 2 and network.valid_name(c[0]) and isinstance(c[1], bytes)
+               and network.PREFIX_SIZE <= len(c[1]) <= 8192,
+               "a network cosignature is not [name, 12 to 8,192 bytes] (section 10.2)")
+        cosignatures.append((c[0], c[1]))
+    return Anchor(checkpoint=am[1], tokens=tokens, consistency=consistency, cosignatures=cosignatures)
 
 
 def parse_field_leaf(leaf: bytes) -> tuple:
