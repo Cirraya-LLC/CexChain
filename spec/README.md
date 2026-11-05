@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.11 (draft). Wire protocol version 1.
+Revision v0.12 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.12.** Clarifications, and no new rule. A second verifier written from this text alone ([`verifiers/python`](../verifiers/python)), and a conformance suite made apart from both verifiers ([`evidence-v1.json`](../testvectors/evidence-v1.json), section 18), found places where the text left an outcome open. v0.12 states what both verifiers do: how nesting and data items are counted (section 2); the signatures' integers, ML-DSA's form, and weak keys (section 3); the exceptions, validity windows, and revoked objects of the ledger rules (section 5); the order of fields and disclosures, and attachment names (section 6); registration times and receipts (section 8); cosignatures (sections 10 and 11) and time-stamp tokens (section 10.1); attachment contents and state proofs in verification (section 11); and sizes and orders in the CDDL. Nothing that verified stops verifying, and nothing that failed verifies; the wire protocol stays version 1.
 
 **Changes in v0.11.** Time-stamp authorities: an RFC 3161 token over a checkpoint's payload bounds, for whoever trusts the authority, when everything the checkpoint covers existed, and a verifier refuses evidence whose ledger dates such an entry later than the authority's time allows (sections 10, 11, 16, and 17). Bundles carry such tokens as anchors (key 8 of `evidence-bundle`); tokens are kept beside checkpoints, like cosignatures, never in the log. Nothing else changes; the wire protocol stays version 1, and a bundle without key 8 verifies as before.
 
@@ -73,7 +75,7 @@ All structures are **deterministic CBOR** (RFC 8949 section 4.2.1), restricted f
 - map keys sorted by the bytewise order of their encodings, with no duplicates;
 - no floating-point numbers, no simple values other than `false`, `true`, and `null`, no bignums (tags 2 and 3);
 - text strings MUST be valid UTF-8;
-- at most 32 levels of nesting, where each array, map, and tag is one level (v0.6). A statement payload and a contract output hold at most 131,072 data items, every key and value counted. Decoders MUST refuse more, so that every implementation accepts exactly the same objects.
+- at most 32 levels of nesting in any object (v0.6): the outermost array, map, or tag is at level 1, and an array, map, or tag inside one is a level deeper. A statement payload and a contract output also hold at most 131,072 data items, each counted once: the outermost item, every array element, map key, and map value, and every tag and the item it wraps (v0.12). Decoders MUST refuse more, so that every implementation accepts exactly the same objects.
 
 A decoder MUST accept exactly the bytes an encoder would produce for the decoded value, so `encode(decode(x)) == x` for every accepted input. Maps with unknown keys MUST be rejected, except where the CDDL allows any key (record metadata).
 
@@ -103,7 +105,9 @@ Content types tell signed objects apart, so a signature on one kind can never be
 | SM2 with SM3 (GB/T 32918, GM/T 0009) | -65537 (private use) | 65 bytes, uncompressed | 64 bytes, r ‖ s |
 | ML-DSA-44 / 65 / 87 (FIPS 204) | -48 / -49 / -50 | FIPS 204 | FIPS 204 |
 
-SM2 signatures use the default distinguishing identifier `1234567812345678`. ESP256 signatures MUST be in low-S form. A public key is encoded as `[alg, key bytes]`.
+SM2 signatures use the default distinguishing identifier `1234567812345678`. ESP256 signatures MUST be in low-S form. In ESP256 and SM2 signatures, r and s are each 32 bytes, big-endian, padded with leading zeros; SM2 has no low-S rule. ML-DSA is the pure form of FIPS 204, with an empty context string. A public key is encoded as `[alg, key bytes]`.
+
+A key is **weak** if it is an Ed25519 key whose encoding is not canonical (its y coordinate is not reduced modulo 2^255 − 19) or whose point has small order. Weak keys are refused wherever a key is registered (section 5), and nothing verifies under one (v0.12).
 
 **Hash algorithms.** Each ledger uses one hash, fixed at genesis: SHA-256 (COSE -16) or SM3 (private use, -65538). Every identifier, Merkle tree, and commitment on that ledger uses it. Below, `HASH` means the ledger's hash.
 
@@ -149,7 +153,7 @@ Statement types:
 | 19 | record-revoke | record, reason |
 | 20 | reserved | asset-action in v0.5 to v0.8; removed in v0.9, never reused |
 | 21 | contract-deploy | code, interface, language, compiler, source, name (v0.6; section 15) |
-| 22 | contract-call | contract or instance, function, arguments, head, consents, reference (v0.6) |
+| 22 | contract-call | contract or instance, function, arguments, head, consents, reference (v0.6); an answer to a request (v0.8) |
 | 23 | contract-retire | contract, reason (v0.6) |
 
 Every other type, 20 included, is unknown: a decoder refuses a statement of an unknown type, and a scope that names one.
@@ -168,16 +172,16 @@ A ledger accepts a statement only if every rule below holds at its registration 
 **Authority**
 
 - The organization acts without a delegation.
-- Any other actor needs a delegation granted to it whose scope covers the statement type, and the record type for record statements. There are two exceptions:
+- Any other actor needs a delegation granted to it whose scope covers the statement type, and the record type for record statements. There are two exceptions, for statements that name no delegation:
   - an actor may rotate its own key, and a person with presence credentials must then prove presence;
   - a person may replace their own presence credentials while proving presence with one already registered.
 
   In both, the proof MUST be user-verified (section 7).
 - A scope never covers genesis or ledger-rotate-log-key.
-- Every delegation in the chain from the organization to the signer MUST be unrevoked and valid at `now` (scope keys 3 and 4). Every grantor in the chain MUST be unrevoked. If any delegation in the chain requires presence (scope key 6), the statement MUST carry valid proof of presence.
+- Every delegation in the chain from the organization to the signer MUST be unrevoked and valid at `now`: from scope key 3 to scope key 4, both included, an absent key leaving that side open. Every grantor in the chain MUST be unrevoked. If any delegation in the chain requires presence (scope key 6), the statement MUST carry valid proof of presence.
 - A delegation may only narrow its grantor's scope:
   - statement types and record types are subsets of the grantor's;
-  - the validity window lies inside the grantor's;
+  - the validity window lies inside the grantor's: each bound the grantor's has, the delegated one has too, and no wider;
   - "may delegate further" (scope key 5) must be set on the grantor's delegation;
   - presence, once required, stays required.
 - Chains have at most 16 delegations.
@@ -187,21 +191,22 @@ A ledger accepts a statement only if every rule below holds at its registration 
 **Bodies**
 
 - **Actors.**
-  - New keys must not be weak, must not belong to another actor, must not be one of the actor's presence keys, and must not be a log key of the ledger, current or past.
-  - An agent names a responsible actor, which must be a person.
+  - New keys must not be weak (section 3), must not be another actor's current key, must not be one of the actor's presence keys, and must not be a log key of the ledger, current or past.
+  - An agent names a responsible actor, which must be a person. A device may name one too.
   - The organization actor cannot be revoked. Only the organization itself rotates its root key (actor-rotate-key on the ledger id).
   - Only people have presence credentials, and only people prove presence. A presence credential's key must not be the person's signing key, any actor's key, or a log key: it is a second key.
 - **The log key.** Only the organization rotates it (ledger-rotate-log-key), without a delegation. The new key must not be weak, must not be an actor's key, and must never have been a log key of this ledger.
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
+- **Revoked objects** (v0.12). A revoked actor or delegation takes no statement about it: revoking it again, rotating a revoked actor's key or setting its presence credentials, granting a delegation to it, and registering an agent with it as the responsible person are refused.
 - **Records.** A registration's type must not begin with `cexchain.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements, except a registration that supersedes it.
 - **Versions** (v0.10). A registration that supersedes a record (section 6) is refused unless that record is a record of this ledger, neither of the two types is a mechanism type, the record was not superseded before, and the signer's scope covers that record's type as well as its own (the organization needs no scope). The record may be revoked.
 - **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it. An answer (v0.8) answers an open request of its instance, at most once.
 
 ## 6. Records and private data
 
-**Field commitments.** A record's fields are `[name, salt, value]` triples with a fresh 16-byte salt each. The leaves are their deterministic-CBOR encodings, sorted by name, one per name. A verifier refuses a bundle that discloses one leaf twice, or discloses leaves whose names do not ascend with their indices. The record commits to the RFC 9162 Merkle root over the leaves, and to their count. To disclose a field, the owner gives the leaf and its inclusion path. Undisclosed fields stay hidden, and their salts stop dictionary attacks on small value spaces. Deleting a field's value and salt makes its commitment meaningless (crypto-shredding).
+**Field commitments.** A record's fields are `[name, salt, value]` triples with a fresh 16-byte salt each. The leaves are their deterministic-CBOR encodings, sorted by the bytewise order of the names' UTF-8 encodings, one per name. A verifier refuses a bundle that discloses one leaf twice, or discloses leaves whose names do not ascend with their indices; the disclosures themselves may be listed in any order. The record commits to the RFC 9162 Merkle root over the leaves, and to their count. To disclose a field, the owner gives the leaf and its inclusion path. Undisclosed fields stay hidden, and their salts stop dictionary attacks on small value spaces. Deleting a field's value and salt makes its commitment meaningless (crypto-shredding).
 
-**Attachments.** The record carries each attachment's name, media type, size, and commitment `HASH(salt || content)`, never the content.
+**Attachments.** The record carries each attachment's name, media type, size, and commitment `HASH(salt || content)`, never the content. Attachment names are unique within a record. A bundle opens an attachment by giving its salt (section 11).
 
 **Public metadata.** A record may carry a map with text keys, which is disclosed in the clear (key 5 of `record-register-body`).
 
@@ -259,7 +264,7 @@ Verifiers report how presence was proven. A statement without proof of presence 
 
 ## 8. The log
 
-Each accepted statement becomes a **log entry**: `{1: id, 2: registered at, 3: the signed statement}`. Alternatively, key 4 replaces key 3 and holds a state commitment (section 9). The tree commits to the encoded log entries, in order, under the ledger's hash.
+Each accepted statement becomes a **log entry**: `{1: id, 2: registered at, 3: the signed statement}`. Alternatively, key 4 replaces key 3 and holds a state commitment (section 9). The tree commits to the encoded log entries, in order, under the ledger's hash. Registration times never go back: each entry's is no earlier than the one before it, and a verifier refuses entries whose times do (v0.12).
 
 A **checkpoint** is signed by the log key over `{1: ledger id, 2: hash, 3: tree size, 4: root, 5: timestamp}`. The tree size is at least 1, since genesis is always in the log.
 
@@ -269,6 +274,8 @@ A **receipt** is an RFC 9942 COSE inclusion receipt for an encoded log entry:
 - protected header `{1: alg, 4: kid, 395: vds}`;
 - unprotected header `{396: {-1: [inclusion proof]}}`;
 - detached payload, which is the Merkle root at the proof's tree size.
+
+A receipt is tagged (tag 18), and key -1 holds exactly one inclusion proof, `[tree size, leaf index, path]`, whose path has at most 64 hashes (v0.12).
 
 `vds` is 1 (RFC9162_SHA256) for SHA-256 ledgers. For SM3 ledgers it is -65537 (private use: the RFC 9162 tree with SM3).
 
@@ -310,9 +317,9 @@ A **cosign request** is `{1: signed checkpoint, 2: old size, 3: consistency proo
 2. the tree hash is the ledger's;
 3. the old size equals the size it last cosigned (otherwise it refuses, and the operator asks again from that size);
 4. the new size is not smaller;
-5. the RFC 9162 consistency proof shows the new tree extends the old one.
+5. the RFC 9162 consistency proof (at most 65 hashes) shows the new tree extends the old one.
 
-A **cosignature** is a COSE_Sign1 by the witness key over the same checkpoint payload bytes, with the cosignature content type. Asking again for the checkpoint cosigned last MAY be answered with a fresh cosignature of it, so a lost answer can be retried.
+A **cosignature** is a COSE_Sign1 by the witness key over the same checkpoint payload bytes, with the cosignature content type. Its kid is the witness key's, under the hash of the ledger it cosigns. Asking again for the checkpoint cosigned last MAY be answered with a fresh cosignature of it, so a lost answer can be retried.
 
 Two organizations can witness each other's ledgers. Neither can then rewrite or fork its history without the other seeing it.
 
@@ -326,7 +333,7 @@ A checkpoint's timestamp is the ledger's own word, and a witness proves only tha
 
 A ledger SHOULD keep a token only if it verifies with its signing certificate, stamps one of its checkpoints, and agrees with the ledger's clock (below): a token that does not could only make the ledger's evidence fail.
 
-Which authorities to trust is each verifier's choice: it trusts the tokens whose signing certificate chains to one of the root certificates it holds, valid at the token's time and for time stamping (the critical `id-kp-timeStamping` usage, RFC 3161 section 2.3), with a signing-certificate attribute (RFC 5816) that names that certificate. Tokens of other authorities are counted, and relied on for nothing.
+Which authorities to trust is each verifier's choice: it trusts the tokens whose signing certificate chains to one of the root certificates it holds, valid at the token's time and for time stamping (the critical `id-kp-timeStamping` usage, RFC 3161 section 2.3), with a signing-certificate attribute (RFC 5816) that names that certificate. Tokens of other authorities are counted, and relied on for nothing. A token without its signing certificate fails the evidence whoever its authority is, since nothing about it can be checked (v0.12). An authority is identified by the SHA-256 of its signing certificate's SubjectPublicKeyInfo, and counted once however many tokens it gave. An absent accuracy counts as zero, and accuracy in microseconds rounds up to the next millisecond.
 
 **The clock rule.** A verifier that trusts a token over a checkpoint of size N, with time T and accuracy A, MUST refuse the evidence if the checkpoint, or an included entry with an index below N, is dated later than T + A + 60 seconds: the ledger dated what the authority had already seen. (The 60 seconds allow for two honest clocks that disagree.)
 
@@ -347,14 +354,14 @@ A verifier MUST:
 2. Check every receipt's inclusion proof against the checkpoint (same size and root), with indices strictly ascending from 0.
 3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations. A registration that supersedes a record the bundle does not hold (v0.10) is checked under every rule except those about that record: that record's own bundle shows the link.
 4. Verify the checkpoint and every receipt's signature with the log key in effect at the checkpoint's size, and each state commitment with the one in effect at its index. A bundle that leaves out a log key rotation fails here, since keys never repeat.
-5. Check disclosed fields against the record's field root and count, and any attachment contents provided against their commitments.
-6. Count cosignatures only by witnesses it trusts, each witness once.
+5. Check disclosed fields against the record's field root and count, and the contents provided for opened attachments against their sizes and commitments: a content that does not match fails the evidence. A content given for an attachment the bundle does not open is reported as not provided (v0.12).
+6. Count cosignatures only by witnesses it trusts, each witness once. A cosignature over another checkpoint, and one by a trusted witness that does not verify, fail the evidence; one by a witness it does not trust is counted and relied on for nothing (v0.12).
 7. If the last entry the checkpoint covers is a state commitment (included with its receipt):
    - check it as replay would;
    - verify every state proof against its root;
    - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract. For an instance created by a call, its ancestors' included calls count as events too, and the ancestors themselves need no proof (section 15).
 
-   Only then is the report **complete**: nothing, such as a later revocation, was left out.
+   A missing or differing proof fails the evidence, and so do state proofs in a bundle that does not include that commitment (v0.12). Only then is the report **complete**: nothing, such as a later revocation, was left out.
 8. For each anchor (v0.11):
    - check that its checkpoint is of the ledger, no larger than the bundle's checkpoint, and signed by the log key in effect at its size; that it equals the bundle's checkpoint's size and root (with no proof) or its consistency proof leads from it to the bundle's checkpoint;
    - check each token: it verifies with its signing certificate, and its imprint is the ledger's hash of the anchor's checkpoint's payload, under the ledger's hash algorithm;
@@ -559,7 +566,7 @@ A call may also create instances of its contract, called **children**, such as t
 | Type | Name | Body |
 |---|---|---|
 | 21 | contract-deploy | code, interface, language, compiler; optionally the source and a name |
-| 22 | contract-call | the contract (to create an instance) or the instance and its head; the function, the arguments, consents, a reference |
+| 22 | contract-call | the contract (to create an instance) or the instance and its head; the function, the arguments, consents, a reference; an answer to a request (v0.8) |
 | 23 | contract-retire | contract, reason |
 
 **Deploy.** A contract is identified by its deploy statement's id, and its code never changes: a new version is a new deploy.

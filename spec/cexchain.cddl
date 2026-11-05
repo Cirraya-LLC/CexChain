@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.9 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.12 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -48,6 +48,12 @@
 ;         "cexchain." record type prefix is reserved for the four mechanism
 ;         types. Logs and evidence that hold removed objects are not valid
 ;         v0.9: nothing was released before it, so the wire version stays 1.
+;   v0.10 versions: record-register key 6 supersedes a record. Earlier
+;         objects remain valid.
+;   v0.11 time-stamp tokens over checkpoints, carried as anchors (evidence
+;         bundle key 8). Earlier objects remain valid.
+;   v0.12 clarifications, no new rule: sizes, non-empty values, orders, and
+;         flags written down as both verifiers check them.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -188,13 +194,14 @@ delegation-grant-body = {
 ; A delegation may only narrow the grantor's own scope. A chain from the
 ; organization to an actor has at most 16 delegations.
 scope = {
-  1 => [+ statement-type],     ; statement types the grantee may submit; never
-                               ; genesis or ledger-rotate-log-key
-  ? 2 => [+ tstr],             ; record types; absent means any
+  1 => [+ statement-type],     ; statement types the grantee may submit, strictly
+                               ; ascending; never genesis or ledger-rotate-log-key
+  ? 2 => [+ tstr],             ; record types, non-empty, strictly ascending in
+                               ; the bytewise order of their UTF-8; absent: any
   ? 3 => timestamp,            ; not before
   ? 4 => timestamp,            ; not after
-  ? 5 => bool,                 ; may delegate further; encoded only when true
-  ? 6 => bool,                 ; statements under it must carry proof of
+  ? 5 => true,                 ; may delegate further; encoded only when true
+  ? 6 => true,                 ; statements under it must carry proof of
                                ; presence; encoded only when true. A
                                ; delegation granted under one that requires
                                ; presence must require it too.
@@ -294,8 +301,8 @@ delegation-revoke-body = {
 ; mechanism types have lifecycles of their own and take no endorsements.
 record-register-body = {
   1 => tstr,                   ; record type, e.g. "example.org.inspection/1"
-  2 => bstr,                   ; field commitment root (see record-field)
-  3 => uint,                   ; number of fields
+  2 => bstr .size 32,          ; field commitment root (see record-field)
+  3 => uint .ge 1,             ; number of fields
   ? 4 => [+ attachment],
   ? 5 => { + tstr => any },    ; public metadata, disclosed in the clear
   ? 6 => id,                   ; the record this one supersedes (v0.10)
@@ -312,12 +319,12 @@ attachment = [
   name: tstr,
   media-type: tstr,
   size: uint,
-  commitment: bstr,            ; HASH(salt || content), salt 16 bytes
-]
+  commitment: bstr .size 32,   ; HASH(salt || content), salt 16 bytes
+]                              ; names are unique within a record
 
 record-endorse-body = {
   1 => id,                     ; record (statement_id of its registration)
-  2 => tstr,                   ; role, e.g. "reviewer", "witness"
+  2 => tstr,                   ; role, non-empty, e.g. "reviewer", "witness"
 }
 
 ; Only the mechanism types have transitions: an access request may become
@@ -403,7 +410,7 @@ bo-vocab-pack = { + tstr => any }
 contract-call-body = {
   ? 1 => id,                   ; contract: exactly for a creation
   ? 2 => id,                   ; instance: exactly otherwise
-  3 => tstr,                   ; function, in the contract's interface
+  3 => function-name,          ; function, in the contract's interface
   4 => any,                    ; arguments, at most 65,536 bytes encoded
   ? 5 => uint,                 ; head: the log index of the instance's
                                ; latest call; exactly with an instance
@@ -545,7 +552,8 @@ key-rotation-proof = [
 inclusion-proof = [
   tree-size: uint,
   leaf-index: uint,
-  inclusion-path: [* bstr],    ; RFC 9942 says [+ bstr]; empty for a one-entry tree
+  inclusion-path: [* bstr .size 32], ; at most 64; RFC 9942 says [+ bstr];
+                               ; empty for a one-entry tree
 ]
 
 ; ---------------------------------------------------------------------------
@@ -581,7 +589,7 @@ inclusion-proof = [
 ;      a later revocation).
 
 ; The state commitment: a compact sparse Merkle tree over every actor,
-; delegation, and record, keyed by object id (its 256 bits, most significant
+; delegation, record, contract, and instance, keyed by object id (its 256 bits, most significant
 ; first), with HASH the ledger hash:
 ;   empty subtree           HASH("")
 ;   subtree of one object   HASH(0x00 || state-leaf)
