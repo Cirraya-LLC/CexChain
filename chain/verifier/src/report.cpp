@@ -206,6 +206,36 @@ bool has_attachment_mismatch(const protocol::EvidenceReport& report) {
 namespace {
 
 /// The bundle's time-stamp tokens (v0.11), and when its subject existed by.
+/// The witnesses: counts, and each open-network witness's cosignature
+/// (v0.13) with the size it saw and its time.
+Json witnesses_json(const protocol::EvidenceReport& r) {
+    Json network = Json::array();
+    for (const protocol::NetworkCosignatureCheck& n : r.network_cosignatures) {
+        network.push_back({{"witness", n.witness},
+                           {"size", n.size},
+                           {"time", iso_time(static_cast<protocol::Timestamp>(n.time) * 1000)},
+                           {"trusted", n.trusted}});
+    }
+    return {{"trusted", r.trusted_cosignatures},
+            {"untrusted", r.untrusted_cosignatures},
+            {"network", std::move(network)}};
+}
+
+std::string witnesses_text(const protocol::EvidenceReport& r) {
+    std::string out =
+        std::format("  Witnesses    {} trusted{}\n", r.trusted_cosignatures,
+                    r.untrusted_cosignatures == 0
+                        ? std::string()
+                        : std::format(" ({} more from witnesses you do not trust, not checked)",
+                                      r.untrusted_cosignatures));
+    for (const protocol::NetworkCosignatureCheck& n : r.network_cosignatures) {
+        out += std::format("               {} saw size {} at {} ({}network witness)\n", n.witness,
+                           n.size, format_time(static_cast<protocol::Timestamp>(n.time) * 1000),
+                           n.trusted ? "a trusted " : "an untrusted ");
+    }
+    return out;
+}
+
 Json timestamps_json(const protocol::EvidenceReport& r) {
     Json tokens = Json::array();
     for (const protocol::TimestampCheck& t : r.timestamps) {
@@ -306,8 +336,7 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
            {{"algorithm", crypto::name(r.log_key.algorithm)}, {"key", to_hex(r.log_key.bytes)}}},
           {"log_key_rotations", r.log_key_rotations},
           {"root_key_rotations", r.root_key_rotations}}},
-        {"witnesses",
-         {{"trusted", r.trusted_cosignatures}, {"untrusted", r.untrusted_cosignatures}}},
+        {"witnesses", witnesses_json(r)},
         {"timestamps", timestamps_json(r)},
         {"record",
          {{"id", hex_id(r.record)},
@@ -350,11 +379,7 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
                          "rotation checked",
                          r.log_key_rotations, r.root_key_rotations));
     }
-    line(std::format("  Witnesses    {} trusted{}", r.trusted_cosignatures,
-                     r.untrusted_cosignatures == 0
-                         ? std::string()
-                         : std::format(" ({} more from witnesses you do not trust, not checked)",
-                                       r.untrusted_cosignatures)));
+    out += witnesses_text(r);
     out += timestamps_text(r);
     line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
     line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
@@ -688,9 +713,7 @@ Json consent_json(const protocol::ContractConsentCheck& c) {
             {"given_at", given != nullptr ? Json(iso_time(given->registered_at)) : Json(nullptr)},
             {"until", iso_time(c.consent.until)},
             {"reference", optional_text(c.consent.reference)},
-            {"witnesses",
-             {{"trusted", c.report.trusted_cosignatures},
-              {"untrusted", c.report.untrusted_cosignatures}}}};
+            {"witnesses", witnesses_json(c.report)}};
 }
 
 } // namespace
@@ -768,8 +791,7 @@ Json contract_report_json(const protocol::ContractReport& r, bool ledger_checked
                {"hash", crypto::name(e.hash)},
                {"id_checked", ledger_checked}}},
              {"checkpoint", checkpoint_json(e.checkpoint)},
-             {"witnesses",
-              {{"trusted", e.trusted_cosignatures}, {"untrusted", e.untrusted_cosignatures}}},
+             {"witnesses", witnesses_json(e)},
              {"timestamps", timestamps_json(e)},
              {"calls", std::move(calls)},
              {"complete", e.complete},
@@ -843,11 +865,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
     line("  State        " + shortened(cbor::diagnostic(i.state)));
     line(std::format("  Checkpoint   size {}, signed {} by the home's log key",
                      e.checkpoint.tree_size, format_time(e.checkpoint.timestamp)));
-    line(std::format("  Witnesses    {} trusted{}", e.trusted_cosignatures,
-                     e.untrusted_cosignatures == 0
-                         ? std::string()
-                         : std::format(" ({} more from witnesses you do not trust, not checked)",
-                                       e.untrusted_cosignatures)));
+    out += witnesses_text(e);
     out += timestamps_text(e);
     auto call_lines = [&](const protocol::ContractStep& step) {
         const protocol::RecordEvent& event = e.events[step.event];

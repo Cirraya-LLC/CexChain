@@ -1089,6 +1089,7 @@ int cmd_contract_verify(const Args& args) {
         options.trusted_witnesses.push_back(load_public_key(path));
     }
     options.trusted_timestamp_roots = client::load_certificates(args.all("tsa-root"));
+    options.trusted_network_witnesses = client::network_witness_keys(args.all("witness-vkey"));
     const auto report = ledger::verify_contract_evidence(
         provider, read_file(args.positional().front()), options, on_all_cores());
     if (!report) {

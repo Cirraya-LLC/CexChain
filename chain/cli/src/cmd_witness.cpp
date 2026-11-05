@@ -17,6 +17,7 @@
 #include <format>
 #include <print>
 
+#include <cexchain/client/network_witnesses.hpp>
 #include <cexchain/client/peers.hpp>
 #include <cexchain/client/public_witnesses.hpp>
 #include <cexchain/client/relay_client.hpp>
@@ -317,11 +318,46 @@ Json used_witness_json(const ledger::Ledger& ledger, const client::UsedWitness& 
     if (const auto cosigned = ledger.last_cosigned(w.key); cosigned && *cosigned) {
         last = {{"tree_size", (*cosigned)->tree_size}, {"timestamp", (*cosigned)->timestamp}};
     }
-    return {{"name", w.name},
-            {"url", w.url},
-            {"key", client::witness_key_hex(w.key)},
-            {"added", w.added},
-            {"last_cosigned", last}};
+    return {{"name", w.name},     {"url", w.url},
+            {"kind", "cexchain"}, {"key", client::witness_key_hex(w.key)},
+            {"added", w.added},   {"last_cosigned", last}};
+}
+
+} // namespace
+
+namespace {
+
+/// An open network's witness (--vkey): nothing to send, it is listed in
+/// network-witnesses.json for serve and checkpoint network-cosign to ask.
+int register_network_witness(Session& session, const Args& args, const std::string& url) {
+    if (args.has("witness-key") || args.has("name")) {
+        throw UsageError{"--vkey names a network witness by its verifier key: no --witness-key "
+                         "or --name"};
+    }
+    if (session.ledger().hash() != crypto::HashAlg::sha256) {
+        throw CommandError{"only SHA-256 ledgers can be witnessed by open networks"};
+    }
+    auto key = protocol::network::parse_verifier_key(session.provider(), args.need("vkey"));
+    if (!key || (key->type != protocol::network::cosigner_ed25519 &&
+                 key->type != protocol::network::cosigner_ml_dsa_44)) {
+        throw UsageError{"--vkey takes a witness's verifier key, <name>+<key ID>+<key> of type "
+                         "0x04 (Ed25519) or 0x06 (ML-DSA-44)"};
+    }
+    auto witnesses = client::load_network_witnesses(session.directory(), session.provider());
+    std::erase_if(witnesses, [&](const client::UsedNetworkWitness& w) {
+        return w.witness.key.name == key->name;
+    });
+    witnesses.push_back({{url, *key}, ledger::SystemClock{}.now()});
+    client::save_network_witnesses(session.directory(), witnesses);
+    if (args.json()) {
+        print_json({{"registered", true}, {"name", key->name}, {"url", url}, {"kind", "network"}});
+    } else {
+        std::println("listed {} ({}): serve --note-key and checkpoint network-cosign ask it to "
+                     "cosign; it cosigns once its network's maintainers list this ledger "
+                     "(witness network-entry)",
+                     key->name, url);
+    }
+    return exit_ok;
 }
 
 } // namespace
@@ -330,6 +366,9 @@ int cmd_witness_register(const Args& args) {
     Session session(args);
     session.require_primary();
     const std::string url = args.positional().front();
+    if (args.has("vkey")) {
+        return register_network_witness(session, args, url);
+    }
     const crypto::PublicKey key = witness_key_argument(args.need("witness-key"));
     client::Registered registered;
     try {
@@ -358,12 +397,54 @@ int cmd_witness_register(const Args& args) {
     return exit_ok;
 }
 
+namespace {
+
+/// A network witness as `witness registered` shows it.
+Json network_witness_json(const ledger::Ledger& ledger, const client::UsedNetworkWitness& w) {
+    std::optional<std::uint64_t> last;
+    for (const ledger::StoredNetworkCosignature& n :
+         unwrap(ledger.network_cosignatures(), "reading network cosignatures")) {
+        if (n.witness == w.witness.key) {
+            last = std::max(last.value_or(0), n.checkpoint.checkpoint.tree_size);
+        }
+    }
+    return {{"name", w.witness.key.name},
+            {"url", w.witness.url},
+            {"kind", "network"},
+            {"vkey", protocol::network::verifier_key_text(w.witness.key)},
+            {"added", w.added},
+            {"last_cosigned", last ? Json{{"tree_size", *last}} : Json(nullptr)}};
+}
+
+} // namespace
+
 int cmd_witness_registered(const Args& args) {
     Session session(args);
     const auto witnesses = client::load_used_witnesses(session.directory());
+    const auto network = client::load_network_witnesses(session.directory(), session.provider());
     if (!args.positional().empty()) {
         const std::string& name = args.positional().front();
         const auto it = std::ranges::find(witnesses, name, &client::UsedWitness::name);
+        const auto in_network =
+            std::ranges::find_if(network, [&](const client::UsedNetworkWitness& w) {
+                return w.witness.key.name == name;
+            });
+        if (it == witnesses.end() && in_network != network.end()) {
+            const Json j = network_witness_json(session.ledger(), *in_network);
+            if (args.json()) {
+                print_json(j);
+                return exit_ok;
+            }
+            std::println("{}\n  url: {}\n  network witness, verifier key: {}\n  listed: {}", name,
+                         in_network->witness.url, j["vkey"].get<std::string>(),
+                         format_time(in_network->added));
+            std::println(
+                "  last cosigned: {}",
+                j["last_cosigned"].is_null()
+                    ? std::string("never")
+                    : std::format("size {}", j["last_cosigned"]["tree_size"].get<std::uint64_t>()));
+            return exit_ok;
+        }
         if (it == witnesses.end()) {
             throw CommandError{"no registered witness named " + name + " (witness registered)"};
         }
@@ -387,12 +468,16 @@ int cmd_witness_registered(const Args& args) {
     for (const client::UsedWitness& w : witnesses) {
         list.push_back(used_witness_json(session.ledger(), w));
     }
+    for (const client::UsedNetworkWitness& w : network) {
+        list.push_back(network_witness_json(session.ledger(), w));
+    }
     if (args.json()) {
         print_json({{"witnesses", list}});
         return exit_ok;
     }
-    if (witnesses.empty()) {
-        std::println("no public witness: cexchain witness register URL --witness-key KEY");
+    if (list.empty()) {
+        std::println("no public witness: cexchain witness register URL --witness-key KEY (or "
+                     "--vkey VKEY, an open network's witness)");
         return exit_ok;
     }
     for (const Json& w : list) {
@@ -410,11 +495,20 @@ int cmd_witness_unregister(const Args& args) {
     const std::filesystem::path& dir = session.directory();
     const std::string& name = args.positional().front();
     auto witnesses = client::load_used_witnesses(dir);
-    if (std::erase_if(witnesses, [&](const client::UsedWitness& w) { return w.name == name; }) ==
-        0) {
+    auto network = client::load_network_witnesses(dir, session.provider());
+    const auto removed =
+        std::erase_if(witnesses, [&](const client::UsedWitness& w) { return w.name == name; });
+    const auto removed_network = std::erase_if(
+        network, [&](const client::UsedNetworkWitness& w) { return w.witness.key.name == name; });
+    if (removed + removed_network == 0) {
         throw CommandError{"no registered witness named " + name + " (witness registered)"};
     }
-    client::save_used_witnesses(dir, witnesses);
+    if (removed > 0) {
+        client::save_used_witnesses(dir, witnesses);
+    }
+    if (removed_network > 0) {
+        client::save_network_witnesses(dir, network);
+    }
     if (args.json()) {
         print_json({{"unregistered", name}});
     } else {

@@ -104,6 +104,18 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_witness(const std::uint8_t* data, std::siz
     return 0;
 }
 
+/// Trusts an open network's witness, given its verifier key (spec v0.13):
+/// a cosigner's, type 0x04 or 0x06. Returns 0, or -1 if it is not one.
+EMSCRIPTEN_KEEPALIVE int cexchain_add_network_witness(const char* vkey) {
+    auto key = protocol::network::parse_verifier_key(provider(), vkey);
+    if (!key || (key->type != protocol::network::cosigner_ed25519 &&
+                 key->type != protocol::network::cosigner_ml_dsa_44)) {
+        return -1;
+    }
+    options.trusted_network_witnesses.push_back(std::move(*key));
+    return 0;
+}
+
 /// Trusts the time-stamp authorities under these root certificates (a PEM
 /// file of one or more, or one DER certificate; spec v0.11). Returns 0, or -1
 /// if there is none or one does not parse.

@@ -73,6 +73,7 @@ constexpr std::uint64_t max_page = 1000;
 constexpr std::string_view checkpoints_file = "checkpoints";
 constexpr std::string_view cosignatures_file = "cosignatures";
 constexpr std::string_view timestamps_file = "timestamps";
+constexpr std::string_view network_cosignatures_file = "network-cosignatures";
 /// Two files a snapshot of the state alternates between: the older one is
 /// rewritten, so the newer one stays whole meanwhile.
 constexpr std::array<std::string_view, 2> snapshot_files{"snapshot-a", "snapshot-b"};
@@ -256,16 +257,54 @@ Result<StoredTimestamp> decode_stored_timestamp(ByteView bytes) {
     return StoredTimestamp{*(*parts)[1].as_bytes(), std::move(*checkpoint)};
 }
 
+// A stored open-network cosignature (v0.13): [the checkpoint whose note it
+// cosigns, the witness's verifier key, the signature's bytes].
+Result<Bytes> encode_stored_network_cosignature(ByteView checkpoint,
+                                                const protocol::network::VerifierKey& witness,
+                                                ByteView bytes) {
+    return cbor::encode(
+        cbor::Value::array({cbor::Value::bytes(checkpoint),
+                            cbor::Value::text(protocol::network::verifier_key_text(witness)),
+                            cbor::Value::bytes(bytes)}));
+}
+
+Result<StoredNetworkCosignature> decode_stored_network_cosignature(const crypto::Provider& provider,
+                                                                   ByteView encoded) {
+    auto value = cbor::decode(encoded);
+    const cbor::Array* parts = value ? value->as_array() : nullptr;
+    if (parts == nullptr || parts->size() != 3 || (*parts)[0].as_bytes() == nullptr ||
+        (*parts)[1].as_text() == nullptr || (*parts)[2].as_bytes() == nullptr) {
+        return fail(Errc::malformed, "a stored network cosignature is malformed");
+    }
+    auto checkpoint = protocol::parse_checkpoint(*(*parts)[0].as_bytes());
+    if (!checkpoint) {
+        return std::unexpected(checkpoint.error());
+    }
+    auto witness = protocol::network::parse_verifier_key(provider, *(*parts)[1].as_text());
+    if (!witness) {
+        return std::unexpected(witness.error());
+    }
+    const Bytes& bytes = *(*parts)[2].as_bytes();
+    auto time = protocol::network::cosignature_time(bytes);
+    if (!time) {
+        return std::unexpected(time.error());
+    }
+    protocol::network::NoteSignature cosignature{witness->name, bytes};
+    return StoredNetworkCosignature{std::move(*witness), std::move(cosignature),
+                                    std::move(*checkpoint), *time};
+}
+
 } // namespace
 
 struct Ledger::Impl {
     Impl(Clock& clock_, const crypto::Provider& provider_, RecordLog log_, RecordLog checkpoints_,
-         RecordLog cosignatures_, RecordLog timestamps_, protocol::LedgerState state_,
-         merkle::Tree tree_, protocol::StateTree state_tree_)
+         RecordLog cosignatures_, RecordLog timestamps_, RecordLog network_cosignatures_,
+         protocol::LedgerState state_, merkle::Tree tree_, protocol::StateTree state_tree_)
         : clock(&clock_), provider(&provider_), log(std::move(log_)),
           checkpoints(std::move(checkpoints_)), cosignatures(std::move(cosignatures_)),
-          timestamps(std::move(timestamps_)), state(std::move(state_)), tree(std::move(tree_)),
-          state_tree(std::move(state_tree_)) {}
+          timestamps(std::move(timestamps_)),
+          network_cosignatures(std::move(network_cosignatures_)), state(std::move(state_)),
+          tree(std::move(tree_)), state_tree(std::move(state_tree_)) {}
 
     Clock* clock;
     const crypto::Provider* provider;
@@ -282,6 +321,7 @@ struct Ledger::Impl {
     RecordLog checkpoints;
     RecordLog cosignatures;
     RecordLog timestamps;
+    RecordLog network_cosignatures;
     protocol::LedgerState state;
     merkle::Tree tree;
     /// The state tree as of the latest state commitment in the log: what
@@ -967,13 +1007,18 @@ struct Ledger::Impl {
         if (!timestamps) {
             return std::unexpected(timestamps.error());
         }
+        auto network_cosignatures = open_log(network_cosignatures_file);
+        if (!network_cosignatures) {
+            return std::unexpected(network_cosignatures.error());
+        }
         auto state_tree = protocol::StateTree::create(provider, state->hash());
         if (!state_tree) {
             return std::unexpected(state_tree.error());
         }
         auto impl = std::make_unique<Impl>(
             clock, provider, std::move(*log), std::move(*checkpoints), std::move(*cosignatures),
-            std::move(*timestamps), std::move(*state), std::move(tree), std::move(*state_tree));
+            std::move(*timestamps), std::move(*network_cosignatures), std::move(*state),
+            std::move(tree), std::move(*state_tree));
         impl->last_registered_at = first->registered_at;
         return impl;
     }
@@ -1829,6 +1874,12 @@ Result<RefreshReport> Ledger::refresh(FileSystem& fs, bool recover) {
         return std::unexpected(timestamps.error());
     }
     report.timestamps = *timestamps;
+    auto network_cosignatures =
+        impl_->network_cosignatures.refresh(fs, network_cosignatures_file, recover);
+    if (!network_cosignatures) {
+        return std::unexpected(network_cosignatures.error());
+    }
+    report.network_cosignatures = *network_cosignatures;
     const std::uint64_t old_size = impl_->log.count();
     auto added = impl_->log.refresh(fs, statements_file, recover);
     if (!added) {
@@ -1878,7 +1929,8 @@ bool Ledger::outdated() const {
     // A refresh swaps the logs' file handles under this lock.
     const std::shared_lock lock(impl_->log_mutex);
     return impl_->log.outdated() || impl_->checkpoints.outdated() ||
-           impl_->cosignatures.outdated() || impl_->timestamps.outdated();
+           impl_->cosignatures.outdated() || impl_->timestamps.outdated() ||
+           impl_->network_cosignatures.outdated();
 }
 
 Result<Bytes> Ledger::entry(std::uint64_t index) const {
@@ -1968,6 +2020,25 @@ read_timestamps(const RecordLog& log, std::uint64_t begin = 0,
             return std::unexpected(bytes.error());
         }
         auto stored = decode_stored_timestamp(*bytes);
+        if (!stored) {
+            return std::unexpected(stored.error());
+        }
+        out.push_back(std::move(*stored));
+    }
+    return out;
+}
+
+Result<std::vector<StoredNetworkCosignature>>
+read_network_cosignatures(const crypto::Provider& provider, const RecordLog& log,
+                          std::uint64_t begin = 0,
+                          std::uint64_t end = std::numeric_limits<std::uint64_t>::max()) {
+    std::vector<StoredNetworkCosignature> out;
+    for (std::uint64_t i = begin; i < std::min(end, log.count()); ++i) {
+        auto bytes = log.read(i);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto stored = decode_stored_network_cosignature(provider, *bytes);
         if (!stored) {
             return std::unexpected(stored.error());
         }
@@ -2279,6 +2350,82 @@ Result<std::vector<StoredTimestamp>> Ledger::timestamps(std::uint64_t start,
     return read_timestamps(impl_->timestamps, start, start + std::min(count, max_page));
 }
 
+Status Ledger::add_network_cosignature(const protocol::network::VerifierKey& witness,
+                                       const protocol::network::NoteSignature& cosignature,
+                                       std::uint64_t size) {
+    impl_->drain(); // pipelined batches first
+    if (hash() != crypto::HashAlg::sha256) {
+        return fail(Errc::unsupported, "only SHA-256 ledgers can be witnessed by open networks");
+    }
+    // A stored checkpoint of that size: they share its root. Only this
+    // thread changes the logs: reading them needs no lock.
+    auto first = first_checkpoint_at_least(impl_->checkpoints, size);
+    if (!first) {
+        return std::unexpected(first.error());
+    }
+    std::optional<protocol::SignedCheckpoint> cosigned;
+    if (*first < impl_->checkpoints.count()) {
+        auto bytes = impl_->checkpoints.read(*first);
+        if (!bytes) {
+            return std::unexpected(bytes.error());
+        }
+        auto checkpoint = protocol::parse_checkpoint(*bytes);
+        if (!checkpoint) {
+            return std::unexpected(checkpoint.error());
+        }
+        if (checkpoint->checkpoint.tree_size == size) {
+            cosigned = std::move(*checkpoint);
+        }
+    }
+    if (!cosigned) {
+        return fail(Errc::not_found, "no stored checkpoint has this size");
+    }
+    if (auto verified = protocol::network::verify_cosignature(
+            *impl_->provider, witness, protocol::network::origin(id()), size,
+            cosigned->checkpoint.root, cosignature);
+        !verified) {
+        return std::unexpected(verified.error());
+    }
+    auto stored = read_network_cosignatures(*impl_->provider, impl_->network_cosignatures);
+    if (!stored) {
+        return std::unexpected(stored.error());
+    }
+    if (std::ranges::any_of(*stored, [&](const StoredNetworkCosignature& s) {
+            return s.witness == witness && s.cosignature == cosignature;
+        })) {
+        return {};
+    }
+    auto record = encode_stored_network_cosignature(cosigned->encoded, witness, cosignature.bytes);
+    if (!record) {
+        return std::unexpected(record.error());
+    }
+    const ByteView view = *record;
+    auto pending = impl_->network_cosignatures.write(std::span(&view, 1));
+    if (!pending) {
+        return std::unexpected(pending.error());
+    }
+    const std::unique_lock lock(impl_->log_mutex);
+    impl_->network_cosignatures.publish(*pending);
+    return {};
+}
+
+Result<std::vector<StoredNetworkCosignature>> Ledger::network_cosignatures() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_network_cosignatures(*impl_->provider, impl_->network_cosignatures);
+}
+
+std::uint64_t Ledger::network_cosignature_count() const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return impl_->network_cosignatures.count();
+}
+
+Result<std::vector<StoredNetworkCosignature>>
+Ledger::network_cosignatures(std::uint64_t start, std::uint64_t count) const {
+    const std::shared_lock lock(impl_->log_mutex);
+    return read_network_cosignatures(*impl_->provider, impl_->network_cosignatures, start,
+                                     start + std::min(count, max_page));
+}
+
 Result<std::optional<protocol::Checkpoint>>
 Ledger::last_cosigned(const crypto::PublicKey& witness) const {
     auto stored = cosignatures();
@@ -2361,11 +2508,29 @@ Result<AuditReport> Ledger::audit() const {
             return fail(Errc::verification_failed, "a stored time-stamp token does not verify");
         }
     }
+    auto network = read_network_cosignatures(*impl_->provider, impl_->network_cosignatures);
+    if (!network) {
+        return std::unexpected(network.error());
+    }
+    for (const StoredNetworkCosignature& n : *network) {
+        if (std::ranges::none_of(*all, [&](const protocol::SignedCheckpoint& c) {
+                return c.encoded == n.checkpoint.encoded;
+            })) {
+            return fail(Errc::verification_failed,
+                        "a stored network cosignature is of an unknown checkpoint");
+        }
+        if (!protocol::network::verify_cosignature(
+                *impl_->provider, n.witness, protocol::network::origin(id()),
+                n.checkpoint.checkpoint.tree_size, n.checkpoint.checkpoint.root, n.cosignature)) {
+            return fail(Errc::verification_failed, "a stored network cosignature does not verify");
+        }
+    }
     return AuditReport{
         .entries = size,
         .checkpoints = all->size(),
         .cosignatures = stored->size(),
         .timestamps = stamps->size(),
+        .network_cosignatures = network->size(),
         .actors = impl_->state.actors().size(),
         .delegations = impl_->state.delegations().size(),
         .records = impl_->state.records().size(),
@@ -2988,6 +3153,47 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
             anchor.consistency = std::move(*proof);
         }
         bundle.anchors.push_back(std::move(anchor));
+    }
+
+    // Open-network witnesses (v0.13): each one's latest cosignature at or
+    // before the bundle's checkpoint, on the anchor of that checkpoint.
+    auto network = read_network_cosignatures(*impl_->provider, impl_->network_cosignatures);
+    if (!network) {
+        return std::unexpected(network.error());
+    }
+    std::map<std::string, const StoredNetworkCosignature*> newest;
+    for (const StoredNetworkCosignature& n : *network) {
+        const std::uint64_t cosigned = n.checkpoint.checkpoint.tree_size;
+        auto& best = newest[protocol::network::verifier_key_text(n.witness)];
+        if (cosigned <= size &&
+            (best == nullptr || cosigned >= best->checkpoint.checkpoint.tree_size)) {
+            best = &n;
+        }
+    }
+    for (const auto& [witness, chosen] : newest) {
+        if (chosen == nullptr) {
+            continue;
+        }
+        auto anchor = std::ranges::find_if(bundle.anchors, [&](const protocol::Anchor& a) {
+            return a.checkpoint == chosen->checkpoint.encoded;
+        });
+        if (anchor == bundle.anchors.end()) {
+            protocol::Anchor fresh{.checkpoint = chosen->checkpoint.encoded,
+                                   .timestamps = {},
+                                   .consistency = {},
+                                   .network_cosignatures = {}};
+            const std::uint64_t cosigned = chosen->checkpoint.checkpoint.tree_size;
+            if (cosigned < size) {
+                auto proof = impl_->tree.consistency_proof(cosigned, size);
+                if (!proof) {
+                    return std::unexpected(proof.error());
+                }
+                fresh.consistency = std::move(*proof);
+            }
+            bundle.anchors.push_back(std::move(fresh));
+            anchor = std::prev(bundle.anchors.end());
+        }
+        anchor->network_cosignatures.push_back(chosen->cosignature);
     }
     return bundle;
 }

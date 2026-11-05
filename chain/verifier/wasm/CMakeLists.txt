@@ -20,7 +20,7 @@ target_link_options(cexchain_verifier_wasm PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sDYNAMIC_EXECUTION=0
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=_malloc,_free,_cexchain_version,_cexchain_reset,_cexchain_set_expected_ledger,_cexchain_add_witness,_cexchain_add_timestamp_root,_cexchain_add_attachment,_cexchain_verify,_cexchain_free"
+    "-sEXPORTED_FUNCTIONS=_malloc,_free,_cexchain_version,_cexchain_reset,_cexchain_set_expected_ledger,_cexchain_add_witness,_cexchain_add_network_witness,_cexchain_add_timestamp_root,_cexchain_add_attachment,_cexchain_verify,_cexchain_free"
     "-sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString,stringToUTF8,lengthBytesUTF8")
 
 set(page "${CMAKE_CURRENT_BINARY_DIR}/cexchain-verify.html")

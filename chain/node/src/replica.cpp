@@ -512,6 +512,53 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
         start += tokens->size();
     }
 
+    // Open-network cosignatures (v0.13), as tokens are: each one of a
+    // checkpoint the replica holds, verified; a primary from before them
+    // answers 404 and keeps none.
+    for (std::uint64_t start = replica.network_cosignature_count();;) {
+        auto page = fetch_array(
+            primary, std::format("/v1/network-cosignatures?start={}&count={}", start, batch));
+        if (!page) {
+            if (page.error().code == Errc::not_found) {
+                break;
+            }
+            return std::unexpected(page.error());
+        }
+        bool waiting = false;
+        for (const cbor::Value& item : *page) {
+            const cbor::Array* parts = item.as_array();
+            if (parts == nullptr || parts->size() != 3 || (*parts)[0].as_bytes() == nullptr ||
+                (*parts)[1].as_text() == nullptr || (*parts)[2].as_bytes() == nullptr) {
+                return fail(Errc::verification_failed,
+                            "the primary sent a malformed network cosignature");
+            }
+            auto checkpoint = protocol::parse_checkpoint(*(*parts)[0].as_bytes());
+            auto witness =
+                protocol::network::parse_verifier_key(replica.provider(), *(*parts)[1].as_text());
+            if (!checkpoint || !witness) {
+                return fail(Errc::verification_failed,
+                            "the primary sent a malformed network cosignature");
+            }
+            const protocol::network::NoteSignature cosignature{witness->name,
+                                                               *(*parts)[2].as_bytes()};
+            auto s = replica.add_network_cosignature(*witness, cosignature,
+                                                     checkpoint->checkpoint.tree_size);
+            if (!s && s.error().code == Errc::not_found) {
+                waiting = true;
+                break;
+            }
+            if (!s) {
+                return fail(Errc::verification_failed,
+                            "the primary sent a network cosignature that fails");
+            }
+            ++report.network_cosignatures;
+        }
+        if (waiting || page->size() < batch) {
+            break;
+        }
+        start += page->size();
+    }
+
     // The entries past the last checkpoint, for a client's mirror.
     while (options.tail && replica.size() < report.primary_size) {
         const std::uint64_t at = replica.size();

@@ -17,6 +17,7 @@
 #include <cexchain/client/errors.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/statement.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -75,6 +76,11 @@ void save_key(const std::filesystem::path& path, const crypto::openssl::KeyPair&
 /// certificate), as DER: the roots of the time-stamp authorities a verifier
 /// trusts (spec v0.11).
 [[nodiscard]] std::vector<Bytes> load_certificates(std::span<const std::string> paths);
+/// Open-network witnesses' verifier keys a verifier trusts (spec v0.13), as
+/// their about pages give them: cosigners, type 0x04 or 0x06. Throws
+/// UsageError for anything else.
+[[nodiscard]] std::vector<protocol::network::VerifierKey>
+network_witness_keys(std::span<const std::string> texts);
 
 [[nodiscard]] Bytes hash_text(const crypto::Provider& provider, crypto::HashAlg hash,
                               std::string_view text);

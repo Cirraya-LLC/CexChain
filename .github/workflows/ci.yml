@@ -70,6 +70,22 @@ jobs:
           cmake --build --preset gcc-debug
           ctest --preset gcc-debug $TESTS
 
+      # An open network's witness (spec v0.13): litewitness, the implementation
+      # witness networks run, cosigns the ledger's checkpoint notes.
+      - name: Go, for litewitness
+        if: needs.changes.outputs.chain == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: false
+
+      - name: Interop with litewitness (filippo.io/torchwood)
+        if: needs.changes.outputs.chain == 'true'
+        run: |
+          go install filippo.io/torchwood/cmd/litewitness@v0.10.0 filippo.io/torchwood/cmd/witnessctl@v0.10.0
+          LITEWITNESS="$(go env GOPATH)/bin/litewitness" WITNESSCTL="$(go env GOPATH)/bin/witnessctl" \
+              bash tests/interop/litewitness.sh build/gcc-debug/bin/cexchain
+
       - name: GCC 16 release (as the Docker image builds it, with the Bo compiler)
         run: |
           cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \

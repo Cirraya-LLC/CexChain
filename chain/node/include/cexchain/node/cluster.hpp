@@ -147,6 +147,12 @@ public:
     [[nodiscard]] Status add_cosignature(ByteView cosignature, const crypto::PublicKey& witness);
     /// Keeps a time-stamp token over a checkpoint of `size` on every node.
     [[nodiscard]] Status add_timestamp(ByteView token, std::uint64_t size);
+    /// Keeps an open-network witness's cosignature of a checkpoint of `size`
+    /// on every node (v0.13).
+    [[nodiscard]] Status
+    add_network_cosignature(const protocol::network::VerifierKey& witness,
+                            const protocol::network::NoteSignature& cosignature,
+                            std::uint64_t size);
     /// Writes or removes the registrar's pending calls on every node.
     [[nodiscard]] Status change_pending(std::span<const PendingChange> changes);
     [[nodiscard]] Status add_member(const ClusterMember& member);

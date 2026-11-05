@@ -18,6 +18,7 @@
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/keys.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/core/protocol/statement.hpp>
@@ -68,6 +69,15 @@ struct StoredTimestamp {
     protocol::SignedCheckpoint checkpoint;
 };
 
+/// An open-network witness's cosignature of a stored checkpoint's note
+/// (v0.13), with the witness's verifier key and its time (POSIX seconds).
+struct StoredNetworkCosignature {
+    protocol::network::VerifierKey witness;
+    protocol::network::NoteSignature cosignature;
+    protocol::SignedCheckpoint checkpoint;
+    std::uint64_t time = 0;
+};
+
 /// How to open a ledger.
 struct OpenOptions {
     /// Start from the newest snapshot of the state that checks against the
@@ -95,6 +105,7 @@ struct RefreshReport {
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
     std::uint64_t timestamps = 0;
+    std::uint64_t network_cosignatures = 0;
 };
 
 /// The log keys an operator holds. Across a rotation an operator holds the
@@ -107,6 +118,7 @@ struct AuditReport {
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
     std::uint64_t timestamps = 0;
+    std::uint64_t network_cosignatures = 0;
     std::uint64_t actors = 0;
     std::uint64_t delegations = 0;
     std::uint64_t records = 0;
@@ -366,6 +378,22 @@ public:
     /// Tokens [start, start + count), at most 1000.
     [[nodiscard]] Result<std::vector<StoredTimestamp>> timestamps(std::uint64_t start,
                                                                   std::uint64_t count) const;
+
+    /// Stores an open-network witness's cosignature (v0.13; spec section
+    /// 10.2) of the note of a stored checkpoint of tree size `size`, once it
+    /// verifies under `witness`, the cosigner's verifier key. SHA-256 ledgers
+    /// only. Storing the same cosignature again changes nothing.
+    [[nodiscard]] Status
+    add_network_cosignature(const protocol::network::VerifierKey& witness,
+                            const protocol::network::NoteSignature& cosignature,
+                            std::uint64_t size);
+
+    /// Every stored network cosignature, oldest first.
+    [[nodiscard]] Result<std::vector<StoredNetworkCosignature>> network_cosignatures() const;
+    [[nodiscard]] std::uint64_t network_cosignature_count() const;
+    /// Network cosignatures [start, start + count), at most 1000.
+    [[nodiscard]] Result<std::vector<StoredNetworkCosignature>>
+    network_cosignatures(std::uint64_t start, std::uint64_t count) const;
 
     /// The newest checkpoint `witness` has cosigned, if any.
     [[nodiscard]] Result<std::optional<protocol::Checkpoint>>

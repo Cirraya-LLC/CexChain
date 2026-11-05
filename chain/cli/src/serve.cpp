@@ -24,6 +24,7 @@
 #include <thread>
 
 #include <cexchain/client/backups.hpp>
+#include <cexchain/client/network_witnesses.hpp>
 #include <cexchain/client/public_witness.hpp>
 #include <cexchain/client/public_witnesses.hpp>
 #include <cexchain/client/relay_client.hpp>
@@ -172,6 +173,26 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         }
     } else if (args.has("timestamp-interval")) {
         throw UsageError{"--timestamp-interval needs --tsa"};
+    }
+    if (const auto note = args.get("note-key")) {
+        auto key = load_signer(*note, args);
+        if (key->algorithm() != crypto::SigAlg::ed25519) {
+            throw UsageError{"--note-key takes an Ed25519 key"};
+        }
+        options.note_key = std::shared_ptr<const crypto::Signer>(std::move(key));
+        for (const client::UsedNetworkWitness& w :
+             client::load_network_witnesses(dir, shared_provider())) {
+            options.network_witnesses.push_back(w.witness);
+        }
+        if (const auto every = args.get("network-interval")) {
+            options.network_interval =
+                std::chrono::seconds(parse_number(*every, "--network-interval"));
+            if (options.network_interval.count() == 0) {
+                throw UsageError{"--network-interval must be at least one second"};
+            }
+        }
+    } else if (args.has("network-interval")) {
+        throw UsageError{"--network-interval needs --note-key"};
     }
     if (const auto every = args.get("snapshot-interval")) {
         options.snapshot_interval = parse_number(*every, "--snapshot-interval");
@@ -347,6 +368,8 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                                                  ? Json(nullptr)
                                                  : Json(options.timestamp_authority)},
                      {"keeper", options.keeper != nullptr},
+                     {"network_witnesses",
+                      options.note_key ? Json(options.network_witnesses.size()) : Json(nullptr)},
                      {"clock_offset_ms", ledger::SystemClock::offset()}};
         if (served_too) {
             started[served_too->first] = served_too->second;

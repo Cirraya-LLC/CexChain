@@ -528,6 +528,7 @@ int cmd_verify(const Args& args) {
         options.trusted_witnesses.push_back(load_public_key(path));
     }
     options.trusted_timestamp_roots = client::load_certificates(args.all("tsa-root"));
+    options.trusted_network_witnesses = client::network_witness_keys(args.all("witness-vkey"));
     for (const std::string& item : args.all("attachment")) {
         auto [name, path] = split_pair(item, "--attachment");
         options.attachment_contents[name] = read_file(path);

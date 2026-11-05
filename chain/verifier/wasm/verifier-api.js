@@ -50,6 +50,11 @@ async function createCexChainVerifier(factory) {
         return { verified: false, error: "a witness key file is not a CexChain public key" };
       }
     }
+    for (const vkey of options.networkWitnesses || []) {
+      if (withString(vkey.trim(), (p) => module._cexchain_add_network_witness(p)) !== 0) {
+        return { verified: false, error: "a network witness's verifier key is not one: " + vkey };
+      }
+    }
     for (const root of options.timestampRoots || []) {
       if (withBytes(root, (p, n) => module._cexchain_add_timestamp_root(p, n)) !== 0) {
         return { verified: false, error: "a time-stamp authority's root is not a certificate (PEM or DER)" };

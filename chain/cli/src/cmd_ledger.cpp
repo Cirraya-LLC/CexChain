@@ -174,6 +174,7 @@ int cmd_audit(const Args& args) {
                     {"checkpoints", report->checkpoints},
                     {"cosignatures", report->cosignatures},
                     {"timestamps", report->timestamps},
+                    {"network_cosignatures", report->network_cosignatures},
                     {"snapshot_checked", session.ledger().opened_from_snapshot()
                                              ? Json(session.ledger().opened_from_snapshot()->size)
                                              : Json(nullptr)},

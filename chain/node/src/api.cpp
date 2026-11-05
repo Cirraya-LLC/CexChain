@@ -29,6 +29,7 @@
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/keeper.hpp>
+#include <cexchain/node/network_witnesses.hpp>
 #include <cexchain/node/peers.hpp>
 #include <cexchain/node/record_files.hpp>
 #include <cexchain/node/responses.hpp>
@@ -173,6 +174,10 @@ enum class Endpoint {
     /// GET and POST /v1/timestamps: time-stamp tokens over checkpoints (v0.11).
     timestamps,
     add_timestamp,
+    /// GET and POST /v1/network-cosignatures: open-network witnesses'
+    /// cosignatures of checkpoint notes (v0.13).
+    network_cosignatures,
+    add_network_cosignature,
     inclusion,
     submit,
     statement,
@@ -435,6 +440,15 @@ struct LedgerApi::State {
     std::atomic<bool> snapshot_stop{false};
     std::atomic<std::uint64_t> timestamps_kept{0};
     std::atomic<std::uint64_t> timestamp_failures{0};
+    /// The asker of open-network witnesses (ApiOptions::network_witnesses),
+    /// on its own thread, as the stamper is.
+    std::mutex network_mutex;
+    std::condition_variable network_wake;
+    std::thread network_thread;
+    bool network_stopping = false;
+    std::atomic<bool> network_stop{false};
+    std::atomic<std::uint64_t> network_kept{0};
+    std::atomic<std::uint64_t> network_failures{0};
     /// When the last whole scan ended (the epoch: none yet).
     steady::time_point keeper_last{};
     /// Where the next slice starts (instances in log order), and whether it
@@ -475,6 +489,10 @@ struct LedgerApi::State {
         }
         if (!options.timestamp_authority.empty() && !replica && !options.read_only) {
             stamper_thread = std::thread([this] { run_stamper(); });
+        }
+        if (!options.network_witnesses.empty() && options.note_key && !replica &&
+            !options.read_only) {
+            network_thread = std::thread([this] { run_network(); });
         }
         if (ledger->opened_from_snapshot()) {
             snapshot_thread = std::thread([this] { check_snapshot(); });
@@ -562,6 +580,70 @@ struct LedgerApi::State {
         event("timestamp", std::format("checkpoint size {}", size));
     }
 
+    /// The asker's loop: the latest checkpoint to every network witness at
+    /// once, then every interval.
+    void run_network() {
+        std::unique_lock lock(network_mutex);
+        while (!network_stopping) {
+            lock.unlock();
+            for (const NetworkWitness& witness : options.network_witnesses) {
+                ask_network(witness);
+            }
+            lock.lock();
+            network_wake.wait_for(lock, options.network_interval, [&] { return network_stopping; });
+        }
+    }
+
+    /// Asks one witness to cosign the latest checkpoint's note, unless it
+    /// did already, from the size it cosigned last.
+    void ask_network(const NetworkWitness& witness) {
+        if (failed || (cluster && !cluster->leads()) || ledger->hash() != crypto::HashAlg::sha256) {
+            return;
+        }
+        const auto latest = ledger->latest_checkpoint();
+        auto stored = ledger->network_cosignatures();
+        if (!latest || !stored) {
+            return;
+        }
+        std::uint64_t last = 0;
+        for (const ledger::StoredNetworkCosignature& n : *stored) {
+            if (n.witness == witness.key) {
+                last = std::max(last, n.checkpoint.checkpoint.tree_size);
+            }
+        }
+        const std::uint64_t size = latest->checkpoint.tree_size;
+        if (last == size) {
+            return;
+        }
+        ClientOptions client;
+        client.stop = &network_stop;
+        auto cosignature = ask_network_witness(
+            *provider, *latest, *options.note_key, witness, last,
+            [this](std::uint64_t from, std::uint64_t to) {
+                return ledger->consistency_proof(from, to);
+            },
+            client);
+        if (!cosignature) {
+            ++network_failures;
+            event("network-cosignature-failed",
+                  std::format("{}: {}", witness.key.name, cosignature.error().detail));
+            return;
+        }
+        Status kept = fail(Errc::unavailable, "the writer is busy or stopping");
+        on_writer([&] {
+            kept = cluster ? cluster->add_network_cosignature(witness.key, *cosignature, size)
+                           : ledger->add_network_cosignature(witness.key, *cosignature, size);
+        });
+        if (!kept) {
+            ++network_failures;
+            event("network-cosignature-failed",
+                  std::format("{}: {}", witness.key.name, kept.error().detail));
+            return;
+        }
+        ++network_kept;
+        event("network-cosignature", std::format("{} cosigned size {}", witness.key.name, size));
+    }
+
     /// Waits until everything queued so far is done: the keeper's slice
     /// too, and the writes it queued.
     void drain() {
@@ -591,6 +673,15 @@ struct LedgerApi::State {
         }
         stamper_stop = true;
         stamper_wake.notify_all();
+        {
+            const std::lock_guard lock(network_mutex);
+            network_stopping = true;
+        }
+        network_stop = true;
+        network_wake.notify_all();
+        if (network_thread.joinable()) {
+            network_thread.join();
+        }
         if (stamper_thread.joinable()) {
             stamper_thread.join();
         }
@@ -1343,6 +1434,27 @@ struct LedgerApi::State {
         for (const auto& t : *page) {
             out.push_back(cbor::Value::array(
                 {cbor::Value::bytes(t.checkpoint.encoded), cbor::Value::bytes(t.token)}));
+        }
+        return cbor_response(cbor::Value::array(std::move(out)));
+    }
+
+    /// Open-network cosignatures (v0.13), a page at a time: [checkpoint,
+    /// verifier key, bytes] each.
+    http::Response network_cosignatures(const http::Request& r) const {
+        const auto span = range(r, ledger->network_cosignature_count());
+        if (!span) {
+            return error_response(400, "invalid_argument", "start <= count and 0 < count");
+        }
+        auto page = ledger->network_cosignatures(span->first, span->second - span->first);
+        if (!page) {
+            return error_response(page.error());
+        }
+        cbor::Array out;
+        for (const auto& n : *page) {
+            out.push_back(cbor::Value::array(
+                {cbor::Value::bytes(n.checkpoint.encoded),
+                 cbor::Value::text(protocol::network::verifier_key_text(n.witness)),
+                 cbor::Value::bytes(n.cosignature.bytes)}));
         }
         return cbor_response(cbor::Value::array(std::move(out)));
     }
@@ -2966,6 +3078,38 @@ struct LedgerApi::State {
         });
     }
 
+    /// POST /v1/network-cosignatures: [checkpoint size, verifier key, bytes],
+    /// kept as Ledger::add_network_cosignature does.
+    void add_network_cosignature(const http::Request& r, std::string principal, Done& done) {
+        auto value = cbor::decode(r.body);
+        const cbor::Array* parts = value ? value->as_array() : nullptr;
+        auto witness =
+            parts != nullptr && parts->size() == 3 && (*parts)[1].as_text() != nullptr
+                ? protocol::network::parse_verifier_key(*provider, *(*parts)[1].as_text())
+                : Result<protocol::network::VerifierKey>(
+                      fail(Errc::malformed, "not a verifier key"));
+        if (!witness || !(*parts)[0].as_uint64() || (*parts)[2].as_bytes() == nullptr) {
+            finish(done, principal,
+                   error_response(400, "malformed",
+                                  "send [checkpoint size, verifier key, cosignature bytes]"));
+            return;
+        }
+        queue_locked([this, key = std::move(*witness), size = *(*parts)[0].as_uint64(),
+                      bytes = Bytes(*(*parts)[2].as_bytes()), principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            const protocol::network::NoteSignature cosignature{key.name, bytes};
+            auto stored = cluster ? cluster->add_network_cosignature(key, cosignature, size)
+                                  : ledger->add_network_cosignature(key, cosignature, size);
+            finish(done, principal,
+                   stored ? json_response(200, {{"stored", true}})
+                          : error_response(stored.error()));
+        });
+    }
+
     /// From tick(): checkpoints when the interval has passed and the log has
     /// grown.
     void auto_checkpoint() {
@@ -3382,6 +3526,16 @@ struct LedgerApi::State {
                 timestamps_kept.load(std::memory_order_relaxed),
                 timestamp_failures.load(std::memory_order_relaxed));
         }
+        if (!options.network_witnesses.empty()) {
+            out += std::format(
+                "# HELP cexchain_network_cosignatures_total Cosignatures asked of network "
+                "witnesses.\n"
+                "# TYPE cexchain_network_cosignatures_total counter\n"
+                "cexchain_network_cosignatures_total{{outcome=\"kept\"}} {}\n"
+                "cexchain_network_cosignatures_total{{outcome=\"failed\"}} {}\n",
+                network_kept.load(std::memory_order_relaxed),
+                network_failures.load(std::memory_order_relaxed));
+        }
         out += std::format("# HELP cexchain_auto_checkpoints_total Automatic checkpoints.\n"
                            "# TYPE cexchain_auto_checkpoints_total counter\n"
                            "cexchain_auto_checkpoints_total {}\n",
@@ -3528,6 +3682,9 @@ struct LedgerApi::State {
         } else if (path == "/v1/timestamps") {
             found = post ? Routed{Endpoint::add_timestamp, Access::admin}
                          : Routed{Endpoint::timestamps, Access::read};
+        } else if (path == "/v1/network-cosignatures") {
+            found = post ? Routed{Endpoint::add_network_cosignature, Access::admin}
+                         : Routed{Endpoint::network_cosignatures, Access::read};
         } else {
             static constexpr std::array<std::pair<std::string_view, Endpoint>, 6> fixed{{
                 {"/metrics", Endpoint::metrics},
@@ -3570,6 +3727,7 @@ struct LedgerApi::State {
             const bool posts = found->endpoint == Endpoint::make_checkpoint ||
                                found->endpoint == Endpoint::add_cosignature ||
                                found->endpoint == Endpoint::add_timestamp ||
+                               found->endpoint == Endpoint::add_network_cosignature ||
                                found->endpoint == Endpoint::cluster_add ||
                                found->endpoint == Endpoint::cluster_remove ||
                                found->endpoint == Endpoint::cluster_step_down;
@@ -3609,6 +3767,8 @@ struct LedgerApi::State {
             return cosignatures(r);
         case Endpoint::timestamps:
             return timestamps(r);
+        case Endpoint::network_cosignatures:
+            return network_cosignatures(r);
         case Endpoint::inclusion:
             return inclusion(r);
         case Endpoint::statement:
@@ -3666,6 +3826,7 @@ struct LedgerApi::State {
         case Endpoint::make_checkpoint:
         case Endpoint::add_cosignature:
         case Endpoint::add_timestamp:
+        case Endpoint::add_network_cosignature:
         case Endpoint::submit:
         case Endpoint::cluster_add:
         case Endpoint::cluster_remove:
@@ -3808,6 +3969,7 @@ struct LedgerApi::State {
                             routed.endpoint == Endpoint::make_checkpoint ||
                             routed.endpoint == Endpoint::add_cosignature ||
                             routed.endpoint == Endpoint::add_timestamp ||
+                            routed.endpoint == Endpoint::add_network_cosignature ||
                             routed.endpoint == Endpoint::call_propose ||
                             routed.endpoint == Endpoint::contract_consent || cluster_write;
         if (writes && cluster_write && !cluster) {
@@ -3851,6 +4013,8 @@ struct LedgerApi::State {
                 make_checkpoint(std::move(principal), done);
             } else if (routed.endpoint == Endpoint::add_timestamp) {
                 add_timestamp(r, std::move(principal), done);
+            } else if (routed.endpoint == Endpoint::add_network_cosignature) {
+                add_network_cosignature(r, std::move(principal), done);
             } else {
                 add_cosignature(r, std::move(principal), done);
             }

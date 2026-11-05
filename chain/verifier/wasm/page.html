@@ -121,6 +121,8 @@ details.license-text pre { font: 11px var(--mono); white-space: pre-wrap; overfl
         <button class="link" id="add-witnesses">Choose public key files&hellip;</button>
         <input type="file" id="witness-files" multiple hidden>
         <div class="files" id="witness-names"></div>
+        <label for="network-witnesses">Trusted network witnesses <span class="hint">(optional: their verifier keys, one a line)</span></label>
+        <textarea id="network-witnesses" rows="2" spellcheck="false"></textarea>
       </div>
       <div>
         <label>Trusted time-stamp authorities <span class="hint">(optional: their root certificates)</span></label>
@@ -540,6 +542,9 @@ SOFTWARE.</pre>
     fact("Home ledger ID", report.home.id, true);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    for (const n of report.witnesses.network || []) {
+      fact("", n.witness + " saw size " + n.size + " at " + when(n.time) + (n.trusted ? " (trusted network witness)" : " (not trusted)"));
+    }
     const stamps = report.timestamps;
     if (stamps && stamps.tokens.length) {
       fact("Time-stamps", stamps.trusted_authorities + " trusted authorit" + (stamps.trusted_authorities === 1 ? "y" : "ies") +
@@ -648,6 +653,9 @@ SOFTWARE.</pre>
     if (report.record.supersedes) fact("Replaces", report.record.supersedes, true);
     fact("Checkpoint", "log size " + report.checkpoint.tree_size + ", signed " + when(report.checkpoint.timestamp));
     fact("Witnesses", report.witnesses.trusted + " trusted, " + report.witnesses.untrusted + " other");
+    for (const n of report.witnesses.network || []) {
+      fact("", n.witness + " saw size " + n.size + " at " + when(n.time) + (n.trusted ? " (trusted network witness)" : " (not trusted)"));
+    }
     const stamps = report.timestamps;
     if (stamps && stamps.tokens.length) {
       fact("Time-stamps", stamps.trusted_authorities + " trusted authorit" + (stamps.trusted_authorities === 1 ? "y" : "ies") +
@@ -721,6 +729,7 @@ SOFTWARE.</pre>
     const ledgerId = $("ledger").value.trim();
     const report = state.verifier.verify(state.bundle, {
       ledgerId: ledgerId || undefined, witnesses: state.witnesses, timestampRoots: state.timestampRoots,
+      networkWitnesses: $("network-witnesses").value.split("\n").map((l) => l.trim()).filter((l) => l),
       attachments: state.attachments,
     });
     window.lastReport = report;

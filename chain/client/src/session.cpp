@@ -724,6 +724,24 @@ void Session::add_timestamp(ByteView token, std::uint64_t size) {
     sync();
 }
 
+void Session::add_network_cosignature(const protocol::network::VerifierKey& witness,
+                                      const protocol::network::NoteSignature& cosignature,
+                                      std::uint64_t size) {
+    if (!remote_) {
+        require_primary();
+        unwrap(ledger_->add_network_cosignature(witness, cosignature, size),
+               "storing the network cosignature");
+        return;
+    }
+    const Bytes body = unwrap(cbor::encode(cbor::Value::array(
+                                  {cbor::Value::unsigned_integer(size),
+                                   cbor::Value::text(protocol::network::verifier_key_text(witness)),
+                                   cbor::Value::bytes(cosignature.bytes)})),
+                              "encoding the network cosignature");
+    static_cast<void>(call("POST", "/v1/network-cosignatures", body, "application/cbor"));
+    sync();
+}
+
 bool Session::fetch_vault(const protocol::Id& record) const {
     if (!remote_ || std::filesystem::exists(vault_path(record))) {
         return true;

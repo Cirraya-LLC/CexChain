@@ -190,6 +190,11 @@ public:
     /// Keeps a time-stamp token over a checkpoint of `size` (spec v0.11), on
     /// the ledger or through its server (an admin token).
     void add_timestamp(ByteView token, std::uint64_t size);
+    /// Keeps an open-network witness's cosignature of the note of a
+    /// checkpoint of `size` (spec v0.13), on the ledger or its server.
+    void add_network_cosignature(const protocol::network::VerifierKey& witness,
+                                 const protocol::network::NoteSignature& cosignature,
+                                 std::uint64_t size);
 
     /// Client mode: fetches a record's sealed private data into the mirror,
     /// unless it is there. False if the server holds none.

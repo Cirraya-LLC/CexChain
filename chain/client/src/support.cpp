@@ -144,6 +144,22 @@ std::vector<Bytes> load_certificates(std::span<const std::string> paths) {
     return out;
 }
 
+std::vector<protocol::network::VerifierKey>
+network_witness_keys(std::span<const std::string> texts) {
+    std::vector<protocol::network::VerifierKey> out;
+    for (const std::string& text : texts) {
+        auto key = protocol::network::parse_verifier_key(shared_provider(), text);
+        if (!key || (key->type != protocol::network::cosigner_ed25519 &&
+                     key->type != protocol::network::cosigner_ml_dsa_44)) {
+            throw UsageError{"--witness-vkey takes a network witness's verifier key, "
+                             "<name>+<key ID>+<key> of type 0x04 or 0x06: " +
+                             text};
+        }
+        out.push_back(std::move(*key));
+    }
+    return out;
+}
+
 crypto::PublicKey load_public_key(const std::filesystem::path& path) {
     const Bytes content = read_file(path);
     if (const auto value = cbor::decode(content)) {

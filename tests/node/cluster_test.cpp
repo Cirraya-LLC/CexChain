@@ -25,6 +25,7 @@
 
 #include "cluster_parts.hpp"
 #include "support/ledger_world.hpp"
+#include "support/network_witness.hpp"
 #include "support/ports.hpp"
 #include "support/timestamp_authority.hpp"
 #include "support/vectors.hpp"
@@ -429,6 +430,18 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
         return leader != nullptr &&
                leader->cluster->add_timestamp(token, stamped->checkpoint.tree_size).has_value();
     }));
+    // And an open-network witness's cosignature of its note (v0.13).
+    const NetworkWitness witness("witness.example/cluster");
+    const auto cosignature =
+        witness.cosign(protocol::network::origin(stamped->checkpoint.ledger_id),
+                       stamped->checkpoint.tree_size, stamped->checkpoint.root, 1'794'000'000);
+    REQUIRE(eventually([&] {
+        Node* leader = trio.leader();
+        return leader != nullptr && leader->cluster
+                                        ->add_network_cosignature(witness.vkey(), cosignature,
+                                                                  stamped->checkpoint.tree_size)
+                                        .has_value();
+    }));
 
     // A contract call with its consent, kept on every node, and a call a
     // registrar holds.
@@ -446,10 +459,11 @@ TEST_CASE("a node far behind gets the ledger itself as a snapshot", "[node][clus
     auto& late = *trio.nodes[2];
     REQUIRE(eventually(
         [&] { return late.ledger->size() == trio.leader()->ledger->size() && trio.agree(); }));
-    // Checkpoints, time-stamp tokens, and private data come along (after the
-    // entries).
+    // Checkpoints, time-stamp tokens, network cosignatures, and private data
+    // come along (after the entries).
     CHECK(eventually([&] { return late.ledger->latest_checkpoint().has_value(); }));
     CHECK(eventually([&] { return late.ledger->timestamp_count() == 1; }));
+    CHECK(eventually([&] { return late.ledger->network_cosignature_count() == 1; }));
     CHECK(eventually([&] {
         std::size_t files = 0;
         for (const auto& f : std::filesystem::directory_iterator(late.dir / "vault" / "records")) {

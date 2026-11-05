@@ -237,8 +237,8 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
-| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
-| Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses) |
+| Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `checkpoint note`, `checkpoint network-cosign`, `checkpoint network-cosignatures`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
+| Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses, and open networks' with `--vkey`); `witness network-entry` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
 | Vault | `vault status`, `vault keygen`, `vault rekey` |
 | AI agents | `mcp` |
@@ -396,6 +396,36 @@ cexchain access fetch --peer factory --request ID --out d.cbor --log-key log.key
 Commands that reach a party take `--log-key` to reach it through its relay (what goes there is
 signed). In the console, Parties offers "Be reached through" each public witness whose server runs
 a relay; new invitation codes then carry it instead of a local address.
+
+## Open witness networks
+
+A SHA-256 ledger can also be witnessed by the witnesses of open transparency networks, such as
+the [witness network](https://witness-network.org), that follow C2SP's specifications
+([tlog-witness](https://c2sp.org/tlog-witness), [tlog-cosignature](https://c2sp.org/tlog-cosignature)).
+They know nothing of CexChain: they cosign its checkpoints as text notes under a name derived
+from the ledger id, `cirraya.com/cexchain/<ledger id>`, each time checking that the new history
+extends the one they cosigned before. Exports carry their cosignatures, and a verifier that trusts
+a witness by its verifier key counts it as it counts its own witnesses.
+
+```sh
+# Once: a note key (Ed25519; keep and back it up as the log key: networks never update it),
+# and the ledger's entry for the network's list of logs, to send to its maintainers yourself.
+cexchain key generate --out note.key
+cexchain witness network-entry --note-key note.key --contact "ops@example.org"
+# The witnesses to ask, by the add-checkpoint URL and verifier key their about pages give.
+cexchain witness register https://witness.example.org/add-checkpoint --vkey 'example.org/w+1a2b3c4d+B...'
+# Ask now, or let the server ask after each new checkpoint (at most --network-interval apart).
+cexchain checkpoint network-cosign --note-key note.key
+cexchain serve --log-key log.key --note-key note.key --network-interval 3600
+# Anyone: count them.
+cexchain verify evidence.cbor --witness-vkey 'example.org/w+1a2b3c4d+B...' --min-witnesses 1
+```
+
+`checkpoint note` prints a checkpoint's note, and `checkpoint network-cosignatures` what the
+witnesses cosigned. A witness that cosigned a longer history of the ledger than it has is reported
+and not asked again: a fork, or a restore from an old backup. A network witness learns the ledger
+id and each checkpoint's size and root; never statements, records, or parties. Networks list logs
+by hand, and SM3 ledgers cannot join: their trees are not the RFC 6962 trees C2SP witnesses check.
 
 ## Time-stamp authorities
 

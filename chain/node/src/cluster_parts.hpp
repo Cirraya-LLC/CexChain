@@ -65,6 +65,8 @@ constexpr std::uint64_t entry_checkpoint = 2;  // [2, commitment entry / null, c
 constexpr std::uint64_t entry_cosignature = 3; // [3, cosignature, witness public key]
 constexpr std::uint64_t entry_pending = 4;     // [4, [* [name, file / null]]]
 constexpr std::uint64_t entry_timestamp = 5;   // [5, time-stamp token, checkpoint size]
+// [6, verifier key, bytes, checkpoint size]: an open-network cosignature (v0.13)
+constexpr std::uint64_t entry_network_cosignature = 6;
 
 /// Entries and vault files per snapshot object.
 constexpr std::uint64_t snapshot_entries = 1000;
@@ -857,7 +859,8 @@ private:
         auto checkpoints = ledger_->checkpoints();
         auto cosignatures = ledger_->cosignatures();
         auto timestamps = ledger_->timestamps();
-        if (!checkpoints || !cosignatures || !timestamps) {
+        auto network = ledger_->network_cosignatures();
+        if (!checkpoints || !cosignatures || !timestamps || !network) {
             return fail(Errc::unavailable, "cannot read checkpoints");
         }
         cbor::Array kept;
@@ -882,16 +885,27 @@ private:
                      cbor::Value::unsigned_integer(t.checkpoint.checkpoint.tree_size)}));
             }
         }
-        return cbor::encode(cbor::Value::array({cbor::Value::array(std::move(kept)),
-                                                cbor::Value::array(std::move(cosigned)),
-                                                cbor::Value::array(std::move(stamped))}));
+        // Open-network cosignatures (v0.13), as [verifier key, bytes, size].
+        cbor::Array witnessed;
+        for (const auto& n : *network) {
+            if (n.checkpoint.checkpoint.tree_size <= size) {
+                witnessed.push_back(cbor::Value::array(
+                    {cbor::Value::text(protocol::network::verifier_key_text(n.witness)),
+                     cbor::Value::bytes(n.cosignature.bytes),
+                     cbor::Value::unsigned_integer(n.checkpoint.checkpoint.tree_size)}));
+            }
+        }
+        return cbor::encode(cbor::Value::array(
+            {cbor::Value::array(std::move(kept)), cbor::Value::array(std::move(cosigned)),
+             cbor::Value::array(std::move(stamped)), cbor::Value::array(std::move(witnessed))}));
     }
 
     void apply_extras(const cbor::Array& items) {
-        // Members from before time-stamp tokens send two lists.
-        if (items.size() < 2 || items.size() > 3 || items[0].as_array() == nullptr ||
-            items[1].as_array() == nullptr ||
-            (items.size() == 3 && items[2].as_array() == nullptr)) {
+        // Members from before time-stamp tokens send two lists, and from
+        // before open-network cosignatures three.
+        if (items.size() < 2 || items.size() > 4 ||
+            std::ranges::any_of(items,
+                                [](const cbor::Value& v) { return v.as_array() == nullptr; })) {
             failed("a snapshot object is malformed");
             return;
         }
@@ -908,7 +922,7 @@ private:
                 }
             }
         }
-        if (items.size() == 3) {
+        if (items.size() >= 3) {
             for (const cbor::Value& t : *items[2].as_array()) {
                 const cbor::Array* parts = t.as_array();
                 if (parts != nullptr && parts->size() == 2 && (*parts)[0].as_bytes() != nullptr &&
@@ -918,6 +932,29 @@ private:
                 }
             }
         }
+        if (items.size() == 4) {
+            for (const cbor::Value& n : *items[3].as_array()) {
+                static_cast<void>(add_network_cosignature(n.as_array(), 0));
+            }
+        }
+    }
+
+    /// [verifier key, bytes, checkpoint size] from `parts` (at `offset`).
+    Status add_network_cosignature(const cbor::Array* parts, std::size_t offset) {
+        if (parts == nullptr || parts->size() != offset + 3 ||
+            (*parts)[offset].as_text() == nullptr || (*parts)[offset + 1].as_bytes() == nullptr ||
+            !(*parts)[offset + 2].as_uint64()) {
+            return fail(Errc::malformed, "a network cosignature entry is malformed");
+        }
+        auto witness =
+            protocol::network::parse_verifier_key(ledger_->provider(), *(*parts)[offset].as_text());
+        if (!witness) {
+            return std::unexpected(witness.error());
+        }
+        const protocol::network::NoteSignature cosignature{witness->name,
+                                                           *(*parts)[offset + 1].as_bytes()};
+        return ledger_->add_network_cosignature(*witness, cosignature,
+                                                *(*parts)[offset + 2].as_uint64());
     }
 
     /// Writes a record's sealed private data once; false if other data is
@@ -963,6 +1000,8 @@ private:
         } else if (type == entry_timestamp && items->size() == 3 &&
                    (*items)[1].as_bytes() != nullptr && (*items)[2].as_uint64()) {
             outcome = ledger_->add_timestamp(*(*items)[1].as_bytes(), *(*items)[2].as_uint64());
+        } else if (type == entry_network_cosignature && items->size() == 4) {
+            outcome = add_network_cosignature(items, 1);
         } else if (type == entry_pending && items->size() == 2) {
             auto changes = decode_pending_changes((*items)[1]);
             outcome = changes ? keep_pending(*changes) : Status(std::unexpected(changes.error()));

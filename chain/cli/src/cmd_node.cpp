@@ -190,9 +190,13 @@ int cmd_token_revoke(const Args& args) {
 namespace {
 
 Json sync_json(const node::SyncReport& r) {
-    return {{"entries", r.entries},           {"checkpoints", r.checkpoints},
-            {"cosignatures", r.cosignatures}, {"timestamps", r.timestamps},
-            {"vault_files", r.vault_files},   {"size", r.size},
+    return {{"entries", r.entries},
+            {"checkpoints", r.checkpoints},
+            {"cosignatures", r.cosignatures},
+            {"timestamps", r.timestamps},
+            {"network_cosignatures", r.network_cosignatures},
+            {"vault_files", r.vault_files},
+            {"size", r.size},
             {"primary_size", r.primary_size}};
 }
 
@@ -421,6 +425,7 @@ Json summary_json(const ledger::BackupSummary& s) {
               {"checkpoints", s.checkpoints},
               {"cosignatures", s.cosignatures},
               {"timestamps", s.timestamps},
+              {"network_cosignatures", s.network_cosignatures},
               {"files", s.files},
               {"skipped_entries", s.skipped_entries},
               {"skipped_files", s.skipped_files}};

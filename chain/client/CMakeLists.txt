@@ -15,6 +15,7 @@ add_library(cexchain_client
     src/peers.cpp
     src/public_witness.cpp
     src/public_witnesses.cpp
+    src/network_witnesses.cpp
     src/records.cpp
     src/relay.cpp
     src/relay_client.cpp

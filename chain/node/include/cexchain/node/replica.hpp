@@ -40,6 +40,7 @@ struct SyncReport {
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
     std::uint64_t timestamps = 0;
+    std::uint64_t network_cosignatures = 0;
     std::uint64_t vault_files = 0;
     /// The replica's size afterwards, and the primary's when asked.
     std::uint64_t size = 0;

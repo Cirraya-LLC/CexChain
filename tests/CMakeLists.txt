@@ -261,6 +261,9 @@ add_test(NAME snapshots_end_to_end
 # Time-stamp authorities (RFC 3161) over checkpoints, with OpenSSL's responder.
 add_test(NAME timestamps_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/timestamps.sh $<TARGET_FILE:cexchain>)
+# Open witness networks (C2SP), against a witness written from c2sp.org's texts.
+add_test(NAME network_witness_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/network_witness.sh $<TARGET_FILE:cexchain>)
 add_test(NAME search_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:cexchain>)
 add_test(NAME client_end_to_end

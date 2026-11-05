@@ -52,6 +52,7 @@ struct BackupSummary {
     std::uint64_t checkpoints = 0;
     std::uint64_t cosignatures = 0;
     std::uint64_t timestamps = 0;
+    std::uint64_t network_cosignatures = 0;
     std::uint64_t files = 0;
     /// Signed by the log key.
     bool is_signed = false;

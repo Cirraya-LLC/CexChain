@@ -615,6 +615,46 @@ std::vector<CommandSpec> chain_commands() {
                {"tsa-root", "FILE", "Say whether each chains to this root certificate (PEM or DER)",
                 false, true}}),
          cmd_checkpoint_timestamps},
+        {{"checkpoint", "note"},
+         "Print a checkpoint as an open network's checkpoint note (default: the latest)",
+         "Checkpoints and proofs",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"size", "N", "The latest checkpoint of this size"},
+               {"note-key", "KEY", "Sign it with this note key (Ed25519; file or pkcs11: URI)"}}),
+         cmd_checkpoint_note,
+         "The note an open witness network cosigns (spec v0.13, c2sp.org/tlog-checkpoint):\n"
+         "the ledger's origin, cirraya.com/cexchain/<ledger id>, the tree size, and the root\n"
+         "in base64. With --note-key, signed as a log signs it, as add-checkpoint sends it.\n"
+         "SHA-256 ledgers only."},
+        {{"checkpoint", "network-cosign"},
+         "Ask the open-network witnesses listed here to cosign a checkpoint (default: the latest)",
+         "Checkpoints and proofs",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"note-key", "KEY", "The ledger's note key (Ed25519; file or pkcs11: URI)", true},
+               {"size", "N", "The latest checkpoint of this size"},
+               {"witness", "NAME", "Ask only this one"},
+               {"ca-file", "FILE", "Trust these CA certificates (PEM) for https:// witnesses"}}),
+         cmd_checkpoint_network_cosign,
+         "Each witness listed with cexchain witness register URL --vkey VKEY gets the\n"
+         "checkpoint's note, signed with the note key, and a consistency proof from the size\n"
+         "it cosigned last (c2sp.org/tlog-witness add-checkpoint). Its cosignature is kept,\n"
+         "and exports carry it (verify --witness-vkey). A witness that cosigned a larger tree\n"
+         "of this ledger is reported, not asked again: a fork, or a restore from an old\n"
+         "backup. cexchain serve --note-key asks by itself."},
+        {{"checkpoint", "network-cosignatures"},
+         "List the open-network witnesses' cosignatures of checkpoints",
+         "Checkpoints and proofs",
+         "",
+         0,
+         0,
+         with({ledger_option, {"size", "N", "Only those of checkpoints of this size"}}),
+         cmd_checkpoint_network_cosignatures},
         {{"proof", "inclusion"},
          "Inclusion proof for a log entry",
          "Checkpoints and proofs",
@@ -678,6 +718,10 @@ std::vector<CommandSpec> chain_commands() {
          1,
          with({{"ledger-id", "ID", "The issuer's ledger id, learned out of band"},
                {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
+               {"witness-vkey", "VKEY",
+                "Trust this open network's witness, by its verifier key (spec v0.13); it counts "
+                "toward --min-witnesses",
+                false, true},
                {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
                {"tsa-root", "FILE",
                 "Trust time-stamp authorities under this root certificate (PEM or DER)", false,
@@ -862,8 +906,10 @@ std::vector<CommandSpec> chain_commands() {
          with({ledger_option,
                {"witness-key", "PUBKEY",
                 "The witness's public key, as its operator publishes it: a public key file, or "
-                "its hex (GET URL/v1/witness shows it; check it elsewhere)",
-                true},
+                "its hex (GET URL/v1/witness shows it; check it elsewhere)"},
+               {"vkey", "VKEY",
+                "Instead, an open network's witness (c2sp.org/tlog-witness): its verifier key, "
+                "as its about page gives it; URL is then its add-checkpoint URL"},
                {"name", "NAME", "What to call it here (default: its name, or its host)"}}),
          cmd_witness_register,
          "Sends the genesis entry and a cosign request of the latest checkpoint to\n"
@@ -873,7 +919,28 @@ std::vector<CommandSpec> chain_commands() {
          "checkpoint, and exports carry its cosignatures (verify --witness --min-witnesses).\n"
          "The witness learns the ledger id, the genesis entry's keys, each checkpoint's size,\n"
          "root, and time, and this computer's address: never statements, records, fields,\n"
-         "parties, or files. Refuses a witness whose key is not the one given."},
+         "parties, or files. Refuses a witness whose key is not the one given.\n\n"
+         "With --vkey, an open network's witness (spec v0.13) is listed in\n"
+         "network-witnesses.json, and nothing is sent: it cosigns once the network's\n"
+         "maintainers list this ledger (cexchain witness network-entry prints the entry to\n"
+         "send them). serve --note-key and checkpoint network-cosign ask it."},
+        {{"witness", "network-entry"},
+         "Print this ledger's entry for an open witness network's list of logs",
+         "Witness",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"note-key", "KEY", "The ledger's note key (Ed25519; file or pkcs11: URI)", true},
+               {"contact", "TEXT", "How the network's maintainers reach the operator", true},
+               {"qpd", "N",
+                "The add-checkpoint requests a day it may make (default: 24, one an hour)"}}),
+         cmd_witness_network_entry,
+         "The lines a network's list takes (vkey, qpd, contact; the witness-network log-list\n"
+         "format). The verifier key's name is the ledger's origin,\n"
+         "cirraya.com/cexchain/<ledger id>. Send the entry to the network's maintainers\n"
+         "yourself: they add logs by hand. Keep the note key as safe as the log key, and back\n"
+         "it up: a network never updates a log's key. SHA-256 ledgers only."},
         {{"witness", "registered"},
          "List the public witnesses this ledger registered with, or show one",
          "Witness",
@@ -913,6 +980,13 @@ std::vector<CommandSpec> chain_commands() {
                 "Ask this time-stamp authority (RFC 3161) to stamp the latest checkpoint at start "
                 "and then every --timestamp-interval"},
                {"timestamp-interval", "SECONDS", "How often to ask (default: 3600)"},
+               {"note-key", "KEY",
+                "Sign checkpoint notes with this Ed25519 key, and ask the open-network witnesses "
+                "listed here (witness register --vkey) to cosign the latest checkpoint at start "
+                "and then every --network-interval"},
+               {"network-interval", "SECONDS",
+                "How often to ask network witnesses (default: 3600; keep within the qpd their "
+                "list gives this ledger)"},
                {"snapshot-interval", "ENTRIES",
                 "Write a snapshot of the state after a checkpoint once the log grew this much "
                 "(default: 100000; 0: never)"},
@@ -1694,6 +1768,10 @@ std::vector<CommandSpec> chain_commands() {
          1,
          with({{"ledger-id", "ID", "The home's ledger id, learned out of band"},
                {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
+               {"witness-vkey", "VKEY",
+                "Trust this open network's witness, by its verifier key (spec v0.13); it counts "
+                "toward --min-witnesses",
+                false, true},
                {"min-witnesses", "N", "Fail unless at least N trusted witnesses cosigned"},
                {"tsa-root", "FILE",
                 "Trust time-stamp authorities under this root certificate (PEM or DER)", false,
