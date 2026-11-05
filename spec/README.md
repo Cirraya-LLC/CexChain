@@ -350,7 +350,7 @@ A ledger can also be witnessed by the witnesses of open transparency networks th
   - Ed25519 (signature type 0x04): over the text `cosignature/v1`, a newline, `time T` (T in decimal), a newline, then the note text;
   - ML-DSA-44 (signature type 0x06; FIPS 204's pure form, empty context): over tlog-cosignature's `CosignedSubtree`: the 12 bytes `subtree/v1\n\0`, the witness's name with a one-byte length, T, the origin with a one-byte length, start 0 and end the tree size (8-byte big-endian each), and the 32-byte root.
 
-  A witness's key ID is the first four bytes of `SHA-256(name || 0x0A || type || public key)`. A verifier trusts network witnesses by their **verifier keys**, `<name>+<key ID in 8 hex digits>+<base64(type || public key)>`, whose key ID it checks.
+  A witness's key ID is the first four bytes of `SHA-256(name || 0x0A || type || public key)`. A verifier trusts network witnesses by their **verifier keys**, `<name>+<key ID in 8 lowercase hex digits>+<base64(type || public key)>`, the base64 with padding and in its canonical form (which may hold `+`: the first two `+` split the key), and checks the key ID. Names follow signed-note: 1 to 255 bytes of UTF-8 with no white space, no `+`, and no control character. T is an unsigned 64-bit count of seconds.
 - **In evidence.** An anchor (section 11) may carry such cosignatures of its checkpoint's note: key 4, each `[name, bytes]`.
 
 ## 11. Evidence bundles and verification
@@ -389,7 +389,7 @@ A report states:
 - for each event, whether a person proved presence and how, and any AI provenance;
 - for a record, the record it supersedes, and the registration that superseded it, if any (by whom and when);
 - the disclosed fields and attachment checks;
-- the witnesses, and for each network witness the size it cosigned and its time (v0.13);
+- the witnesses, and each network cosignature, in the bundle's order: its witness, the size it cosigned, its time, and whether the witness is trusted (v0.13). A ledger witness is one by its key, a network witness by its verifier key, so each is counted once;
 - the time-stamp tokens, and for each event the time by which a trusted authority saw it (v0.11);
 - whether it is complete.
 
@@ -727,7 +727,7 @@ A call cites each consent as `[ledger, record, bundle, signer]`: the party's led
 1. verify the instance's bundle for the expected home ledger (section 11) and require it to be complete;
 2. replay it, running the contract for each call, the ancestors' included, to reach the instance's state, status, parties, whether it is final, and its requests (v0.8). For a child, the replay also shows that each generation is the child its creating call's output made at its position, with that output's state, status, and parties, within the depth limit: otherwise the instance would not exist in the replayed state;
 3. for each consent citation, find the bundle with that hash and check that:
-   - it verifies, completely, for the cited ledger;
+   - it verifies, completely, for the cited ledger, trusting the witnesses, network witnesses, and time-stamp authorities the verifier trusts for the home (v0.13);
    - it is about the cited record, a live `cexchain.contract-consent/1` record (given, not revoked);
    - it carries the call's terms;
    - it lapses no earlier than the call's registration time;

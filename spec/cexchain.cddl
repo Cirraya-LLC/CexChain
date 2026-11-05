@@ -647,7 +647,8 @@ anchor = {
 ; base64: a 4-byte key ID, an 8-byte big-endian time, and the signature
 ; (Ed25519, type 0x04; ML-DSA-44, type 0x06).
 note-cosignature = [
-  name: tstr .size (1..255),
+  name: tstr .size (1..255),   ; a signed-note key name: no white space, '+', or
+                               ; control character
   bytes: bstr .size (12..8192),
 ]
 ; An RFC 3161 TimeStampToken: DER-encoded CMS SignedData whose
