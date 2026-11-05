@@ -25,6 +25,10 @@ using Json = nlohmann::ordered_json;
 [[nodiscard]] std::string format_time(protocol::Timestamp ms);
 /// RFC 3339 with milliseconds: "2026-10-06T08:00:00.000Z"
 [[nodiscard]] std::string iso_time(protocol::Timestamp ms);
+/// The same of a time in seconds (an open-network witness's: any 8 bytes),
+/// so that no multiplication overflows; years past 9999 in full.
+[[nodiscard]] std::string iso_time_seconds(std::uint64_t seconds, unsigned millis = 0);
+[[nodiscard]] std::string format_time_seconds(std::uint64_t seconds);
 
 /// Machine form: "person", "agent", "device", or "organization".
 [[nodiscard]] std::string kind_text(const std::optional<protocol::ActorKind>& kind);

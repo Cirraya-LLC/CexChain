@@ -127,18 +127,20 @@ Result<ContractConsentCheck> check_consent_report(const crypto::Provider& provid
 
 } // namespace
 
-Result<ContractConsentCheck>
-check_contract_consent(const crypto::Provider& provider, const ContractConsentRef& ref,
-                       ByteView bundle, const ContractCallBody& call, const Id& home,
-                       crypto::HashAlg home_hash, Timestamp at,
-                       std::span<const crypto::PublicKey> trusted_witnesses) {
+Result<ContractConsentCheck> check_contract_consent(const crypto::Provider& provider,
+                                                    const ContractConsentRef& ref, ByteView bundle,
+                                                    const ContractCallBody& call, const Id& home,
+                                                    crypto::HashAlg home_hash, Timestamp at,
+                                                    const VerifyOptions& trusted) {
     CEXCHAIN_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
     if (digest != ref.bundle) {
         return verification_failure("the consent bundle is not the one the call cites");
     }
     VerifyOptions options;
     options.expected_ledger = ref.ledger;
-    options.trusted_witnesses.assign(trusted_witnesses.begin(), trusted_witnesses.end());
+    options.trusted_witnesses = trusted.trusted_witnesses;
+    options.trusted_network_witnesses = trusted.trusted_network_witnesses;
+    options.trusted_timestamp_roots = trusted.trusted_timestamp_roots;
     auto report = verify_bundle(provider, bundle, options);
     if (!report) {
         return std::unexpected(report.error());
@@ -200,8 +202,7 @@ Result<ContractReport> verify_contract_evidence_as_given(const crypto::Provider&
             CEXCHAIN_TRY(ContractConsentCheck check,
                          check_contract_consent(provider, ref, *found->second.first,
                                                 *event.contract_call, out.instance.ledger_id,
-                                                out.instance.hash, event.registered_at,
-                                                options.trusted_witnesses));
+                                                out.instance.hash, event.registered_at, options));
             step.consents.push_back(std::move(check));
         }
         out.steps.push_back(std::move(step));

@@ -73,7 +73,7 @@ Json cosignature_json(const ledger::StoredNetworkCosignature& n) {
     return {{"witness", n.witness.name},
             {"vkey", network::verifier_key_text(n.witness)},
             {"tree_size", n.checkpoint.checkpoint.tree_size},
-            {"time", verifier::iso_time(static_cast<protocol::Timestamp>(n.time) * 1000)}};
+            {"time", verifier::iso_time_seconds(n.time)}};
 }
 
 } // namespace
@@ -165,11 +165,10 @@ int cmd_checkpoint_network_cosign(const Args& args) {
         }
         session.add_network_cosignature(w.witness.key, *cosignature, size);
         const std::uint64_t time = unwrap(network::cosignature_time(cosignature->bytes), "time");
-        out.push_back(
-            {{"witness", name},
-             {"cosigned", true},
-             {"tree_size", size},
-             {"time", verifier::iso_time(static_cast<protocol::Timestamp>(time) * 1000)}});
+        out.push_back({{"witness", name},
+                       {"cosigned", true},
+                       {"tree_size", size},
+                       {"time", verifier::iso_time_seconds(time)}});
         if (!args.json()) {
             std::println("{} cosigned the checkpoint at size {}", name, size);
         }
@@ -195,10 +194,8 @@ int cmd_checkpoint_network_cosignatures(const Args& args) {
             continue;
         }
         out.push_back(cosignature_json(n));
-        lines.push_back(
-            std::format("{:>10}  {}  {}", cosigned,
-                        verifier::format_time(static_cast<protocol::Timestamp>(n.time) * 1000),
-                        n.witness.name));
+        lines.push_back(std::format("{:>10}  {}  {}", cosigned,
+                                    verifier::format_time_seconds(n.time), n.witness.name));
     }
     if (args.json()) {
         print_json(out);

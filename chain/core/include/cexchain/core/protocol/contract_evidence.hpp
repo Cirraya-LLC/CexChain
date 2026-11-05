@@ -56,12 +56,13 @@ struct ContractConsentCheck {
 /// `ref.bundle`, verifies for `ref.ledger` completely, and is about
 /// `ref.record`, a live contract consent with the call's terms that lapses
 /// no earlier than `at`, registered by the signer `ref.signer` claims.
-/// Cosignatures count as trusted only by `trusted_witnesses`.
+/// The bundle is verified trusting what `trusted` trusts: its witnesses,
+/// open-network witnesses, and time-stamp authorities' roots (its other
+/// options do not apply).
 [[nodiscard]] Result<ContractConsentCheck>
 check_contract_consent(const crypto::Provider& provider, const ContractConsentRef& ref,
                        ByteView bundle, const ContractCallBody& call, const Id& home,
-                       crypto::HashAlg home_hash, Timestamp at,
-                       std::span<const crypto::PublicKey> trusted_witnesses = {});
+                       crypto::HashAlg home_hash, Timestamp at, const VerifyOptions& trusted = {});
 
 /// The same checks for a bundle verified already: `report` must be what
 /// `verify_bundle` reports for exactly `bundle` with `expected_ledger` set to

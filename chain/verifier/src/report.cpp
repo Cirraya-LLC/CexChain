@@ -103,16 +103,55 @@ std::string event_line(const protocol::RecordEvent& event) {
 
 } // namespace
 
+namespace {
+
+/// A UTC time of `seconds` since the epoch, its date by H. Hinnant's
+/// days-to-civil algorithm on 64-bit integers: right for any time a
+/// witness or a ledger can state, years past 9999 in full.
+struct Civil {
+    std::uint64_t year;
+    unsigned month, day, hour, minute, second;
+};
+
+Civil civil(std::uint64_t seconds) {
+    const std::uint64_t days = seconds / 86'400;
+    const std::uint64_t rest = seconds % 86'400;
+    const std::uint64_t z = days + 719'468;
+    const std::uint64_t era = z / 146'097;
+    const std::uint64_t doe = z - era * 146'097;
+    const std::uint64_t yoe = (doe - doe / 1460 + doe / 36'524 - doe / 146'096) / 365;
+    const std::uint64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const std::uint64_t mp = (5 * doy + 2) / 153;
+    const auto day = static_cast<unsigned>(doy - (153 * mp + 2) / 5 + 1);
+    const auto month = static_cast<unsigned>(mp < 10 ? mp + 3 : mp - 9);
+    return {yoe + era * 400 + (month <= 2 ? 1 : 0),
+            month,
+            day,
+            static_cast<unsigned>(rest / 3600),
+            static_cast<unsigned>(rest / 60 % 60),
+            static_cast<unsigned>(rest % 60)};
+}
+
+} // namespace
+
 std::string format_time(protocol::Timestamp ms) {
-    using namespace std::chrono;
-    const sys_time<milliseconds> time{milliseconds{static_cast<std::int64_t>(ms)}};
-    return std::format("{:%Y-%m-%d %H:%M:%S} UTC", floor<seconds>(time));
+    return format_time_seconds(ms / 1000);
+}
+
+std::string format_time_seconds(std::uint64_t seconds) {
+    const Civil c = civil(seconds);
+    return std::format("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", c.year, c.month, c.day, c.hour,
+                       c.minute, c.second);
 }
 
 std::string iso_time(protocol::Timestamp ms) {
-    using namespace std::chrono;
-    const sys_time<milliseconds> time{milliseconds{static_cast<std::int64_t>(ms)}};
-    return std::format("{:%Y-%m-%dT%H:%M:%S}Z", time);
+    return iso_time_seconds(ms / 1000, static_cast<unsigned>(ms % 1000));
+}
+
+std::string iso_time_seconds(std::uint64_t seconds, unsigned millis) {
+    const Civil c = civil(seconds);
+    return std::format("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", c.year, c.month, c.day, c.hour,
+                       c.minute, c.second, millis);
 }
 
 std::string kind_text(const std::optional<protocol::ActorKind>& kind) {
@@ -213,7 +252,7 @@ Json witnesses_json(const protocol::EvidenceReport& r) {
     for (const protocol::NetworkCosignatureCheck& n : r.network_cosignatures) {
         network.push_back({{"witness", n.witness},
                            {"size", n.size},
-                           {"time", iso_time(static_cast<protocol::Timestamp>(n.time) * 1000)},
+                           {"time", iso_time_seconds(n.time)},
                            {"trusted", n.trusted}});
     }
     return {{"trusted", r.trusted_cosignatures},
@@ -230,7 +269,7 @@ std::string witnesses_text(const protocol::EvidenceReport& r) {
                                       r.untrusted_cosignatures));
     for (const protocol::NetworkCosignatureCheck& n : r.network_cosignatures) {
         out += std::format("               {} saw size {} at {} ({}network witness)\n", n.witness,
-                           n.size, format_time(static_cast<protocol::Timestamp>(n.time) * 1000),
+                           n.size, format_time_seconds(n.time),
                            n.trusted ? "a trusted " : "an untrusted ");
     }
     return out;
