@@ -354,6 +354,28 @@ protocol::Id id_from_hex(const json& text) {
 
 } // namespace
 
+TEST_CASE("a delegation is chosen only while its whole chain is in force", "[node][contracts]") {
+    World w;
+    const Cast c = build_cast(w);
+    auto chosen = [&] {
+        return node::choose_delegation(w.ledger().state(), c.agent_id,
+                                       protocol::StatementType::record_register,
+                                       std::string(document_type), w.clock().now());
+    };
+    REQUIRE(chosen() == c.agent_delegation);
+
+    SECTION("its grantor's delegation revoked") {
+        w.ok(w.org(), w.statement(w.org_id(), std::nullopt,
+                                  protocol::DelegationRevokeBody{c.alice_delegation, "test"}));
+        CHECK_FALSE(chosen());
+    }
+    SECTION("its grantor revoked") {
+        w.ok(w.org(),
+             w.statement(w.org_id(), std::nullopt, protocol::ActorRevokeBody{c.alice_id, "left"}));
+        CHECK_FALSE(chosen());
+    }
+}
+
 TEST_CASE("a registrar records a contract call once both parties consented", "[node][contracts]") {
     World supplier{crypto::HashAlg::sha256, "Supplier"};
     World bank{crypto::HashAlg::sm3, "Bank"};

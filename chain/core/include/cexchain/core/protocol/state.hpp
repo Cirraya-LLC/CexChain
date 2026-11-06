@@ -236,6 +236,13 @@ public:
     /// The actor whose current key has this kid, if any.
     [[nodiscard]] const ActorState* actor_by_kid(const Id& kid) const;
     [[nodiscard]] const DelegationState* delegation(const Id& id) const;
+    /// Whether a statement may act under `delegation` at `now`, as far as
+    /// its chain goes: no link revoked, no grantor revoked, every link within
+    /// its time window, and, for a statement without proof of presence
+    /// (`presence` false), no link requiring it. What the delegation's scope
+    /// covers is the statement's to match.
+    [[nodiscard]] Status check_chain(const DelegationState& delegation, Timestamp now,
+                                     bool presence) const;
     [[nodiscard]] const RecordState* record(const Id& id) const;
     [[nodiscard]] const ContractState* contract(const Id& id) const;
     [[nodiscard]] const InstanceState* instance(const Id& id) const;

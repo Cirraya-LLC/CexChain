@@ -59,7 +59,8 @@ decode_consent_bundles(ByteView encoded, std::size_t max = protocol::max_contrac
                                          bool sync_directory = true);
 
 /// The newest valid delegation of `actor` for `type`, on records of
-/// `record_type` and on `contract` if given, at `now`. For a contract call
+/// `record_type` and on `contract` if given, at `now`: one in force up its
+/// chain (LedgerState::check_chain), presence aside. For a contract call
 /// (`call`), the delegation's functions (scope key 8) must name its function,
 /// and its request kinds (key 9, v0.8), if any, the kind of the request it
 /// answers.

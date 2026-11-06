@@ -422,15 +422,15 @@ choose_delegation(const protocol::LedgerState& state, const protocol::Id& actor,
     std::optional<protocol::Id> chosen;
     std::uint64_t newest = 0;
     for (const auto& [key, d] : state.delegations()) {
-        const bool usable = d.grantee == actor && !d.revoked &&
+        // In force up its chain, as the ledger checks it; presence is the
+        // signer's to give.
+        const bool usable = d.grantee == actor &&
                             std::ranges::contains(d.scope.statement_types, type) &&
                             (!record_type || !d.scope.record_types ||
                              std::ranges::contains(*d.scope.record_types, *record_type)) &&
                             (!contract || !d.scope.contracts ||
                              std::ranges::contains(*d.scope.contracts, *contract)) &&
-                            (!d.scope.not_before || *d.scope.not_before <= now) &&
-                            (!d.scope.not_after || now <= *d.scope.not_after) &&
-                            covers_call(d.scope);
+                            covers_call(d.scope) && state.check_chain(d, now, true).has_value();
         if (usable && (!chosen || d.granted_at_index > newest)) {
             chosen = d.id;
             newest = d.granted_at_index;

@@ -577,7 +577,12 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
             }
         }
     }
-    for (const DelegationState* link = delegation; link != nullptr;
+    return check_chain(*delegation, now, statement.presence.has_value());
+}
+
+Status LedgerState::check_chain(const DelegationState& delegation, Timestamp now,
+                                bool presence) const {
+    for (const DelegationState* link = &delegation; link != nullptr;
          link = link->parent ? this->delegation(*link->parent) : nullptr) {
         if (link->revoked) {
             return fail(Errc::rejected, "a delegation in the chain has been revoked");
@@ -589,7 +594,7 @@ Status LedgerState::check_authority(const Statement& statement, const ActorState
         if (!in_window(link->scope, now)) {
             return fail(Errc::rejected, "a delegation in the chain is not valid at this time");
         }
-        if (link->scope.require_presence && !statement.presence) {
+        if (link->scope.require_presence && !presence) {
             return fail(Errc::rejected, "the delegation requires proof of presence");
         }
     }
