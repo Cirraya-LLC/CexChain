@@ -21,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -261,15 +262,13 @@ public:
             reset(last_log_index + 1);
             return true;
         }
-        // Keep (last_log_index, end): rewrite the file without the rest.
+        // Keep (last_log_index, end): a file of those alone takes the log's
+        // place, so a crash leaves either log whole.
         std::vector<ptr<nuraft::log_entry>> kept;
         for (ulong i = last_log_index + 1; i < end; ++i) {
             kept.push_back(read(i));
         }
-        reset(last_log_index + 1);
-        for (ulong i = 0; i < kept.size(); ++i) {
-            write(last_log_index + 1 + i, *kept[i]);
-        }
+        reset(last_log_index + 1, kept);
         return true;
     }
 
@@ -358,16 +357,21 @@ private:
         return nuraft::log_entry::deserialize(*b);
     }
 
-    void write(ulong index, nuraft::log_entry& entry) {
+    /// Appends the record of the entry at `index` to `out`.
+    static void put_record(Bytes& out, ulong index, nuraft::log_entry& entry) {
         ptr<buffer> serialized = entry.serialize();
         Bytes payload;
         put64(payload, index);
         payload.insert(payload.end(), serialized->data_begin(),
                        serialized->data_begin() + serialized->size());
+        put32(out, static_cast<std::uint32_t>(payload.size()));
+        put32(out, ledger::detail::crc32c(payload));
+        out.insert(out.end(), payload.begin(), payload.end());
+    }
+
+    void write(ulong index, nuraft::log_entry& entry) {
         Bytes record;
-        put32(record, static_cast<std::uint32_t>(payload.size()));
-        put32(record, ledger::detail::crc32c(payload));
-        record.insert(record.end(), payload.begin(), payload.end());
+        put_record(record, index, entry);
         if (::pwrite(fd_, record.data(), record.size(), static_cast<off_t>(file_size_)) !=
                 static_cast<ssize_t>(record.size()) ||
             ::fsync(fd_) != 0) {
@@ -396,14 +400,22 @@ private:
         }
     }
 
-    /// An empty log starting at `start`, written in place of the file.
-    void reset(ulong start) {
-        Bytes header(log_magic.begin(), log_magic.end());
-        put64(header, start);
+    /// A log starting at `start` with `entries`, written beside the file and
+    /// synced before it takes the file's place.
+    void reset(ulong start, std::span<const ptr<nuraft::log_entry>> entries = {}) {
+        Bytes data(log_magic.begin(), log_magic.end());
+        put64(data, start);
+        std::vector<std::uint64_t> offsets;
+        std::vector<ulong> terms;
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            offsets.push_back(data.size());
+            terms.push_back(entries[i]->get_term());
+            put_record(data, start + i, *entries[i]);
+        }
         const std::filesystem::path temporary = path_.string() + ".new";
         const int fd = ::open(temporary.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
         if (fd < 0 ||
-            ::pwrite(fd, header.data(), header.size(), 0) != static_cast<ssize_t>(header.size()) ||
+            ::pwrite(fd, data.data(), data.size(), 0) != static_cast<ssize_t>(data.size()) ||
             ::fsync(fd) != 0 || ::rename(temporary.c_str(), path_.c_str()) != 0) {
             fatal("cannot rewrite the Raft log");
         }
@@ -416,9 +428,9 @@ private:
             ::close(dir);
         }
         start_ = start;
-        offsets_.clear();
-        terms_.clear();
-        file_size_ = header.size();
+        offsets_ = std::move(offsets);
+        terms_ = std::move(terms);
+        file_size_ = data.size();
     }
 
     std::filesystem::path path_;
@@ -592,8 +604,8 @@ public:
         return snapshot_;
     }
 
-    int read_logical_snp_obj(nuraft::snapshot& s, void*&, ulong obj_id, ptr<buffer>& data_out,
-                             bool& is_last_obj) override {
+    int read_logical_snp_obj(nuraft::snapshot& s, void*& context, ulong obj_id,
+                             ptr<buffer>& data_out, bool& is_last_obj) override {
         std::uint64_t size = 0;
         {
             const std::lock_guard lock(snapshot_mutex_);
@@ -622,9 +634,9 @@ public:
             encoded = cbor::encode(cbor::Value::array(std::move(entries)));
         } else if (obj_id == chunks + 1) {
             encoded = extras(size);
-            is_last_obj = sidecar_files(size).empty();
+            is_last_obj = transfer_files(context, s.get_last_log_idx(), size).empty();
         } else {
-            const auto files_kept = sidecar_files(size);
+            const auto& files_kept = transfer_files(context, s.get_last_log_idx(), size);
             const std::size_t first =
                 static_cast<std::size_t>(obj_id - chunks - 2) * snapshot_vault_files;
             cbor::Array files;
@@ -720,7 +732,7 @@ public:
                 if (kind == sidecar_contract_consents) {
                     keep_contract_consents(*id, bytes);
                 } else if (kind == 0) {
-                    store_vault(*id, bytes);
+                    static_cast<void>(store_vault(*id, bytes));
                 }
             }
         }
@@ -758,7 +770,10 @@ public:
         return true;
     }
 
-    void free_user_snp_ctx(void*&) override {}
+    void free_user_snp_ctx(void*& context) override {
+        delete static_cast<Transfer*>(context);
+        context = nullptr;
+    }
 
 private:
     std::filesystem::path vault_path(const protocol::Id& record) const {
@@ -812,6 +827,25 @@ private:
             out.push_back(id);
         }
         return out;
+    }
+
+    /// What one transfer of a snapshot sends besides the ledger, listed when
+    /// it first needs them: pages of a list made again each time would
+    /// shift when a pending call goes meanwhile, and leave one out.
+    struct Transfer {
+        ulong snapshot = 0;
+        std::vector<KeptFile> files;
+    };
+
+    const std::vector<KeptFile>& transfer_files(void*& context, ulong snapshot,
+                                                std::uint64_t size) const {
+        auto* transfer = static_cast<Transfer*>(context);
+        if (transfer == nullptr || transfer->snapshot != snapshot) {
+            delete transfer;
+            transfer = new Transfer{snapshot, sidecar_files(size)};
+            context = transfer;
+        }
+        return transfer->files;
     }
 
     /// The files kept with statements below `size`: records' vault files
@@ -957,20 +991,38 @@ private:
                                                 *(*parts)[offset + 2].as_uint64());
     }
 
-    /// Writes a record's sealed private data once; false if other data is
-    /// there already.
-    bool store_vault(const protocol::Id& record, ByteView sealed) {
+    /// Writes a record's sealed private data once: the same data again is
+    /// fine, other data is Errc::rejected, and Errc::unavailable means it
+    /// could not be written.
+    Status store_vault(const protocol::Id& record, ByteView sealed) {
         const std::filesystem::path path = vault_path(record);
         if (auto held = detail::read_file(path)) {
-            return std::ranges::equal(*held, sealed);
+            return std::ranges::equal(*held, sealed)
+                       ? Status{}
+                       : fail(Errc::rejected, "other private data is kept for the record");
         }
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
         if (ec || !detail::write_file(path, sealed, true)) {
             failed("cannot write a vault file");
+            return fail(Errc::unavailable, "cannot write a vault file");
         }
-        return true;
+        return {};
     }
+
+    /// The statement and the sealed data of a batch's vault sidecar
+    /// ([i, data]), if `v` is one.
+    static std::optional<std::pair<std::uint64_t, const Bytes*>>
+    vault_sidecar(const cbor::Value& v, std::size_t statements) {
+        const cbor::Array* parts = v.as_array();
+        if (parts == nullptr || parts->size() != 2 || !(*parts)[0].as_uint64() ||
+            (*parts)[1].as_bytes() == nullptr || *(*parts)[0].as_uint64() >= statements) {
+            return std::nullopt;
+        }
+        return std::pair{*(*parts)[0].as_uint64(), (*parts)[1].as_bytes()};
+    }
+
+    bool keeps_vault() const { return std::filesystem::exists(directory_ / "vault" / "vault.pub"); }
 
     /// Applies one entry. Everything here is deterministic: every node
     /// reaches the same outcome from the same ledger.
@@ -1022,9 +1074,26 @@ private:
     BatchResult apply_batch(protocol::Timestamp at, std::uint64_t size, const cbor::Array& list,
                             const cbor::Array& vaults) {
         BatchResult results;
+        std::vector<ByteView> statements;
+        for (const cbor::Value& s : list) {
+            statements.emplace_back(s.as_bytes() != nullptr ? ByteView(*s.as_bytes()) : ByteView());
+        }
         if (ledger_->size() > size) {
             // Applied before (a restart, or a ledger copied ahead): applying
-            // it to a later state could accept what was refused then.
+            // it to a later state could accept what was refused then. Only
+            // the private data of what the ledger holds is written again: a
+            // node that stopped between the two kept the statement alone.
+            for (const cbor::Value& v : vaults) {
+                const auto sidecar = vault_sidecar(v, statements.size());
+                auto parsed =
+                    sidecar ? protocol::parse_statement(ledger_->provider(),
+                                                        statements[sidecar->first], ledger_->hash())
+                            : Result<protocol::SignedStatement>(
+                                  fail(Errc::malformed, "no vault sidecar"));
+                if (parsed && ledger_->statement_index(parsed->id) && keeps_vault()) {
+                    static_cast<void>(store_vault(parsed->id, *sidecar->second));
+                }
+            }
             for (std::size_t i = 0; i < list.size(); ++i) {
                 results.emplace_back(fail(Errc::unavailable, "applied before"));
             }
@@ -1036,10 +1105,6 @@ private:
                 results.emplace_back(fail(Errc::unavailable, "this node is behind"));
             }
             return results;
-        }
-        std::vector<ByteView> statements;
-        for (const cbor::Value& s : list) {
-            statements.emplace_back(s.as_bytes() != nullptr ? ByteView(*s.as_bytes()) : ByteView());
         }
         // The consents a contract call cites are kept before it is
         // registered.
@@ -1061,21 +1126,24 @@ private:
         }
         results = ledger_->submit_batch(statements, at);
         for (const cbor::Value& v : vaults) {
-            const cbor::Array* parts = v.as_array();
-            if (parts == nullptr || parts->size() != 2 || !(*parts)[0].as_uint64() ||
-                (*parts)[1].as_bytes() == nullptr) {
+            const auto sidecar = vault_sidecar(v, results.size());
+            if (!sidecar || !results[sidecar->first]) {
                 continue;
             }
-            const std::uint64_t i = *(*parts)[0].as_uint64();
-            if (i >= results.size() || !results[i]) {
-                continue;
-            }
-            if (!std::filesystem::exists(directory_ / "vault" / "vault.pub")) {
-                results[i] = fail(Errc::rejected,
-                                  "the statement is registered, but this ledger keeps no vault");
-            } else if (!store_vault(results[i]->statement_id, *(*parts)[1].as_bytes())) {
-                results[i] = fail(Errc::rejected, "the statement is registered, but the record's "
-                                                  "private data was stored before, differently");
+            Result<ledger::Registration>& result = results[sidecar->first];
+            if (!keeps_vault()) {
+                result = fail(Errc::rejected,
+                              "the statement is registered, but this ledger keeps no vault");
+            } else if (auto s = store_vault(result->statement_id, *sidecar->second); !s) {
+                // As a single node answers; sent again, the statement is
+                // registered already and its data is written then.
+                result = s.error().code == Errc::rejected
+                             ? fail(Errc::rejected, "the statement is registered, but the "
+                                                    "record's private data was stored before, "
+                                                    "differently")
+                             : fail(Errc::unavailable, "the statement is registered, but its "
+                                                       "private data could not be stored: send "
+                                                       "it again");
             }
         }
         return results;

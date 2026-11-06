@@ -555,6 +555,144 @@ TEST_CASE("a node without the cluster's secret gets nothing", "[node][cluster][s
     CHECK(trio.nodes[0]->ledger->size() == 3);
 }
 
+namespace {
+
+/// A ledger directory for a state machine of its own: the cluster's folder,
+/// and a vault.
+std::filesystem::path machine_directory(std::string_view name) {
+    const auto dir = std::filesystem::temp_directory_path() /
+                     ("cexchain-" + std::string(name) + "-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / node::cluster_directory);
+    std::filesystem::create_directories(dir / "vault" / "records");
+    REQUIRE(node::detail::write_file(dir / "vault" / "vault.pub", Bytes{1, 2, 3}, false));
+    return dir;
+}
+
+} // namespace
+
+TEST_CASE("a node keeps a batch's private data, or says it could not", "[node][cluster][storage]") {
+    namespace cd = node::cluster_detail;
+    World w;
+    const auto dir = machine_directory("cluster-vault");
+    auto record = [&](protocol::Timestamp at) {
+        auto s = w.statement(w.org_id(), std::nullopt, w.record_body("other/1"));
+        s.issued_at = at;
+        return w.sign(w.org(), s);
+    };
+    // A batch of one statement with its sealed data, as the leader sends it.
+    auto batch = [&](const Bytes& statement, const Bytes& sealed) {
+        const auto entry = cbor::encode(cbor::Value::array(
+            {cbor::Value::unsigned_integer(cd::entry_batch), cbor::Value::unsigned_integer(t0),
+             cbor::Value::unsigned_integer(w.ledger().size()),
+             cbor::Value::array({cbor::Value::bytes(statement)}),
+             cbor::Value::array({cbor::Value::array(
+                 {cbor::Value::unsigned_integer(0), cbor::Value::bytes(sealed)})})}));
+        REQUIRE(entry);
+        return cd::to_buffer(*entry);
+    };
+    auto outcome = [](cd::LedgerMachine& machine, nuraft::ulong index) {
+        auto taken = machine.take(index);
+        REQUIRE(taken);
+        REQUIRE(std::holds_alternative<node::BatchResult>(*taken));
+        return std::get<node::BatchResult>(std::move(*taken)).front();
+    };
+    const Bytes first = record(t0);
+    const auto id = protocol::parse_statement(provider(), first, w.hash())->id;
+    const auto file = dir / "vault" / "records" / (cexchain::to_hex(id.bytes()) + ".cbor");
+    const auto entry = batch(first, Bytes{0xa0, 1});
+    {
+        cd::LedgerMachine machine(dir, w.ledger(), {});
+        machine.commit(1, *entry);
+        CHECK(outcome(machine, 1));
+        CHECK(node::detail::read_file(file) == Bytes{0xa0, 1});
+    }
+    // Stopped after the ledger took the statement, before its data was
+    // written: applied again, the entry writes the data alone.
+    std::filesystem::remove(file);
+    REQUIRE(node::detail::write_file(cd::cluster_path(dir, cd::applied_file),
+                                     cexchain::as_bytes("0"), false));
+    cd::LedgerMachine machine(dir, w.ledger(), {});
+    machine.commit(1, *entry);
+    CHECK(node::detail::read_file(file) == Bytes{0xa0, 1});
+
+    // Data that cannot be written is no success; sent again, it is kept.
+    std::filesystem::remove_all(dir / "vault" / "records");
+    REQUIRE(node::detail::write_file(dir / "vault" / "records", Bytes{0}, false));
+    const Bytes second = record(t0 + 1);
+    machine.commit(2, *batch(second, Bytes{0xa0, 2}));
+    const auto refused = outcome(machine, 2);
+    REQUIRE_FALSE(refused);
+    CHECK(refused.error().code == Errc::unavailable);
+    std::filesystem::remove(dir / "vault" / "records");
+    machine.commit(3, *batch(second, Bytes{0xa0, 2}));
+    CHECK(outcome(machine, 3));
+    const auto second_id = protocol::parse_statement(provider(), second, w.hash())->id;
+    CHECK(node::detail::read_file(dir / "vault" / "records" /
+                                  (cexchain::to_hex(second_id.bytes()) + ".cbor")) ==
+          Bytes{0xa0, 2});
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("a snapshot sends every file it listed, though calls go while it is read",
+          "[node][cluster][storage]") {
+    namespace cd = node::cluster_detail;
+    World w;
+    const auto dir = machine_directory("snapshot-files");
+    // More pending calls than a page holds.
+    const protocol::Id instance = *protocol::to_id(Bytes(32, 0x11));
+    std::vector<node::PendingChange> calls;
+    for (std::size_t i = 0; i <= cd::snapshot_vault_files; ++i) {
+        Bytes id(32, 0x22);
+        id[0] = static_cast<std::uint8_t>(i >> 8U);
+        id[1] = static_cast<std::uint8_t>(i & 0xffU);
+        node::PendingCall pending;
+        pending.instance = instance;
+        pending.head = 1;
+        pending.function = "sign";
+        pending.arguments = cbor::Value::null();
+        pending.until = t0 + day;
+        pending.proposer = "staff";
+        pending.missing = {w.ledger().id()};
+        calls.push_back({node::pending_call_name({instance, 1, *protocol::to_id(id)}),
+                         *node::encode_pending_call(pending)});
+    }
+    REQUIRE(node::apply_pending_changes(dir, calls));
+    cd::LedgerMachine machine(dir, w.ledger(), {});
+    auto snapshot =
+        nuraft::cs_new<nuraft::snapshot>(1, 1, nuraft::cs_new<nuraft::cluster_config>());
+    nuraft::async_result<bool>::handler_type done = [](bool&, nuraft::ptr<std::exception>&) {
+    };
+    machine.create_snapshot(*snapshot, done);
+    // Read as a transfer to a follower reads it: the ledger, the extras,
+    // then the files a page at a time.
+    void* context = nullptr;
+    auto read = [&](nuraft::ulong object) {
+        nuraft::ptr<nuraft::buffer> data;
+        bool last = false;
+        REQUIRE(machine.read_logical_snp_obj(*snapshot, context, object, data, last) == 0);
+        auto value = cbor::decode(cd::to_bytes(*data));
+        REQUIRE(value);
+        REQUIRE(value->as_array() != nullptr);
+        return std::pair{*value->as_array(), last};
+    };
+    const nuraft::ulong chunks = 1;
+    CHECK_FALSE(read(chunks + 1).second);
+    const auto [first, first_last] = read(chunks + 2);
+    CHECK(first.size() == cd::snapshot_vault_files);
+    CHECK_FALSE(first_last);
+    // One goes meanwhile; the next page still has the last.
+    const node::PendingChange gone{calls.front().name, std::nullopt};
+    REQUIRE(node::apply_pending_changes(dir, std::span(&gone, 1)));
+    const auto [second, second_last] = read(chunks + 3);
+    REQUIRE(second.size() == 1);
+    CHECK(*second[0].as_array()->front().as_text() == calls.back().name);
+    CHECK(second_last);
+    machine.free_user_snp_ctx(context);
+    CHECK(context == nullptr);
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("the Raft log keeps exactly what was written", "[node][cluster][storage]") {
     namespace cd = node::cluster_detail;
     const auto dir = std::filesystem::temp_directory_path() /
@@ -624,6 +762,24 @@ TEST_CASE("the Raft log keeps exactly what was written", "[node][cluster][storag
         auto log = cd::RaftLog::open(path);
         REQUIRE(log);
         CHECK((*log)->next_slot() == 4);
+    }
+    // Compaction writes the entries it keeps before their file takes the
+    // log's place: read from disk at once, they are all there.
+    {
+        const auto compacted = dir / "compacted";
+        auto log = cd::RaftLog::open(compacted);
+        REQUIRE(log);
+        for (std::uint8_t i = 1; i <= 4; ++i) {
+            auto e = entry(i, i);
+            CHECK((*log)->append(e) == i);
+        }
+        CHECK((*log)->compact(2));
+        auto reopened = cd::RaftLog::open(compacted);
+        REQUIRE(reopened);
+        CHECK((*reopened)->start_index() == 3);
+        CHECK((*reopened)->next_slot() == 5);
+        CHECK((*reopened)->entry_at(3)->get_term() == 3);
+        CHECK(cd::to_bytes((*reopened)->entry_at(4)->get_buf()) == Bytes(5, 4));
     }
     std::filesystem::remove_all(dir);
 }
