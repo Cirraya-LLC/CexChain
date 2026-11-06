@@ -43,9 +43,11 @@
 namespace cexchain::bo::wasm {
 
 /// The code generation's version, named in a deploy's compiler: it goes up
-/// whenever any emitted byte changes, and the compiler writes only its own.
-/// 4 is the first released; 1 to 3 came before it and are not written.
-inline constexpr std::uint32_t codegen_version = 4;
+/// whenever any emitted byte changes. 4 is the first released; 1 to 3 came
+/// before it and are not written. The compiler writes its own, and carries
+/// the released ones from oldest_codegen on, so that their deploys rebuild.
+inline constexpr std::uint32_t codegen_version = 5;
+inline constexpr std::uint32_t oldest_codegen = 4;
 
 enum class ValType : std::uint8_t { i32 = 0x7F, i64 = 0x7E };
 
@@ -398,6 +400,9 @@ public:
     /// The operand stack's maximum height in a defined function, as the
     /// builder measured it.
     [[nodiscard]] std::uint32_t max_height(Func f) const BO_PRE(is_function(f) && is_defined(f));
+    /// Whether a function defined so far has a body beyond the profile's
+    /// vm::max_body_size: the module is then too large to finish.
+    [[nodiscard]] bool too_large() const noexcept { return too_large_; }
 
     /// A bound given by hand for `f`, used in place of its recorded cost: for
     /// a routine whose cost the tree cannot bound (one that recurses). It
@@ -440,10 +445,10 @@ public:
     /// Exports `f` as "cexchain_call".
     void entry(Func f) BO_PRE(is_function(f) && f.index >= host_count && type_of(f) == FuncType{});
 
-    /// The module's bytes. Every function must be defined and the entry set.
-    /// Errc::unsupported or Errc::malformed if `vm::load` refuses the module
-    /// (a bug in the emitter).
-    [[nodiscard]] Result<Bytes> finish() const;
+    /// The module's bytes. Every function must be defined, none too large,
+    /// and the entry set. Errc::unsupported or Errc::malformed if `vm::load`
+    /// refuses the module (a bug in the emitter).
+    [[nodiscard]] Result<Bytes> finish() const BO_PRE(!too_large());
 
 private:
     struct Function {
@@ -478,6 +483,7 @@ private:
     std::map<Bytes, std::uint32_t> interned_;
     mutable std::map<std::tuple<std::uint32_t, std::uint32_t, std::vector<std::uint64_t>>, Bound>
         bounds_;
+    bool too_large_ = false;
 };
 
 } // namespace cexchain::bo::wasm

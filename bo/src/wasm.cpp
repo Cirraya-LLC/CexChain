@@ -791,7 +791,6 @@ Bytes FunctionBuilder::finish() {
     }
     body.insert(body.end(), code_.begin(), code_.end());
     body.push_back(op_end);
-    BO_ASSERT(body.size() <= vm::max_body_size);
     return body;
 }
 
@@ -837,6 +836,7 @@ void ModuleWriter::define(FunctionBuilder&& body) {
     const std::uint32_t height = body.max_height();
     Function& function = functions_[f.index];
     function.body = body.finish();
+    too_large_ = too_large_ || function.body->size() > vm::max_body_size;
     function.max_height = height;
     // Every frame is closed, and so is every stretch with a cap.
     BO_ASSERT(body.costs_.size() == 1 && !body.costs_.front().cap);

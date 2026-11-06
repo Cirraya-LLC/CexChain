@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -121,7 +122,10 @@ struct Lowered {
 };
 
 /// Compiles a checked model: one without errors from `check`. `source` is
-/// the text it was checked from, which messages quote.
-[[nodiscard]] Lowered lower(std::string_view source, const model::Model& model);
+/// the text it was checked from, which messages quote; `codegen`, the
+/// version whose bytes to write (one this compiler carries).
+[[nodiscard]] Lowered lower(std::string_view source, const model::Model& model,
+                            std::uint32_t codegen = wasm::codegen_version)
+    BO_PRE(codegen >= wasm::oldest_codegen && codegen <= wasm::codegen_version);
 
 } // namespace cexchain::bo

@@ -253,6 +253,48 @@ TEST_CASE("bo test: one contract and its tests, in any language, give the same r
     }
 }
 
+TEST_CASE("bo test: a proposal binds nobody, and a date moved by days stays a date", "[bo][test]") {
+    const std::string source = R"(use finance
+contract Grant
+parties we, bank
+
+thing G
+  score number = 0
+  ends date
+
+can appoint by we to bank
+  AI agent can propose
+  -> appointed
+can adjust by bank
+  score = 10
+can prolong by we
+  ends = ends + 1 day
+
+test "a proposal binds nobody"
+  we create with ends = 2027-01-01
+  we appoint to bank1 by AI agent -> pending approval
+  bank1 adjust -> refused "bo:party bank"
+  we approve in person -> appointed
+  bank1 adjust -> score = 10
+test "a date moved by days stays a date"
+  we create with ends = 9999-12-30
+  we prolong -> ends = 9999-12-31
+  we prolong -> refused "bo:date"
+)";
+    const Tested t = tested(source);
+    REQUIRE(t.results.tests.size() == 2);
+    CHECK(t.results.tests[0].passed);
+    CHECK(t.results.tests[1].passed);
+    // Codegen 4, carried so that its deploys rebuild, did neither.
+    const Compiled old = compile(source, official_set(), CompileOptions{.codegen = 4});
+    REQUIRE(old.build);
+    const TestResults ran = run_tests(*old.model, *old.build, provider());
+    REQUIRE(ran.tests.size() == 2);
+    CHECK_FALSE(ran.tests[0].passed);
+    CHECK_FALSE(ran.tests[1].passed);
+    CHECK(old.build->code != t.compiled.build->code);
+}
+
 TEST_CASE("bo test: a step expects the values of fields after its call", "[bo][test]") {
     // `-> STATE, FIELD = VALUE`, or values alone (accepted); a party
     // field by its party.

@@ -1886,9 +1886,11 @@ Opening a bundle finds its packs: each embedded pack MUST read without errors (3
 
 ### 16.3 The compiler string and codegen versions
 
-`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 4; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A construct that no earlier compiler read (a word, a form, or an operation added since) does not raise it: no deploy of a source using it was built by an older lowering, and older sources build to the same bytes as before.
+`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 5; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A construct that no earlier compiler read (a word, a form, or an operation added since) does not raise it: no deploy of a source using it was built by an older lowering, and older sources build to the same bytes as before.
 
 Codegen 4 is the first released; codegens 1 to 3 came before the first release and are not written. From codegen 4 on, a compiler carries the lowerings of the released codegen versions before its own, so that a deploy built with one still rebuilds; a change of meaning comes in a new edition instead.
+
+Codegen 5 makes compiled code do what this document says in two places where codegen 4's did not: a call kept as a proposal leaves the role it binds as it was, bound only when the proposal is approved (6.9), and a date moved by a fixed duration outside the years 1 to 9999 refuses the call, `bo:date` (5.5). Code that codegen 4 built does neither, and its deploys rebuild with it.
 
 ### 16.4 Rebuilding
 

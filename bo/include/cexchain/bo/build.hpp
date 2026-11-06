@@ -54,13 +54,18 @@ struct CompileOptions {
     /// call's output could exceed what the code has for it (build.output).
     /// A rebuild only compares bytes, so it does not.
     bool check_bounds = true;
+    /// The codegen version whose bytes to build: this compiler's, or a
+    /// released one it carries (wasm::oldest_codegen on), as a rebuild of a
+    /// deploy built with it does.
+    std::uint32_t codegen = wasm::codegen_version;
 };
 
 /// Builds a source read with `packs`. A fragment (no contract line),
 /// anything that needs executors, and (with check_bounds) code whose fuel
 /// bound exceeds a call's fuel do not build.
 [[nodiscard]] Compiled compile(std::string_view source, const PackSet& packs,
-                               const CompileOptions& options = {});
+                               const CompileOptions& options = {})
+    BO_PRE(options.codegen >= wasm::oldest_codegen && options.codegen <= wasm::codegen_version);
 
 /// The fuel bound of one call: the function's bound, with
 /// reading counted for this input's own items and map keys instead of the
@@ -80,8 +85,8 @@ enum class RebuildStatus : std::uint8_t {
     /// check: nothing that could be rebuilt.
     malformed,
     /// Built by another compiler, or another version of this one (its
-    /// release, codegen, or official packs), whose output this one does not
-    /// reproduce: rebuild with that compiler.
+    /// release, a codegen it does not carry, or official packs), whose
+    /// output this one does not reproduce: rebuild with that compiler.
     other_compiler,
 };
 
@@ -103,10 +108,11 @@ struct Rebuild {
 };
 
 /// Rebuilds a deploy whose language is `bo` from its source, reading the
-/// bundle's pack digests with the home's hash, and compares the result with
-/// the deploy's code, interface, and name. "Differs" only when the deploy
-/// names this compiler's codegen and edition (and, for the official packs,
-/// its release): another version's output is reported as such, never as a
+/// bundle's pack digests with the home's hash and building with the codegen
+/// version the deploy names, and compares the result with the deploy's
+/// code, interface, and name. "Differs" only when the deploy names a codegen
+/// this compiler carries and its edition (and, for the official packs, its
+/// release): another version's output is reported as such, never as a
 /// forgery.
 [[nodiscard]] Rebuild rebuild(const protocol::ContractDeployBody& deploy,
                               const crypto::Provider& provider, crypto::HashAlg home_hash);

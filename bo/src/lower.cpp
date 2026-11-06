@@ -400,8 +400,9 @@ struct Ctx {
 
 class Lowering {
 public:
-    Lowering(std::string_view source, const m::Model& model)
-        : source_(source), model_(model), module_(rt::memory_plan()), rt_(module_) {}
+    Lowering(std::string_view source, const m::Model& model, std::uint32_t codegen)
+        : source_(source), model_(model), codegen_(codegen), module_(rt::memory_plan()),
+          rt_(module_) {}
 
     Lowered run();
 
@@ -547,10 +548,18 @@ private:
     void write_rule_event(FunctionBuilder& b);
     std::string_view source_;
     const m::Model& model_;
+    /// The codegen version whose bytes this writes (wasm::codegen_version, or
+    /// an older one carried for rebuilds).
+    std::uint32_t codegen_;
     wasm::ModuleWriter module_;
     rt::Runtime rt_;
     std::vector<Diagnostic> diagnostics_;
     bool too_large_ = false;
+    /// For each constant and action, the deepest a reference to it was
+    /// found to compile from (unsupported_in): from as deep or shallower, it
+    /// compiles again, so a constant that others name many times is read a
+    /// few times, not once per reference.
+    mutable std::map<std::pair<std::string, const ActionInfo*>, int> constants_read_;
 
     std::string creation_;
     std::vector<FieldSlot> fields_;
@@ -795,7 +804,16 @@ std::optional<std::pair<Span, std::string>> Lowering::unsupported_in(const m::Ex
                 if (!c->value || rep_of(c->type) == Rep::none) {
                     return no(feature_of(c->type));
                 }
-                return unsupported_in(*c->value, action, false, depth + 1);
+                const auto read = constants_read_.find({key, action});
+                if (read != constants_read_.end() && depth <= read->second) {
+                    return std::nullopt;
+                }
+                Found found = unsupported_in(*c->value, action, false, depth + 1);
+                if (!found) {
+                    auto [it, added] = constants_read_.try_emplace({key, action}, depth);
+                    it->second = std::max(it->second, depth);
+                }
+                return found;
             }
             return field_index_.contains(key) && fields_[field_index_.at(key)].rep != Rep::none
                        ? std::nullopt
@@ -3463,6 +3481,13 @@ void Lowering::emit_core(const ActionInfo& info) {
     if (info.parts) {
         depth_check(c);
     }
+    // A proposal changes nothing but the proposals (6.9): the role its call
+    // binds is bound when it is approved (from codegen 5 on).
+    std::optional<Local> was_bound;
+    if (info.binds && codegen_ >= 5) {
+        was_bound = b.local(I32);
+        b.global_get(roles_[*info.binds].ledger).set(*was_bound);
+    }
     arguments(c);
     const wasm::Func consent = rt_.get(Routine::consent);
     if (a.by) {
@@ -3516,6 +3541,9 @@ void Lowering::emit_core(const ActionInfo& info) {
             b.i32(1).global_set(event_kind_);
             b.u32(intern(info.wire)).global_set(event_name_);
             b.u32(static_cast<std::uint32_t>(info.wire.size())).global_set(event_length_);
+            if (was_bound) {
+                b.get(*was_bound).global_set(roles_[*info.binds].ledger);
+            }
             b.call(write_accept()).return_();
             b.end(agent);
             b.end(known);
@@ -4343,6 +4371,14 @@ void Lowering::reference(Ctx& c, const m::Expr& e) {
     switch (e.refers) {
     case Refers::field:
         if (const m::Field* k = constant(key)) {
+            // Each reference writes the constant's value out again. Past the
+            // profile's limit on a body, the contract is too large; what is
+            // left is not written.
+            if (b.size() > vm::max_body_size) {
+                too_large_ = true;
+                b.unreachable();
+                return;
+            }
             ++c.depth;
             value(c, *k->value);
             --c.depth;
@@ -4679,6 +4715,11 @@ void Lowering::arithmetic(Ctx& c, const m::Expr& e) {
         value(c, x);
         value(c, y);
         b.call(rt_.get(e.op == Operator::plus ? Routine::add : Routine::sub));
+        // A date moved by a fixed duration is a date too (5.5; from codegen
+        // 5 on).
+        if (e.type.kind == TypeKind::date && codegen_ >= 5) {
+            b.i64(model_.utc_offset_ms).call(rt_.get(Routine::check_date));
+        }
         return;
     case Operator::times:
         if (xk == TypeKind::rate && yk != TypeKind::number) {
@@ -4868,7 +4909,7 @@ Lowered Lowering::run() {
         return out;
     }
     emit();
-    if (too_large_) {
+    if (too_large_ || module_.too_large()) {
         out.diagnostics.push_back(Diagnostic{"build.too-large", {}, Span{}});
         return out;
     }
@@ -5116,8 +5157,9 @@ void Lowering::bounds(Build& build) {
 
 } // namespace
 
-Lowered lower(const std::string_view source, const model::Model& model) {
-    return Lowering(source, model).run();
+Lowered lower(const std::string_view source, const model::Model& model,
+              const std::uint32_t codegen) {
+    return Lowering(source, model, codegen).run();
 }
 
 } // namespace cexchain::bo

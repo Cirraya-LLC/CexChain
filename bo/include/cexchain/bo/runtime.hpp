@@ -239,6 +239,11 @@ enum class Routine : std::uint8_t {
     /// (output_write): a contract that makes requests writes them
     /// first, at the start of the output region, and its output after them.
     out_finish_at,
+
+    /// [i64 time, i64 offset] -> [i64 time]: the time, if its local date is
+    /// in the years 1 to 9999; bo:date otherwise (a date moved by a fixed
+    /// duration, from codegen 5 on).
+    check_date,
 };
 
 /// The runtime's globals.

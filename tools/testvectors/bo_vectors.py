@@ -30,14 +30,15 @@ write them (tests/bo/codegen_test.cpp, the hidden case
     and the carried versions' terms the beginning of the current ones');
   - each contract's deploys with earlier releases of the official language
     packs (its bundles as the vectors recorded them then, the packs in
-    bo/packs/history/) are kept as "earlier", oldest first, each with the
-    code it deployed, which must be the code built today. Only deploys of
-    this codegen are kept: the compiler writes no other (the deploys before
-    the first release, built with codegens 1 to 3, were dropped).
+    bo/packs/history/), and with earlier codegen versions, are kept as
+    "earlier", oldest first, each with the hash of the code it deployed:
+    with this codegen, the code built today. Deploys of the codegens the
+    compiler carries are kept (OLDEST_CODEGEN on; the deploys before the
+    first release, built with codegens 1 to 3, were dropped).
 The C++ test "the conformance vectors" then rebuilds each source to the same
-code, bundle, interface, and bounds, rebuilds every earlier deploy to the same
-code, replays each run, and compiles each source that must not build to the
-same errors.
+code, bundle, interface, and bounds, rebuilds every earlier deploy to the code
+it deployed (with the codegen it names), replays each run, and compiles each
+source that must not build to the same errors.
 
 Usage (from CexChain/, after a GCC build):
     python3 tools/testvectors/bo_vectors.py [--tests build/gcc-debug/tests/cexchain_bo_tests]
@@ -64,6 +65,8 @@ OUT = ROOT / "testvectors" / "bo-v1.json"
 PACKS = ROOT / "bo" / "packs"
 VOCAB = ROOT / "bo" / "vocab"
 PACK_DIGESTS = ROOT / "tests" / "bo" / "golden" / "pack-digests.txt"
+# The oldest codegen the compiler carries (bo/include/cexchain/bo/wasm.hpp).
+OLDEST_CODEGEN = 4
 
 
 def read_pack(text: str):
@@ -317,8 +320,8 @@ def main() -> int:
     current = max(read_pack(path.read_text(encoding="utf-8"))["version"]
                   for path in PACKS.glob("*.pack"))
     # What each contract's deploys recorded with earlier releases of the
-    # official language packs, from the vectors as they were, oldest first:
-    # old deploys of this codegen must still rebuild to the same code.
+    # official language packs, or with earlier codegens, from the vectors as
+    # they were, oldest first: old deploys must still rebuild to their code.
     def codegen_of(compiler: str) -> int:
         return int(re.search(r"; codegen (\d+);", compiler).group(1))
 
@@ -331,10 +334,13 @@ def main() -> int:
             if "bundle" in c:
                 old = cbor2.loads(bytes.fromhex(c["bundle"]))
                 versions = {r[1] for r in old[4]}
-                if versions != {current} and all(e["bundle"] != c["bundle"] for e in kept):
+                newer = versions != {current} or codegen_of(c["compiler"]) != doc["codegen"]
+                if newer and all((e["compiler"], e["bundle"]) != (c["compiler"], c["bundle"])
+                                 for e in kept):
                     kept.append({"compiler": c["compiler"], "bundle": c["bundle"],
                                  "code_sha256": c["code_sha256"]})
-            kept = [e for e in kept if codegen_of(e["compiler"]) == doc["codegen"]]
+            kept = [e for e in kept
+                    if OLDEST_CODEGEN <= codegen_of(e["compiler"]) <= doc["codegen"]]
             if kept:
                 earlier[c["name"]] = kept
     contracts = {}
@@ -347,12 +353,14 @@ def main() -> int:
         for old in earlier.get(name, []):
             old_bundle = bytes.fromhex(old["bundle"])
             version = cbor2.loads(old_bundle)[4][0][1]
-            assert version < current, f"{name}: an earlier deploy at version {version}"
+            same_codegen = codegen_of(old["compiler"]) == doc["codegen"]
+            assert version < current or not same_codegen, \
+                f"{name}: an earlier deploy at version {version}"
             check_bundle(old_bundle, cbor2.loads(old_bundle)[3], packs, version)
             if version == 1:
                 assert not uses(cbor2.loads(old_bundle)[3]), f"{name}: use lines before packs"
-            assert codegen_of(old["compiler"]) == doc["codegen"]
-            assert old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
+            # An older codegen's code is its own: the C++ test rebuilds it.
+            assert not same_codegen or old["code_sha256"] == hashlib.sha256(code).hexdigest(), \
                 f"{name}: the code differs from the code deployed with packs version {version}"
         contracts[name] = {
             "name": name,
@@ -403,9 +411,10 @@ def main() -> int:
                        "sources (in each language they are written in), name, interface, the "
                        "bo-source bundle a deploy records (official language packs version "
                        f"{current} and the vocabulary packs its use lines name, SHA-256 "
-                       "digests), the bundles its deploys of this codegen recorded with "
-                       "earlier releases of the official packs, oldest first (each rebuilds to "
-                       "the same code), and the code cexchain-bo builds and its "
+                       "digests), the bundles its deploys recorded with earlier releases of "
+                       "the official packs or earlier codegens, oldest first (each rebuilds, "
+                       "with the codegen it names, to the code it deployed), and the code "
+                       "cexchain-bo builds and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "
                        "build, with their errors' codes and lines (normative). Inputs are "

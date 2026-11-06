@@ -58,7 +58,8 @@ struct Exact {
 };
 
 /// `value` × `factor`, exactly: whole if it is a whole number, and fits if
-/// it is at most max_value. Without floating point or a 128-bit type.
+/// it is at most max_value (max_value + 1 for a negative value, which is then
+/// -2^63). Without floating point or a 128-bit type.
 [[nodiscard]] Exact exact(const Decimal& value, std::uint64_t factor) noexcept;
 
 /// A literal's value in its smallest unit, as compiled code keeps it (dates

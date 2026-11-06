@@ -121,6 +121,7 @@ const std::array<Spec, all_routines>& specs() {
         {expect_bool, {{I32, I32, I32}, {I32}}, define_expect_bool},
         {fail_numbered, {{I32, I32, I64}, {}}, define_fail_numbered},
         {out_finish_at, {{I32}, {}}, define_out_finish_at},
+        {check_date, {{I64, I64}, {I64}}, define_check_date},
     }};
     return table;
 }

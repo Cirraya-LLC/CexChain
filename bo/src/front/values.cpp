@@ -44,9 +44,10 @@ std::optional<std::int64_t> scaled(const Decimal& value, std::uint64_t factor) n
     if (!x.whole || !x.fits) {
         return std::nullopt;
     }
-    // At most 2^63 - 1, so its negation fits too.
-    const auto magnitude = static_cast<std::int64_t>(x.value);
-    return value.negative ? -magnitude : magnitude;
+    // At most 2^63 - 1, or 2^63 when negative: negated as an unsigned
+    // value, that is -2^63 exactly.
+    return value.negative ? static_cast<std::int64_t>(0 - x.value)
+                          : static_cast<std::int64_t>(x.value);
 }
 
 } // namespace
@@ -76,8 +77,10 @@ Exact exact(const Decimal& value, std::uint64_t factor) noexcept {
         return out;
     }
     out.whole = true;
+    // A negative value may reach -2^63, one further than a positive one.
     std::uint64_t product = 0;
-    if (__builtin_mul_overflow(value.digits / divide, multiply, &product) || product > max_value) {
+    if (__builtin_mul_overflow(value.digits / divide, multiply, &product) ||
+        product > max_value + (value.negative ? 1U : 0U)) {
         return out;
     }
     out.fits = true;

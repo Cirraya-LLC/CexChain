@@ -402,6 +402,10 @@ TEST_CASE("values are exact, in their smallest units", "[bo][check]") {
     CHECK(requires_("cost > 92233720368547758.07 HKD").empty());
     CHECK(requires_("n > 9223372036854775807").empty());
     CHECK(requires_("n > 9223372036854775808") == "check.overflow");
+    // Negative, one further: the signed 64-bit range is -2^63 to 2^63 - 1.
+    CHECK(requires_("n > -9223372036854775808").empty());
+    CHECK(requires_("n > -9223372036854775809") == "check.overflow");
+    CHECK(requires_("cost > HKD -92233720368547758.08").empty());
     CHECK(requires_("n > 5.0").empty());
     CHECK(requires_("5.0001% > 0.0001%").empty());
     CHECK(requires_("term > 1.5 days") == "check.whole-number");

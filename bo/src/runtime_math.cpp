@@ -379,6 +379,12 @@ void define_add_months(Runtime& rt, FunctionBuilder& b) {
     b.i64(day_ms).op(i64_mul).get(ms).op(i64_add).get(offset).op(i64_sub);
 }
 
+void define_check_date(Runtime& rt, FunctionBuilder& b) {
+    const Local t = b.param(0);
+    b.get(t).get(b.param(1)).call(rt.get(Routine::local_days)).op(drop).op(drop);
+    b.get(t);
+}
+
 void define_date_parts(Runtime& rt, FunctionBuilder& b) {
     b.get(b.param(0)).get(b.param(1)).call(rt.get(Routine::local_days)).op(drop);
     b.call(rt.get(Routine::civil_from_days));

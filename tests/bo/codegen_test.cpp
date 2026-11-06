@@ -22,6 +22,7 @@
 #include <format>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -1395,6 +1396,16 @@ TEST_CASE("bo build: roles bound by an action, and fields holding a party", "[bo
           protocol::Parties{{"bank", bank}, {"holder", bank}, {"we", we}});
 }
 
+TEST_CASE("bo build: literals keep the whole signed 64-bit range", "[bo][build]") {
+    bo::ast::Literal l;
+    l.number = bo::Decimal{9'223'372'036'854'775'808ULL, 0, true};
+    CHECK(bo::literal_value(l) == std::numeric_limits<std::int64_t>::min());
+    l.number.negative = false;
+    CHECK_FALSE(bo::literal_value(l));
+    l.number.digits = 9'223'372'036'854'775'807ULL;
+    CHECK(bo::literal_value(l) == std::numeric_limits<std::int64_t>::max());
+}
+
 TEST_CASE("bo build: values, units, dates, texts, and yes or no", "[bo][build]") {
     const Home home = values_scenario();
     CHECK(!home.final());
@@ -1474,6 +1485,22 @@ TEST_CASE("bo build: what this version does not compile yet", "[bo][build]") {
                              std::string(990, 'x'));
     }
     CHECK(build_codes(texts) == "build.too-large");
+    // Constants that name constants: each reference writes the value out
+    // again, past what one body may hold (3^10 times here); with ten
+    // references a level, each constant is read a few times, not 10^15.
+    for (const int fan : {3, 10}) {
+        const int levels = fan == 3 ? 10 : 15;
+        std::string constants = head + "thing R\n  c0 1\n";
+        for (int i = 1; i <= levels; ++i) {
+            constants += std::format("  c{}", i);
+            for (int k = 0; k < fan; ++k) {
+                constants += std::format("{} c{}", k == 0 ? "" : " +", i - 1);
+            }
+            constants += "\n";
+        }
+        CHECK(build_codes(std::format("{}\ncan go by we\n  requires c{} > 0\n", constants,
+                                      levels)) == "build.too-large");
+    }
     // A field cannot start with a party that an action binds later.
     CHECK(build_codes(
               "use finance\ncontract C\nparties we, bank\n\ncan lend by we to bank\n  -> active\n"
@@ -1842,15 +1869,20 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
             }
             // Its deploys with earlier releases of the official packs
             // (version 1, before vocabulary packs: no `use` lines; version
-            // 2, before temperatures and field defaults) rebuild to the same
-            // code.
-            std::set<std::uint64_t> releases;
+            // 2, before temperatures and field defaults), and with earlier
+            // codegen versions, rebuild to the code they deployed: built
+            // here with the codegen each names, which this compiler carries.
+            std::set<std::pair<std::uint64_t, std::uint64_t>> releases;
             for (const auto& earlier : contract.value("earlier", nlohmann::json::array())) {
-                // Built by this codegen: the compiler writes only its own.
                 const auto named = bo::parse_compiler(earlier.at("compiler").get<std::string>());
                 REQUIRE(named.has_value());
-                REQUIRE(named->codegen == bo::wasm::codegen_version);
-                const Bytes earlier_code = compiled.build->code;
+                REQUIRE(named->codegen >= bo::wasm::oldest_codegen);
+                REQUIRE(named->codegen <= bo::wasm::codegen_version);
+                const bo::Compiled then = bo::compile(
+                    text, set,
+                    bo::CompileOptions{.codegen = static_cast<std::uint32_t>(named->codegen)});
+                REQUIRE(then.build.has_value());
+                const Bytes earlier_code = then.build->code;
                 protocol::ContractDeployBody deploy;
                 deploy.language = "bo";
                 deploy.code = earlier_code;
@@ -1864,8 +1896,9 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 CHECK(r.status == bo::RebuildStatus::rebuilds);
                 REQUIRE(r.bundle.has_value());
                 const std::uint64_t version = r.bundle->packs.front().version;
-                CHECK(version < bo::official_packs().front().version);
-                CHECK(releases.insert(version).second);
+                CHECK((version < bo::official_packs().front().version ||
+                       named->codegen < bo::wasm::codegen_version));
+                CHECK(releases.insert({version, named->codegen}).second);
                 if (version == 1) {
                     CHECK(r.bundle->vocabulary.empty());
                 }

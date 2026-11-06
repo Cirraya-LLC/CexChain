@@ -55,6 +55,7 @@ void define_days_in_month(Runtime& rt, FunctionBuilder& b);
 void define_local_days(Runtime& rt, FunctionBuilder& b);
 void define_add_months(Runtime& rt, FunctionBuilder& b);
 void define_date_parts(Runtime& rt, FunctionBuilder& b);
+void define_check_date(Runtime& rt, FunctionBuilder& b);
 void define_date_from_parts(Runtime& rt, FunctionBuilder& b);
 void define_bytes_cmp(Runtime& rt, FunctionBuilder& b);
 void define_bytes_eq(Runtime& rt, FunctionBuilder& b);

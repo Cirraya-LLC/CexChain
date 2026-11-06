@@ -77,7 +77,7 @@ Compiled compile(std::string_view source, const PackSet& packs, const CompileOpt
         out.name = checked.model.name;
         if (!has_errors(out.diagnostics)) {
             out.model = checked.model;
-            Lowered lowered = lower(source, checked.model);
+            Lowered lowered = lower(source, checked.model, options.codegen);
             append(out.diagnostics, lowered.diagnostics);
             out.build = std::move(lowered.build);
             if (out.build && options.check_bounds) {
@@ -182,10 +182,10 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
     Rebuild r;
     const CompilerId& ours = this_compiler();
     r.deployed = parse_compiler(deploy.compiler);
-    // This compiler's codegen version, and its edition.
-    const bool same_codegen =
-        r.deployed && r.deployed->codegen == ours.codegen && r.deployed->edition == ours.edition;
-    const bool same_release = same_codegen && r.deployed->release == ours.release;
+    // A codegen version this compiler carries, and its edition.
+    const bool carried = r.deployed && r.deployed->codegen >= wasm::oldest_codegen &&
+                         r.deployed->codegen <= ours.codegen && r.deployed->edition == ours.edition;
+    const bool same_release = carried && r.deployed->release == ours.release;
     const auto result = [&](RebuildStatus status, std::string detail) {
         r.status = status;
         r.detail = std::move(detail);
@@ -241,8 +241,10 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
         return other(opened.detail);
     }
 
-    Compiled compiled =
-        compile(r.bundle->source, *opened.packs, CompileOptions{.check_bounds = false});
+    // Built as the deploy's codegen built it, if this compiler carries it.
+    const auto codegen = static_cast<std::uint32_t>(carried ? r.deployed->codegen : ours.codegen);
+    Compiled compiled = compile(r.bundle->source, *opened.packs,
+                                CompileOptions{.check_bounds = false, .codegen = codegen});
     if (compiled.edition != r.bundle->edition) {
         return result(RebuildStatus::malformed,
                       std::format("the bundle says the source is Bo edition {}, but it is "
@@ -260,7 +262,7 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
                               first->span.line == 0 ? std::string()
                                                     : std::format(", line {}", first->span.line));
         r.diagnostics = std::move(compiled.diagnostics);
-        if (same_codegen) {
+        if (carried) {
             return result(RebuildStatus::differs,
                           "the source does not build with the compiler the deploy names: " + why);
         }
@@ -281,11 +283,13 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
                                  compiled.name);
     }
     if (difference.empty()) {
-        return result(RebuildStatus::rebuilds,
-                      std::format("the source rebuilds to the deployed code ({}) with {}",
-                                  code_text(deploy.code, provider, home_hash), compiler_string()));
+        return result(
+            RebuildStatus::rebuilds,
+            std::format("the source rebuilds to the deployed code ({}) with {}",
+                        code_text(deploy.code, provider, home_hash),
+                        format_compiler(CompilerId{ours.release, codegen, ours.edition})));
     }
-    if (same_codegen) {
+    if (carried) {
         return result(RebuildStatus::differs, difference + ", with the compiler the deploy names");
     }
     return other(difference);

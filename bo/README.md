@@ -192,7 +192,9 @@ from evidence alone); `bo rebuild` rebuilds the code from it and compares the by
 source is not the code's: exit 3); "MALFORMED" when there is no usable bundle; or "not rebuilt"
 when another compiler, release, or codegen version built it (named, never called a forgery;
 `--require` fails it too). Codegen 4 is the first released; from it on, the compiler keeps
-writing the released codegens before its own, so their deploys still rebuild.
+writing the released codegens before its own, so their deploys still rebuild: this one writes
+codegen 5 and rebuilds codegen 4's deploys with codegen 4 (spec section 16.3 says what 5
+changed).
 
 ## Fuel
 
