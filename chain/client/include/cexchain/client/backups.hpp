@@ -32,7 +32,7 @@ namespace cexchain::client {
                                                            bool vault, bool console);
 
 /// Restores a backup into `dir` (made if missing, owner-only), which must
-/// hold no ledger: the log re-validated, the files written where they
+/// be missing or empty: the log re-validated, the files written where they
 /// belong. A failure leaves `dir` as it was (removed, if it was made).
 [[nodiscard]] Result<ledger::BackupSummary> restore_into(std::istream& in,
                                                          const std::filesystem::path& dir);

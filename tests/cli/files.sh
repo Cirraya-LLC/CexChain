@@ -101,6 +101,15 @@ run backup create --ledger local --log-key log.key --out backup.cbor > /dev/null
 run backup restore backup.cbor --ledger restored > /dev/null
 run record file get --ledger restored "$RECORD" photo.jpg --out restored.jpg --vault-key local/vault/vault.key > /dev/null
 cmp restored.jpg photo.jpg || fail "a kept file restored"
+# Only into a new or empty directory: a failed restore removes what it
+# wrote, and nothing else.
+mkdir occupied && echo keep > occupied/important.txt
+expect_exit 2 backup restore backup.cbor --ledger occupied
+contains 'not empty' out.txt
+[ -f occupied/important.txt ] || fail "a refused restore keeps the directory's files"
+mkdir empty && head -c 100 backup.cbor > broken.cbor
+expect_exit 2 backup restore broken.cbor --ledger empty
+[ -d empty ] && [ -z "$(ls -A empty)" ] || fail "a failed restore leaves an empty directory empty"
 
 for command in "record file list" "record file get" "record file add" "record file remove"; do
     read -r -a words <<< "$command"

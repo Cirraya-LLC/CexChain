@@ -166,7 +166,14 @@ Result<ledger::BackupSummary> restore_into(std::istream& in, const std::filesyst
     if (std::filesystem::exists(dir / "statements")) {
         return fail(Errc::rejected, "a ledger already exists there; restore into a new directory");
     }
+    // A failure removes what the restore wrote, which in an empty directory
+    // is everything there; other files would go with it.
     const bool existed = std::filesystem::exists(dir);
+    if (existed && (!std::filesystem::is_directory(dir) || !std::filesystem::is_empty(dir))) {
+        return fail(Errc::rejected, "the directory is not empty; restore into a new directory");
+    }
+    const auto perms =
+        existed ? std::filesystem::status(dir).permissions() : std::filesystem::perms::none;
     std::filesystem::create_directories(dir);
     std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace);
@@ -212,6 +219,7 @@ Result<ledger::BackupSummary> restore_into(std::istream& in, const std::filesyst
             for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
                 std::filesystem::remove_all(e.path(), ec);
             }
+            std::filesystem::permissions(dir, perms, std::filesystem::perm_options::replace, ec);
         }
     }
     return summary;
