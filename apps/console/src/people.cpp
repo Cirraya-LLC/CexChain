@@ -100,10 +100,18 @@ protocol::Scope scope_of(const Permissions& p) {
     }
     std::ranges::sort(scope.statement_types);
     // Documents of the chosen kinds (or any), and always the mechanisms'
-    // own records: consents, and access requests, grants, and receipts.
-    if (!p.register_documents || p.kinds) {
+    // own records: consents, and access requests, grants, and receipts. One
+    // list covers every record statement the scope allows, so acting (which
+    // registers the mechanisms' records) without registering documents
+    // leaves no documents to endorse or revoke.
+    const bool documents = p.register_documents || p.endorse || p.revoke;
+    if (p.act && !p.register_documents && (p.endorse || p.revoke)) {
+        throw std::invalid_argument("to endorse or revoke documents while acting under rules, "
+                                    "they must register documents too: grant either apart");
+    }
+    if (!documents || p.kinds) {
         std::vector<std::string> types =
-            p.register_documents && p.kinds ? *p.kinds : std::vector<std::string>{};
+            documents && p.kinds ? *p.kinds : std::vector<std::string>{};
         for (std::string& t : mechanism_record_types()) {
             if (!std::ranges::contains(types, t)) {
                 types.push_back(std::move(t));
@@ -454,6 +462,7 @@ http::Response Console::people_route(const http::Request& request) const {
                 return error(400, "invalid_argument", "a role is owner, admin, member, or viewer");
             }
             std::optional<http::Response> refused;
+            std::optional<User> changed;
             change_people([&](People& people) {
                 User* u = people.find(user);
                 if (u == nullptr) {
@@ -465,10 +474,14 @@ http::Response Console::people_route(const http::Request& request) const {
                     refused = error(409, "conflict", user + " is the console's only owner");
                 } else {
                     u->role = *role;
+                    changed = *u;
                 }
             });
             if (refused) {
                 return std::move(*refused);
+            }
+            if (!may_hold_keys(*role) && services_.keys != nullptr) {
+                static_cast<void>(remove_key_slots(*services_.keys, *changed));
             }
             log_activity(signer.user, "people.role",
                          {{"user", user}, {"role", std::string(name_of(*role))}});
@@ -477,6 +490,7 @@ http::Response Console::people_route(const http::Request& request) const {
         if (const auto name = body.find("remove"); name != body.end() && name->is_string()) {
             const std::string user = name->get<std::string>();
             std::optional<http::Response> refused;
+            std::optional<User> removed;
             change_people([&](People& people) {
                 const User* u = people.find(user);
                 if (u != nullptr && u->role == Role::owner &&
@@ -485,6 +499,9 @@ http::Response Console::people_route(const http::Request& request) const {
                                     owners(people) == 1 ? user + " is the console's only owner"
                                                         : "only an owner removes an owner");
                     return;
+                }
+                if (u != nullptr) {
+                    removed = *u;
                 }
                 const bool was =
                     std::erase_if(people.users, [&](const User& x) { return x.name == user; }) > 0;
@@ -498,6 +515,14 @@ http::Response Console::people_route(const http::Request& request) const {
             });
             if (refused) {
                 return std::move(*refused);
+            }
+            // Their sessions end now, before anyone takes the name again, and
+            // their passkeys unlock nothing.
+            if (removed) {
+                static_cast<void>(services_.sessions->end_all(user));
+                if (services_.keys != nullptr) {
+                    static_cast<void>(remove_key_slots(*services_.keys, *removed));
+                }
             }
             log_activity(signer.user, "people.remove", {{"user", user}});
             return json(200, {{"removed", user}});

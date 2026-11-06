@@ -343,6 +343,7 @@ int cmd_console_user_role(const Args& args) {
     if (!role) {
         throw UsageError{"a role is owner, admin, member, or viewer"};
     }
+    std::optional<console::User> changed;
     change_people(console::state_directory(dir), [&](console::People& people) {
         console::User* user = people.find(name);
         if (user == nullptr) {
@@ -353,7 +354,12 @@ int cmd_console_user_role(const Args& args) {
             throw CommandError{name + " is the console's only owner"};
         }
         user->role = *role;
+        changed = *user;
     });
+    if (!console::may_hold_keys(*role)) {
+        console::KeyStore keys(console::state_directory(dir));
+        static_cast<void>(console::remove_key_slots(keys, *changed));
+    }
     if (args.json()) {
         print_json({{"user", name}, {"role", console::name_of(*role)}});
     } else {
@@ -367,20 +373,40 @@ int cmd_console_user_revoke(const Args& args) {
     require_ledger_directory(dir);
     const std::string name = args.positional().front();
     std::size_t invitations = 0;
-    bool was_user = false;
-    change_people(console::state_directory(dir), [&](console::People& people) {
+    std::optional<console::User> removed;
+    const std::filesystem::path state = console::state_directory(dir);
+    change_people(state, [&](console::People& people) {
         const console::User* user = people.find(name);
         if (user != nullptr && user->role == console::Role::owner && owners(people) == 1) {
             throw CommandError{name + " is the console's only owner"};
         }
-        was_user =
-            std::erase_if(people.users, [&](const console::User& u) { return u.name == name; }) > 0;
+        if (user != nullptr) {
+            removed = *user;
+        }
+        std::erase_if(people.users, [&](const console::User& u) { return u.name == name; });
         invitations = std::erase_if(people.invitations,
                                     [&](const console::Invitation& i) { return i.user == name; });
-        if (!was_user && invitations == 0) {
+        if (!removed && invitations == 0) {
             throw CommandError{"no console user or invitation named " + name};
         }
     });
+    const bool was_user = removed.has_value();
+    if (removed) {
+        // The console ends their sessions at its next request, before anyone
+        // could take the name again; their passkeys unlock nothing.
+        try {
+            for (const auto& s : console::published_sessions(state)) {
+                if (s.user == name) {
+                    console::request_revocation(state, s.id);
+                }
+            }
+        } catch (const std::exception& e) {
+            throw CommandError{name +
+                               " is removed, but their sessions could not be ended: " + e.what()};
+        }
+        console::KeyStore keys(state);
+        static_cast<void>(console::remove_key_slots(keys, *removed));
+    }
     if (args.json()) {
         print_json({{"revoked", name}, {"user", was_user}, {"invitations", invitations}});
     } else {

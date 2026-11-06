@@ -23,14 +23,6 @@
 
 namespace cexchain::console {
 
-namespace {
-
-bool may_hold_keys(Role role) {
-    return role == Role::owner || role == Role::admin;
-}
-
-} // namespace
-
 nlohmann::json Console::key_state() const {
     if (services_.keys == nullptr || !services_.keys->initialized()) {
         return "none";
@@ -60,7 +52,9 @@ void Console::use_prf(const User& user, ByteView credential, std::string_view pr
     }
     const Slot slot{SlotKind::prf, to_base64url(credential)};
     if (!keys->unlocked()) {
-        if (keys->unlock(slot, prf)) {
+        // Only who may hold the keys now: a slot left from before a demotion
+        // unlocks nothing.
+        if (may_hold_keys(user.role) && keys->unlock(slot, prf)) {
             ready_now();
         }
         return;

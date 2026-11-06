@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/client/support.hpp>
+#include <cexchain/console/keystore.hpp>
 #include <cexchain/console/users.hpp>
 #include <cexchain/core/bytes.hpp>
 
@@ -99,6 +100,10 @@ std::optional<Role> parse_role(std::string_view name) noexcept {
         }
     }
     return std::nullopt;
+}
+
+bool may_hold_keys(Role role) noexcept {
+    return role == Role::owner || role == Role::admin;
 }
 
 bool valid_user_name(std::string_view name) noexcept {
@@ -233,6 +238,16 @@ std::pair<std::string, Invitation> make_invitation(const crypto::Provider& provi
     }
     Invitation invitation{hash->substr(0, 16), *hash, std::move(user), role, now, now + lifetime};
     return {std::move(code), std::move(invitation)};
+}
+
+std::size_t remove_key_slots(KeyStore& keys, const User& user) {
+    std::size_t removed = 0;
+    for (const protocol::PresenceCredential& p : user.passkeys) {
+        if (keys.remove_slot({SlotKind::prf, to_base64url(p.credential_id)})) {
+            ++removed;
+        }
+    }
+    return removed;
 }
 
 } // namespace cexchain::console

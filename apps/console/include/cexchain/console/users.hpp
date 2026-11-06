@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -27,6 +28,9 @@ enum class Role : std::uint8_t { owner, admin, member, viewer };
 
 [[nodiscard]] std::string_view name_of(Role role) noexcept;
 [[nodiscard]] std::optional<Role> parse_role(std::string_view name) noexcept;
+/// Whether a role's passkeys may unlock the console's keys: an owner's and
+/// an admin's.
+[[nodiscard]] bool may_hold_keys(Role role) noexcept;
 
 struct User {
     /// 1 to 64 characters: letters, digits, spaces, '.', '_', '-', not
@@ -90,5 +94,11 @@ make_invitation(const crypto::Provider& provider, ledger::Entropy& entropy, std:
 /// The SHA-256 of an invitation code, in hex, if it has the code's form.
 [[nodiscard]] std::optional<std::string> invitation_hash(const crypto::Provider& provider,
                                                          std::string_view code);
+
+class KeyStore;
+
+/// Removes the key slots of `user`'s passkeys, when they are removed or may
+/// hold the keys no more (a member or a viewer now); returns how many.
+std::size_t remove_key_slots(KeyStore& keys, const User& user);
 
 } // namespace cexchain::console

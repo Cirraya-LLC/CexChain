@@ -13,6 +13,7 @@
 #include <future>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unistd.h>
@@ -34,6 +35,7 @@
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/kinds.hpp>
+#include <cexchain/console/people.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/settings.hpp>
 #include <cexchain/console/setup.hpp>
@@ -769,6 +771,22 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
     // The recovery code unlocks it too.
     w.keys.lock();
     CHECK(unlock(token, {{"secret", code}}).status == 200);
+
+    // An admin's passkey gets a slot; made a viewer, she loses it, and a slot
+    // left from before unlocks nothing either.
+    const auto ada = passkey(3);
+    const std::string ada_prf = cexchain::to_base64url(cexchain::Bytes(32, 0x44));
+    REQUIRE(w.enroll(ada, w.invite("Ada", console::Role::admin)).status == 200);
+    REQUIRE(w.sign_in(ada, ada_prf).status == 200);
+    CHECK(w.keys.slots().size() == 4);
+    REQUIRE(w.post_as("/console/api/people", {{"role", "Ada"}, {"to", "viewer"}}, token).status ==
+            200);
+    CHECK(w.keys.slots().size() == 3);
+    w.keys.add_slot({console::SlotKind::prf, cexchain::to_base64url(ada.credential_id)}, ada_prf);
+    w.keys.lock();
+    const auto demoted = w.sign_in(ada, ada_prf);
+    REQUIRE(demoted.status == 200);
+    CHECK(nlohmann::json::parse(body(demoted))["keys"] == "locked");
 }
 
 namespace {
@@ -2737,6 +2755,31 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
     CHECK_FALSE(cosign(bob.session.ledger(), cosigned));
 }
 
+TEST_CASE("what someone may do: the kinds chosen bound every document statement",
+          "[console][people]") {
+    using cexchain::protocol::StatementType;
+    console::Permissions endorse;
+    endorse.endorse = true;
+    endorse.kinds = std::vector<std::string>{"example.document/1"};
+    const auto scope = console::scope_of(endorse);
+    CHECK(scope.statement_types == std::vector{StatementType::record_endorse});
+    REQUIRE(scope.record_types);
+    CHECK(std::ranges::contains(*scope.record_types, std::string("example.document/1")));
+    const auto read = console::permissions_of(scope);
+    CHECK(read.endorse);
+    CHECK_FALSE(read.register_documents);
+    CHECK(read.kinds == std::vector<std::string>{"example.document/1"});
+    // Of any kind: no list at all.
+    endorse.kinds.reset();
+    CHECK_FALSE(console::scope_of(endorse).record_types);
+    // Acting registers the mechanisms' records, and one list bounds every
+    // record statement: endorsing documents then takes registering them.
+    endorse.act = true;
+    CHECK_THROWS_AS(console::scope_of(endorse), std::invalid_argument);
+    endorse.register_documents = true;
+    CHECK_FALSE(console::scope_of(endorse).record_types);
+}
+
 TEST_CASE("people: invited, approved with three taps, and acting in person within what they may",
           "[console][people]") {
     FirstRunWorld f;
@@ -2852,6 +2895,14 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
     CHECK(f.w.post_as("/console/api/people", {{"role", "Bob"}, {"to", "owner"}}, bob).status ==
           403);
     REQUIRE(f.w.post_as("/console/api/people", {{"remove", "Bob"}}, owner).status == 200);
+    // His sessions end with him: a new Bob, an admin, is someone else.
+    const auto again =
+        f.w.post_as("/console/api/people", {{"invite", "Bob"}, {"role", "admin"}}, owner);
+    REQUIRE(again.status == 200);
+    const std::string again_link = answer_of(again)["link"].get<std::string>();
+    REQUIRE(f.w.enroll(passkey(3), again_link.substr(again_link.find("cxi_")), "Bob").status ==
+            200);
+    CHECK(f.w.get("/console/api/tokens", bob).status == 401);
     CHECK(f.w.get("/console/api/people", bob).status == 401);
 
     // Tokens for programs, shown once.
@@ -2874,10 +2925,10 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
         actions.push_back(a["action"].get<std::string>());
         CHECK(a["user"] == "Alice");
     }
-    CHECK(actions == std::vector<std::string>{"tokens.revoke", "tokens.create", "people.remove",
-                                              "people.role", "people.revoke", "people.delegate",
-                                              "people.presence", "people.register", "people.invite",
-                                              "kinds.save"});
+    CHECK(actions == std::vector<std::string>{"tokens.revoke", "tokens.create", "people.invite",
+                                              "people.remove", "people.role", "people.revoke",
+                                              "people.delegate", "people.presence",
+                                              "people.register", "people.invite", "kinds.save"});
     const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
     CHECK(f.w.get("/console/api/activity", viewer).status == 403);
     CHECK(f.w.get("/console/api/people", viewer).status == 200);
