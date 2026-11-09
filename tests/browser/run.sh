@@ -36,6 +36,7 @@ if [ -d "$HERE/node_modules/playwright" ]; then
     (cd "$HERE" && node console_access_test.js "$CEXCHAIN")
     (cd "$HERE" && node console_people_test.js "$CEXCHAIN")
     (cd "$HERE" && node console_automation_test.js "$CEXCHAIN")
+    (cd "$HERE" && node console_phone_test.js "$CEXCHAIN")
 elif [ "${REQUIRE_BROWSER:-0}" = 1 ]; then
     echo "Playwright is missing: run npm ci in tests/browser" >&2
     exit 1

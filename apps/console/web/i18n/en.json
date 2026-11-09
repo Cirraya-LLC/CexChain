@@ -2,6 +2,7 @@
   "app.name": "CexChain",
   "app.skip": "Skip to the content",
   "nav.label": "Main",
+  "nav.menu": "Menu",
   "nav.home": "Home",
   "nav.things": "Things",
   "language.label": "Language",

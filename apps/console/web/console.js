@@ -111,7 +111,10 @@ function el(tag, attributes = {}, ...children) {
 function show(...children) {
     const main = document.getElementById("main");
     main.replaceChildren(...children.filter((c) => c !== null));
-    main.focus();
+    // A new screen starts at the top, the bar (a phone's menu button) in
+    // view; the focus moves to it all the same, for screen readers.
+    main.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
 }
 
 function status(text) {
@@ -4223,7 +4226,14 @@ async function approveScreen(prepared, files = new Map(), after = null) {
 
 // --- Navigation ------------------------------------------------------------------
 
+/// Folds the menu of a phone's bar (see console.css), or opens it.
+function setMenu(open) {
+    document.querySelector("header.bar").classList.toggle("open", open);
+    document.getElementById("menu").setAttribute("aria-expanded", String(open));
+}
+
 function chrome() {
+    setMenu(false);
     const signedIn = state.who !== null;
     document.getElementById("nav").hidden = !signedIn;
     document.getElementById("sign-out").hidden = !signedIn;
@@ -4360,6 +4370,13 @@ async function start() {
         route();
     });
     document.getElementById("sign-out").addEventListener("click", signOut);
+    document.getElementById("menu").addEventListener("click", () => {
+        setMenu(!document.querySelector("header.bar").classList.contains("open"));
+    });
+    // Any entry closes it, the page already shown too (no hash change then).
+    document.getElementById("nav").addEventListener("click", (event) => {
+        if (event.target.closest("a")) setMenu(false);
+    });
     window.addEventListener("hashchange", route);
     route();
 }

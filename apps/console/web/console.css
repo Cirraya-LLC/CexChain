@@ -98,6 +98,15 @@ nav a[aria-current="page"] {
     margin-left: auto;
 }
 
+/* On a phone the bar folds into a menu button (below). */
+.menu {
+    display: none;
+}
+
+.menu::before {
+    content: "\2630\00a0";
+}
+
 button,
 select,
 input {
@@ -206,6 +215,27 @@ td {
 @media (max-width: 640px) {
     .tools {
         margin-left: 0;
+    }
+
+    /* The name and the menu button; the menu, the language, and signing out
+       once it is opened, so that every screen starts with its content. */
+    .menu {
+        display: inline-block;
+        margin-left: auto;
+    }
+
+    .bar:not(.open) > nav,
+    .bar:not(.open) > .tools {
+        display: none;
+    }
+
+    .bar.open > nav,
+    .bar.open > .tools {
+        width: 100%;
+    }
+
+    caption {
+        display: block;
     }
 
     dl.facts {

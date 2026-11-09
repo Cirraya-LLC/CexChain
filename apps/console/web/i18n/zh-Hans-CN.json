@@ -2,6 +2,7 @@
   "app.name": "CexChain",
   "app.skip": "跳到正文",
   "nav.label": "主菜单",
+  "nav.menu": "菜单",
   "nav.home": "首页",
   "nav.things": "物件",
   "language.label": "语言",
