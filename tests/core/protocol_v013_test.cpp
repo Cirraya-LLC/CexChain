@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/network.hpp>
 #include <cexchain/crypto/openssl.hpp>
@@ -171,4 +174,18 @@ TEST_CASE("verifier keys, names, signature lines, and sizes are read strictly", 
         INFO(bad);
         CHECK_FALSE(cexchain::from_base64(bad));
     }
+}
+
+TEST_CASE("the implementation names the specification revision it follows", "[protocol]") {
+    // `cexchain version` reports it; it once stayed at v0.5 for eight revisions.
+    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR) / ".." / "spec" / "README.md");
+    std::string line;
+    std::string revision;
+    while (std::getline(in, line)) {
+        if (line.starts_with("Revision ")) {
+            revision = line.substr(9, line.find(' ', 9) - 9);
+            break;
+        }
+    }
+    CHECK(revision == protocol::spec_revision);
 }
