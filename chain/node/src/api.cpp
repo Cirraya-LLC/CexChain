@@ -324,11 +324,14 @@ struct LedgerApi::State {
     std::string failure_text;
 
     mutable std::mutex tokens_mutex;
-    std::shared_ptr<const std::vector<ApiToken>> tokens =
+    mutable std::shared_ptr<const std::vector<ApiToken>> tokens =
         std::make_shared<const std::vector<ApiToken>>();
     /// Held by tick(); open() runs before any.
     std::mutex tick_mutex;
-    std::optional<std::pair<std::filesystem::file_time_type, std::uintmax_t>> tokens_time;
+    /// Held while the tokens file is read again (by tick(), or by a request
+    /// whose token was not found).
+    mutable std::mutex reload_mutex;
+    mutable std::optional<std::pair<std::filesystem::file_time_type, std::uintmax_t>> tokens_time;
     steady::time_point last_auto_checkpoint = steady::now();
 
     std::array<std::atomic<std::uint64_t>, 600> responses{};
@@ -1160,8 +1163,11 @@ struct LedgerApi::State {
         options.event_log->flush();
     }
 
-    /// From tick() (once a second) and open() only.
-    void reload_tokens(bool force) {
+    /// From tick() (once a second), open(), and a request whose token was
+    /// not found (a token made since the last tick works at once, however
+    /// long the tick's other work takes).
+    void reload_tokens(bool force) const {
+        const std::lock_guard reload(reload_mutex);
         std::error_code ec;
         const auto path = options.directory / tokens_file;
         // Time and size: a rewrite within the clock's granularity changes
@@ -1247,6 +1253,14 @@ struct LedgerApi::State {
                 return a == b || (a >= 'A' && a <= 'Z' && b == a - 'A' + 'a');
             })) {
             token = find_token(*current, *provider, header->substr(bearer.size()));
+            if (token == nullptr) {
+                // Read the file again if it changed since: the tokens are what
+                // it holds now, not when the server last looked.
+                reload_tokens(false);
+                const std::lock_guard lock(tokens_mutex);
+                current = tokens;
+                token = find_token(*current, *provider, header->substr(bearer.size()));
+            }
         }
         if (token == nullptr) {
             auto response = error_response(401, "unauthorized", "a valid API token is required");

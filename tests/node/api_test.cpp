@@ -278,6 +278,16 @@ TEST_CASE("the API answers only those it should", "[node][api]") {
     CHECK(get(anonymous, "/v1/status").status == 401);
     CHECK(get(anonymous, "/v1/consistency?old=1&new=1").status == 200);
     CHECK(get(server.client("cxt_wrong"), "/v1/status").status == 401);
+    // A token made while the server runs works at once, whenever the server
+    // last read the tokens file (a busy tick once made a party's first
+    // request fail).
+    const std::string later = node::generate_token(p.entropy);
+    auto tokens = node::load_tokens(p.dir);
+    REQUIRE(tokens);
+    tokens->push_back({"later", static_cast<node::Scopes>(node::Scope::read),
+                       node::token_hash(provider(), later), t0});
+    REQUIRE(node::save_tokens(p.dir, *tokens));
+    CHECK(get(server.client(later), "/v1/status").status == 200);
     const auto status = get(reader, "/v1/status");
     REQUIRE(status.status == 200);
     CHECK(parse_json(status)["organization"] == "API Org");
