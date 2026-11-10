@@ -236,7 +236,7 @@ The `cexchain` tool controls every part of a ledger:
 | Ledger | `init`, `status`, `audit`, `log list`, `log show`, `log export`, `ledger keys`, `ledger genesis`, `ledger rotate-log-key`, `ledger rotate-root-key`, `ledger snapshot create\|show\|remove` |
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
-| Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types` |
+| Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types`, `record publish`, `record published`, `record unpublish` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `checkpoint note`, `checkpoint network-cosign`, `checkpoint network-cosignatures`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses, and open networks' with `--vkey`); `witness network-entry` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -479,6 +479,18 @@ cexchain qr <record-id> --bundle-url https://example.com/evidence/photo-1016.cbo
 Scanning the code opens the verifier with the ledger id, the record id, and the bundle's location.
 The page refuses evidence about another record or from another ledger, and shows who did what,
 person or AI agent, under whose authority.
+
+A bundle saved to a file stays as it was. To have the code show the record as it is when scanned,
+revoked or replaced since included, publish the record at a private address its server answers
+for anyone, with only the fields on the paper disclosed:
+
+```sh
+cexchain record publish <record-id> --disclose name,degree --url https://ledger.example.com
+# published 3f2a9c01 at https://ledger.example.com/c/4kq0... (name, degree)
+cexchain qr <record-id> --bundle-url https://ledger.example.com/c/4kq0... \
+    --verifier-url https://example.com/verify.html --out diploma-qr.svg
+cexchain record unpublish 4kq0...    # takes the address down; the record stays
+```
 
 ## An independent verifier
 

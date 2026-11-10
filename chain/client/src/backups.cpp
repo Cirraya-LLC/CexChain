@@ -12,6 +12,7 @@
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/peers.hpp>
+#include <cexchain/node/published.hpp>
 #include <cexchain/node/tokens.hpp>
 
 namespace cexchain::client {
@@ -60,6 +61,12 @@ bool backup_path_allowed(std::string_view path) {
     constexpr std::string_view pending = "contracts/pending/";
     if (path.starts_with(pending)) {
         return node::parse_pending_call_name(path.substr(pending.size())).has_value();
+    }
+    // A record published at a private address: published/<token>.cbor.
+    constexpr std::string_view published = "published/";
+    if (path.starts_with(published) && path.ends_with(".cbor")) {
+        return node::valid_published_token(
+            path.substr(published.size(), path.size() - published.size() - 5));
     }
     // A kept file: vault/files/<record id>/<attachment index>.cbor.
     constexpr std::string_view files = "vault/files/";
@@ -140,6 +147,9 @@ std::vector<ledger::BackupFile> backup_files(const std::filesystem::path& dir, b
             }
         }
         add_directory("vault/records/");
+        // Published records hold the fields they show, in the clear: with
+        // the private data.
+        add_directory("published/");
     }
     if (console) {
         add(std::string(node::peers_file));

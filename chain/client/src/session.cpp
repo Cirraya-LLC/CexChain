@@ -742,6 +742,82 @@ void Session::add_network_cosignature(const protocol::network::VerifierKey& witn
     sync();
 }
 
+namespace {
+
+Session::PublishedRecord published_record(const node::Published& p) {
+    Session::PublishedRecord out{p.token, p.record, {}, p.published_at};
+    for (const protocol::FieldDisclosure& d : p.disclosures) {
+        if (auto field = protocol::decode_field(d.leaf)) {
+            out.fields.emplace_back(field->name, verifier::display_value(field->value));
+        }
+    }
+    return out;
+}
+
+Session::PublishedRecord published_record(const nlohmann::json& j) {
+    Session::PublishedRecord out;
+    out.token = j.value("token", "");
+    const auto bytes = from_hex(j.value("record", ""));
+    out.record = unwrap(bytes ? protocol::to_id(*bytes)
+                              : Result<protocol::Id>(fail(Errc::malformed, "no record id")),
+                        "the server's answer");
+    for (const auto& f : j.value("fields", nlohmann::json::array())) {
+        out.fields.emplace_back(f.value("name", ""), f.value("value", ""));
+    }
+    out.published_at = j.value("published_at", protocol::Timestamp{0});
+    return out;
+}
+
+} // namespace
+
+Session::PublishedRecord Session::publish(const protocol::Id& record,
+                                          std::vector<protocol::FieldDisclosure> disclosures) {
+    if (remote_) {
+        const Bytes body = unwrap(node::encode_published({{}, record, std::move(disclosures), 0}),
+                                  "encoding the record to publish");
+        const Bytes answer = call("POST", "/v1/published", body, "application/cbor");
+        return published_record(nlohmann::json::parse(answer.begin(), answer.end()));
+    }
+    require_primary();
+    // As the server checks it: each disclosure opens a field of the record.
+    const protocol::RecordState* found = state().record(record);
+    if (found == nullptr) {
+        throw ActionError{"no record " + hex_id(record)};
+    }
+    for (const protocol::FieldDisclosure& d : disclosures) {
+        unwrap(protocol::verify_disclosure(provider_, state().hash(), found->field_root,
+                                           found->field_count, d),
+               "checking a disclosure against the record");
+    }
+    return published_record(
+        unwrap(node::publish_record(directory_, record, std::move(disclosures), entropy_, clock_),
+               "publishing the record"));
+}
+
+std::vector<Session::PublishedRecord> Session::published() const {
+    std::vector<PublishedRecord> out;
+    if (remote_) {
+        const Bytes answer = call("GET", "/v1/published");
+        for (const nlohmann::json& j : nlohmann::json::parse(answer.begin(), answer.end())) {
+            out.push_back(published_record(j));
+        }
+        return out;
+    }
+    for (const node::Published& p : node::list_published(directory_)) {
+        out.push_back(published_record(p));
+    }
+    return out;
+}
+
+void Session::unpublish(std::string_view token) {
+    if (remote_) {
+        static_cast<void>(call("DELETE", "/v1/published/" + std::string(token)));
+        return;
+    }
+    require_primary();
+    unwrap(node::unpublish(directory_, token), "taking the address down");
+}
+
 bool Session::fetch_vault(const protocol::Id& record) const {
     if (!remote_ || std::filesystem::exists(vault_path(record))) {
         return true;

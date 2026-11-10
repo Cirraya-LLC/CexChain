@@ -96,6 +96,8 @@ if(TARGET cexchain_node)
     cexchain_add_fuzzer(pending_call_fuzz cexchain::node)
     # Kept files: sealed files and a submission's list of them.
     cexchain_add_fuzzer(record_files_fuzz cexchain::node)
+    # Published records' files and requests to publish one.
+    cexchain_add_fuzzer(published_fuzz cexchain::node)
     # Proposal and consent files (.cexchain) between ledgers.
     cexchain_add_fuzzer(exchange_file_fuzz cexchain::core)
     # Invitation codes between organizations (cxp_...).

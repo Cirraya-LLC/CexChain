@@ -24,6 +24,7 @@
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/storage.hpp>
 #include <cexchain/node/client.hpp>
+#include <cexchain/node/published.hpp>
 #include <cexchain/node/record_files.hpp>
 
 namespace cexchain::client {
@@ -195,6 +196,25 @@ public:
     void add_network_cosignature(const protocol::network::VerifierKey& witness,
                                  const protocol::network::NoteSignature& cosignature,
                                  std::uint64_t size);
+
+    /// A record published at a private address (node/published.hpp): its
+    /// token, and the fields it discloses, by name and value as shown.
+    struct PublishedRecord {
+        std::string token;
+        protocol::Id record;
+        std::vector<std::pair<std::string, std::string>> fields;
+        protocol::Timestamp published_at = 0;
+    };
+    /// Publishes `record` with `disclosures` (each opening one of its fields),
+    /// on the ledger or through its server (an admin token).
+    PublishedRecord publish(const protocol::Id& record,
+                            std::vector<protocol::FieldDisclosure> disclosures);
+    /// The records published, oldest first.
+    [[nodiscard]] std::vector<PublishedRecord> published() const;
+    /// Takes a published record's address down (the record stays).
+    void unpublish(std::string_view token);
+    /// The server's address in client mode (empty on a ledger directory).
+    [[nodiscard]] std::string server_url() const { return remote_ ? remote_->url : std::string(); }
 
     /// Client mode: fetches a record's sealed private data into the mirror,
     /// unless it is there. False if the server holds none.

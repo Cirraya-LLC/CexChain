@@ -427,6 +427,44 @@ std::vector<CommandSpec> chain_commands() {
          1,
          with({ledger_option}),
          cmd_record_history},
+        {{"record", "publish"},
+         "Publish a record at a private address: its evidence as it is, with chosen fields",
+         "Records",
+         "RECORD",
+         1,
+         1,
+         with({ledger_option,
+               {"disclose", "FIELDS",
+                "Comma-separated fields shown at the address (those printed on the paper)"},
+               {"url", "URL",
+                "The server's public address, to print the whole address (default: the "
+                "server's, in client mode)"},
+               vault_key_option,
+               passphrase_file_option}),
+         cmd_record_publish,
+         "The ledger's server answers GET /c/TOKEN, from anyone and any page, with the\n"
+         "record's evidence as it is then (revoked or replaced since, it says so) and the\n"
+         "fields named here disclosed. TOKEN is random: nobody finds the address without\n"
+         "being given it, so give it only where those fields may be seen. Put it in a QR\n"
+         "code: cexchain qr RECORD --bundle-url ADDRESS --verifier-url\n"
+         "https://cexchain.cirraya.com/verify/. Not yet on a cluster's members."},
+        {{"record", "published"},
+         "List the records published at private addresses",
+         "Records",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"url", "URL", "The server's public address, to print whole addresses"}}),
+         cmd_record_published},
+        {{"record", "unpublish"},
+         "Take a published record's address down (the record stays on the ledger)",
+         "Records",
+         "TOKEN",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_record_unpublish},
         {{"record", "versions"},
          "Show a record's versions, oldest first: those it superseded, and those that "
          "superseded it",
@@ -1036,7 +1074,8 @@ std::vector<CommandSpec> chain_commands() {
                passphrase_file_option}),
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
-         "  open:    GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=\n"
+         "  open:    GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=,\n"
+         "           /c/TOKEN (a published record's evidence: record publish)\n"
          "  read:    GET /metrics, /v1/status, /v1/entries?start=&count=, /v1/checkpoints,\n"
          "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"
@@ -1048,7 +1087,8 @@ std::vector<CommandSpec> chain_commands() {
          "           registration with its sealed private data, or a contract call with its\n"
          "           consents' evidence, application/cexchain-submission+cbor),\n"
          "           POST /v1/contracts/calls\n"
-         "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key])\n"
+         "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key]),\n"
+         "           GET, POST /v1/published, DELETE /v1/published/TOKEN\n"
          "  peer:    POST /v1/access/requests, GET /v1/access/deliveries/REQUEST,\n"
          "           POST /v1/access/receipts, POST /v1/witness/cosign,\n"
          "           POST /v1/contracts/calls, GET /v1/contracts/calls[/CALL],\n"

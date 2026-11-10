@@ -65,6 +65,7 @@ add_executable(cexchain_tests
     ledger/witness_test.cpp
     node/api_test.cpp
     node/record_files_test.cpp
+    node/published_test.cpp
     node/contracts_api_test.cpp
     node/requests_api_test.cpp
     node/cluster_test.cpp
@@ -253,6 +254,9 @@ add_test(NAME executor_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
 add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
+# Records published at a private address (a certificate's QR code).
+add_test(NAME published_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/published.sh $<TARGET_FILE:cexchain>)
 add_test(NAME versions_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
 # Snapshots of the state: opens start from them, audit and a server check them.

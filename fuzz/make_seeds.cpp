@@ -1246,6 +1246,27 @@ void network_seeds(const Seeds& seeds) {
 
 /// What a time-stamp authority answers, and the certificates a verifier
 /// trusts (timestamp_fuzz: the first byte chooses the reader).
+/// A published record's file: one disclosed field, then none and untimed
+/// (a request to publish).
+void published_seeds(const Seeds& seeds) {
+    const auto record = cbor::Value::bytes(Bytes(32, 5));
+    const auto disclosure = cbor::Value::array(
+        {cbor::Value::bytes(Bytes(40, 7)), cbor::Value::unsigned_integer(2),
+         cbor::Value::array({cbor::Value::bytes(Bytes(32, 1)), cbor::Value::bytes(Bytes(32, 2))})});
+    seeds.write(
+        "published_fuzz", "file",
+        must(cbor::encode(cbor::Value::map(
+                 {{cbor::Value::integer(1), record},
+                  {cbor::Value::integer(2), cbor::Value::array({disclosure})},
+                  {cbor::Value::integer(3), cbor::Value::unsigned_integer(1'791'244'800'000)}})),
+             "encode"));
+    seeds.write(
+        "published_fuzz", "request",
+        must(cbor::encode(cbor::Value::map({{cbor::Value::integer(1), record},
+                                            {cbor::Value::integer(2), cbor::Value::array({})}})),
+             "encode"));
+}
+
 void timestamp_seeds(const Seeds& seeds) {
     const test::TimestampAuthority authority;
     const std::array<std::uint8_t, 32> imprint{};
@@ -1279,6 +1300,7 @@ int main(int argc, char** argv) {
         cluster_seeds(seeds);
         pending_call_seeds(seeds);
         record_file_seeds(seeds);
+        published_seeds(seeds);
         form_seeds(seeds);
         calls_seeds(seeds);
         exchange_seeds(seeds);

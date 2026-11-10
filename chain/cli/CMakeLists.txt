@@ -70,6 +70,7 @@ cexchain_program(cexchain
     src/cmd_vault.cpp
     src/cmd_timestamps.cpp
     src/cmd_network.cpp
+    src/cmd_publish.cpp
     src/cmd_witness.cpp
     src/mcp.cpp)
 target_link_libraries(cexchain PRIVATE cexchain_cli_chain cexchain_qrcodegen)

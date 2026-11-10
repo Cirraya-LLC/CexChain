@@ -18,6 +18,7 @@ add_library(cexchain_node
     src/keeper.cpp
     src/peers.cpp
     src/process.cpp
+    src/published.cpp
     src/replica.cpp
     src/request_query.cpp
     src/server.cpp

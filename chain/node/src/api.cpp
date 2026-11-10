@@ -31,6 +31,7 @@
 #include <cexchain/node/keeper.hpp>
 #include <cexchain/node/network_witnesses.hpp>
 #include <cexchain/node/peers.hpp>
+#include <cexchain/node/published.hpp>
 #include <cexchain/node/record_files.hpp>
 #include <cexchain/node/responses.hpp>
 #include <cexchain/node/timestamps.hpp>
@@ -184,6 +185,13 @@ enum class Endpoint {
     receipt,
     state,
     evidence,
+    /// GET /c/TOKEN: a published record's evidence, for anyone holding the
+    /// address (published.hpp); GET and POST /v1/published, DELETE
+    /// /v1/published/TOKEN: the records published here (admin).
+    published_evidence,
+    published_list,
+    publish,
+    unpublish,
     vault_public_key,
     vault_record,
     /// GET /v1/vault/files/RECORD: the indexes of its kept files.
@@ -1567,6 +1575,165 @@ struct LedgerApi::State {
         auto encoded = protocol::encode_bundle(*bundle);
         return encoded ? binary("application/cbor", std::move(*encoded))
                        : error_response(encoded.error());
+    }
+
+    // ---- published records -----------------------------------------------
+
+    /// GET /c/TOKEN: the record's evidence as it is now, with the fields
+    /// published disclosed, for anyone holding the address; any page may
+    /// read it (a verifier opened from a certificate's QR code).
+    http::Response published_evidence(std::string_view token) const {
+        auto response = [&]() -> http::Response {
+            auto published = load_published(options.directory, token);
+            if (!published) {
+                return error_response(404, "not_found", "nothing is published at that address");
+            }
+            if (options.log_keys.empty()) {
+                return error_response(501, "unsupported", "this server has no log key");
+            }
+            auto bundle = ledger->export_evidence(log_keys(), published->record);
+            if (!bundle) {
+                return error_response(bundle.error());
+            }
+            bundle->disclosures = std::move(published->disclosures);
+            auto encoded = protocol::encode_bundle(*bundle);
+            if (!encoded) {
+                return error_response(encoded.error());
+            }
+            http::Response out = binary("application/cbor", std::move(*encoded));
+            out.headers.emplace_back("Cache-Control", "no-store");
+            return out;
+        }();
+        response.headers.emplace_back("Access-Control-Allow-Origin", "*");
+        return response;
+    }
+
+    /// The last log index about `record` (its supersession too), if any.
+    std::optional<std::uint64_t> last_about(const protocol::Id& record) const {
+        std::optional<std::uint64_t> last;
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            if (const protocol::RecordState* found = s.record(record)) {
+                for (const std::uint64_t index : found->history) {
+                    last = std::max(last.value_or(0), index);
+                }
+                if (found->superseded_by) {
+                    last = std::max(last.value_or(0), found->superseded_at_index);
+                }
+            }
+        });
+        return last;
+    }
+
+    /// Whether the latest checkpoint covers every statement about the record
+    /// published under `token` (an unknown token needs none).
+    bool published_covered(std::string_view token) const {
+        auto published = load_published(options.directory, token);
+        const auto last = published ? last_about(published->record) : std::nullopt;
+        const auto latest = ledger->latest_checkpoint();
+        return !last || (latest && latest->checkpoint.tree_size > *last);
+    }
+
+    /// GET /c/TOKEN, checkpointing first when the record changed since the
+    /// latest checkpoint, so that a revocation shows at once.
+    void published_request(const http::Request& r, const Routed& routed, std::string principal,
+                           Done& done) {
+        const std::string token(std::string_view(r.path).substr(routed.rest));
+        const bool can_write =
+            !options.read_only && !replica && !cluster && !options.log_keys.empty();
+        if ((published_covered(token) && !ledger->outdated()) || !can_write) {
+            finish(done, principal, answer_safely(r, routed, principal, 0));
+            return;
+        }
+        queue_locked([this, token, principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            // Caught up with the files: checkpoint unless that covers it now.
+            if (!published_covered(token)) {
+                if (auto made = ledger->checkpoint(log_keys()); !made) {
+                    finish(done, principal, error_response(made.error()));
+                    return;
+                }
+            }
+            finish(done, principal, published_evidence(token));
+        });
+    }
+
+    nlohmann::json published_json(const Published& p) const {
+        nlohmann::json fields = nlohmann::json::array();
+        for (const protocol::FieldDisclosure& d : p.disclosures) {
+            if (auto field = protocol::decode_field(d.leaf)) {
+                const std::string* text = field->value.as_text();
+                fields.push_back(
+                    {{"name", field->name},
+                     {"value", text != nullptr ? *text : cbor::diagnostic(field->value)}});
+            }
+        }
+        return {{"token", p.token},
+                {"address", "/c/" + p.token},
+                {"record", hex(p.record)},
+                {"fields", fields},
+                {"published_at", p.published_at}};
+    }
+
+    http::Response published_list() const {
+        nlohmann::json list = nlohmann::json::array();
+        for (const Published& p : list_published(options.directory)) {
+            list.push_back(published_json(p));
+        }
+        return json_response(200, list);
+    }
+
+    /// POST /v1/published: {1: record id, 2: [disclosures]} (published.hpp);
+    /// each disclosure must open a field of the record.
+    http::Response publish(const http::Request& r) {
+        if (options.read_only || replica) {
+            return error_response(403, "read_only", "this server keeps no published records");
+        }
+        if (cluster) {
+            // Published records are files beside the ledger, not yet replicated.
+            return error_response(501, "unsupported", "a cluster publishes no records yet");
+        }
+        auto request = decode_published({}, r.body);
+        if (!request) {
+            return error_response(400, "invalid_argument", request.error().detail);
+        }
+        Status checked = fail(Errc::not_found, "no such record");
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            const protocol::RecordState* record = s.record(request->record);
+            if (record == nullptr) {
+                return;
+            }
+            checked = {};
+            for (const protocol::FieldDisclosure& d : request->disclosures) {
+                if (auto field = protocol::verify_disclosure(
+                        *provider, s.hash(), record->field_root, record->field_count, d);
+                    !field) {
+                    checked = fail(Errc::invalid_argument,
+                                   "a disclosure does not open a field of the record");
+                    return;
+                }
+            }
+        });
+        if (!checked) {
+            return error_response(checked.error());
+        }
+        auto published = publish_record(options.directory, request->record,
+                                        std::move(request->disclosures), entropy, *clock);
+        if (!published) {
+            return error_response(published.error());
+        }
+        event("record-published", hex(published->record));
+        return json_response(201, published_json(*published));
+    }
+
+    http::Response unpublish_route(std::string_view token) const {
+        if (auto s = unpublish(options.directory, token); !s) {
+            return error_response(s.error());
+        }
+        return json_response(200, {{"unpublished", std::string(token)}});
     }
 
     /// The peer a token belongs to (peer tokens are named after their peer).
@@ -3690,6 +3857,22 @@ struct LedgerApi::State {
             } else {
                 return method_not_allowed("GET, PUT, DELETE");
             }
+        } else if (match("/c/")) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::published_evidence, Access::open, rest};
+        } else if (path == "/v1/published") {
+            if (!get && !post) {
+                return method_not_allowed("GET, POST");
+            }
+            found = post ? Routed{Endpoint::publish, Access::admin}
+                         : Routed{Endpoint::published_list, Access::admin};
+        } else if (match("/v1/published/")) {
+            if (r.method != "DELETE") {
+                return method_not_allowed("DELETE");
+            }
+            found = Routed{Endpoint::unpublish, Access::admin, rest};
         } else if (path == "/v1/cosignatures") {
             found = post ? Routed{Endpoint::add_cosignature, Access::admin}
                          : Routed{Endpoint::cosignatures, Access::read};
@@ -3737,7 +3920,8 @@ struct LedgerApi::State {
             return error_response(404, "not_found", "no such route");
         }
         if (!get && !post && found->endpoint != Endpoint::vault_file_put &&
-            found->endpoint != Endpoint::vault_file_delete) {
+            found->endpoint != Endpoint::vault_file_delete &&
+            found->endpoint != Endpoint::unpublish) {
             const bool posts = found->endpoint == Endpoint::make_checkpoint ||
                                found->endpoint == Endpoint::add_cosignature ||
                                found->endpoint == Endpoint::add_timestamp ||
@@ -3793,6 +3977,14 @@ struct LedgerApi::State {
             return state_proof(rest);
         case Endpoint::evidence:
             return evidence(rest);
+        case Endpoint::published_evidence:
+            return published_evidence(rest);
+        case Endpoint::published_list:
+            return published_list();
+        case Endpoint::publish:
+            return publish(r);
+        case Endpoint::unpublish:
+            return unpublish_route(rest);
         case Endpoint::vault_public_key:
             return vault_file("vault.pub");
         case Endpoint::vault_record:
@@ -4009,6 +4201,10 @@ struct LedgerApi::State {
         }
         if (routed.endpoint == Endpoint::instance_evidence) {
             evidence_request(r, routed, std::move(principal), scopes, done);
+            return;
+        }
+        if (routed.endpoint == Endpoint::published_evidence) {
+            published_request(r, routed, std::move(principal), done);
             return;
         }
         if (routed.endpoint == Endpoint::requests) {
