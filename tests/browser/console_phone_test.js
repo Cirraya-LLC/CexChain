@@ -154,6 +154,8 @@ async function open(page, hash) {
       if (language !== "en") {
         await page.locator("#menu").tap();
         await page.locator("#language").selectOption(language);
+        // The menu folds once the language's words have come.
+        await page.locator('#menu[aria-expanded="false"]').waitFor();
       }
       for (const hash of screens) {
         await open(page, hash);
