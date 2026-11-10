@@ -106,7 +106,8 @@ catch_discover_tests(cexchain_tests)
 # chain's, which link no application (cmake/CexChainLayers.cmake). Labelled
 # "apps", as are the applications' end-to-end tests: a change to an
 # application alone runs these.
-add_executable(cexchain_apps_tests console/console_test.cpp search/index_test.cpp)
+add_executable(cexchain_apps_tests console/console_test.cpp console/certificates_test.cpp
+    search/index_test.cpp)
 target_link_libraries(cexchain_apps_tests PRIVATE
     cexchain::console
     cexchain::core
@@ -231,6 +232,9 @@ add_test(NAME serve_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
 add_test(NAME console_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/console.sh $<TARGET_FILE:cexchain>)
+# Certificates: issued from a table, published, printed (the console's commands).
+add_test(NAME certificates_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/certificates.sh $<TARGET_FILE:cexchain>)
 add_test(NAME access_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
 add_test(NAME parties_end_to_end
@@ -301,7 +305,8 @@ if(Python3_Interpreter_FOUND)
             $<TARGET_FILE:cexchain> ${PROJECT_SOURCE_DIR}/testvectors/evidence-v1.json)
 endif()
 # The applications' end-to-end tests (generic_words reads every program).
-set_tests_properties(console_end_to_end search_end_to_end generic_words PROPERTIES LABELS apps)
+set_tests_properties(console_end_to_end certificates_end_to_end search_end_to_end generic_words
+    PROPERTIES LABELS apps)
 # The Bo commands exist where the compiler does.
 if(TARGET cexchain_bo)
     add_test(NAME bo_end_to_end

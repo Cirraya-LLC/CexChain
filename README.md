@@ -492,6 +492,9 @@ cexchain qr <record-id> --bundle-url https://ledger.example.com/c/4kq0... \
 cexchain record unpublish 4kq0...    # takes the address down; the record stays
 ```
 
+For certificates in bulk, issued from a table and printed with their QR codes, see
+`cexchain-console certificate` in [the console's README](apps/console/README.md).
+
 ## An independent verifier
 
 [`verifiers/python`](verifiers/python/README.md) verifies evidence again, in Python: a record's,

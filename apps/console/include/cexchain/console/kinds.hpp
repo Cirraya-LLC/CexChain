@@ -24,7 +24,8 @@
 ///    "name": "Photo", "description": "...",
 ///    "fields": [{"name": "place", "label": "Place", "type": "text",
 ///                "private": true, "required": true}, ...],
-///    "files": "optional" | "required" | "none", "keep_files": true}
+///    "files": "optional" | "required" | "none", "keep_files": true,
+///    "printed": ["place", ...]}
 namespace cexchain::console {
 
 enum class FieldType : std::uint8_t { text, number, date, yes_no };
@@ -52,6 +53,10 @@ struct Kind {
     /// Keep the files with the record, sealed (else they stay with the
     /// person, committed by hash only).
     bool keep_files = true;
+    /// The fields a certificate of this kind shows on paper, in order
+    /// (certificates.hpp): whoever scans its QR code sees these, and only
+    /// these. None for a kind that is no certificate.
+    std::vector<std::string> printed;
 };
 
 /// Reads a kind sheet; throws std::invalid_argument saying what is wrong.

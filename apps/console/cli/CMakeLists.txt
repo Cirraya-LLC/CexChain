@@ -6,6 +6,7 @@
 cexchain_program(cexchain-console
     program_console.cpp
     commands_console.cpp
-    cmd_console.cpp)
+    cmd_console.cpp
+    cmd_certificates.cpp)
 target_include_directories(cexchain-console PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cexchain-console PRIVATE cexchain_cli_chain cexchain::console cexchain::search)

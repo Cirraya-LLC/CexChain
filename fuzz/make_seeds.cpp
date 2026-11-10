@@ -558,7 +558,13 @@ void text_seeds(const Seeds& seeds) {
         R"( "fields": [{"name": "place", "label": "Place", "type": "text", "required": true},)"
         R"( {"name": "taken", "type": "date", "private": false},)"
         R"( {"name": "price", "type": "number"}, {"name": "framed", "type": "yes-no"}],)"
-        R"( "files": "required", "keep_files": true})");
+        R"( "files": "required", "keep_files": true, "printed": ["place", "taken"]})");
+    // A table of certificates as a spreadsheet exports it, and a template.
+    seeds.write("certificate_table_fuzz", "table",
+                "\xEF\xBB\xBFName,Date,count\r\n\"Chan, Tai Man\",2026-11-10,3\r\n"
+                "\"say \"\"hi\"\"\",,\r\n");
+    seeds.write("certificate_table_fuzz", "template",
+                "<h1>{{kind}}</h1>{{fields}}<p>{{ name }} {{field.date}}</p>{{qr}}");
     // Paths a restore may write, and some it may not.
     const std::string id(64, 'a');
     seeds.write("sealed_backup_fuzz", "users", "console/users.json");

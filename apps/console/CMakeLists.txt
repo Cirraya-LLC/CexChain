@@ -7,7 +7,7 @@
 # the node does not depend on this library.
 add_library(cexchain_console src/console.cpp src/passkeys.cpp src/sessions.cpp src/users.cpp src/views.cpp src/keystore.cpp src/unlock.cpp src/approve.cpp src/setup.cpp src/deferred.cpp src/recover.cpp src/settings.cpp src/kinds.cpp src/documents.cpp
     src/access.cpp src/exchange.cpp src/instances.cpp src/parties.cpp src/things.cpp src/search.cpp src/rules.cpp src/witnessing.cpp src/relaying.cpp
-    src/people.cpp src/activity.cpp src/qr.cpp src/automation.cpp
+    src/people.cpp src/activity.cpp src/qr.cpp src/certificates.cpp src/automation.cpp
     src/backups.cpp)
 add_library(cexchain::console ALIAS cexchain_console)
 target_include_directories(cexchain_console PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)

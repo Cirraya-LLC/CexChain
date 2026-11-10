@@ -71,6 +71,23 @@ cexchain-console settings show
   **New version** registers a document's replacement with one tap: the old one's page then says
   a newer version replaced it and links the latest, its versions are listed, Things hides old
   versions until asked, and its proof, wherever it is checked, says it was superseded.
+- **Certificates.** A kind whose sheet lists `"printed": [fields]` is a certificate: the fields
+  on paper. `console certificate issue TYPE --csv FILE --as KEY --out ISSUED.csv` issues a
+  record per row of a table (a spreadsheet saved as CSV) and publishes each at a private
+  address (`cexchain record publish`): whoever scans its QR code gets the record as it is then,
+  revoked or replaced included, with the printed fields disclosed and the others sealed.
+  `--out` lists what was issued, so a run that stops carries on without issuing anything twice.
+  `certificate print --type TYPE --out DIR --url URL` writes a page per certificate (an A4
+  template in English or Chinese, or your own HTML with `{{name}}`, `{{qr}}`, ...) to print or
+  save as PDF; `certificate list`, `show`, and `withdraw` (the address down, the record kept).
+
+  ```sh
+  cexchain-console kind add diploma.json      # ... "printed": ["name", "degree", "year"]
+  cexchain-console certificate issue example.org.diploma/1 --csv class-of-2026.csv \
+      --as registrar.key --out issued.csv --url https://ledger.example.com
+  cexchain-console certificate print --type example.org.diploma/1 --out pages \
+      --url https://ledger.example.com --language zh-Hant
+  ```
 - **Rules.** The Rules screen lists the contracts on the ledger and retires them; "Write
   rules" is an editor with two views of the same rules: a form (parties, the thing and its
   fields, actions with their conditions, consents, presence, what AI agents may do, the state

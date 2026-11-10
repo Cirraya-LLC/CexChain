@@ -116,6 +116,9 @@ if(TARGET cexchain_node)
         # Kind sheets from a person's page or a shared file.
         cexchain_add_fuzzer(kind_sheet_fuzz cexchain::console)
         target_compile_features(kind_sheet_fuzz PRIVATE cxx_std_26)
+        # Tables of certificates and their templates, from people's files.
+        cexchain_add_fuzzer(certificate_table_fuzz cexchain::console)
+        target_compile_features(certificate_table_fuzz PRIVATE cxx_std_26)
     endif()
     # The cluster's internals (node/src/cluster_parts.hpp).
     cexchain_add_fuzzer(cluster_entry_fuzz cexchain::node cexchain::crypto_openssl cexchain_nuraft)

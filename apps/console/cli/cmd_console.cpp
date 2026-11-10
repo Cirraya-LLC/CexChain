@@ -1921,6 +1921,13 @@ void print_kind(const console::Kind& kind) {
         : kind.files == console::KindFiles::required ? "required"
                                                      : "optional",
         kind.files != console::KindFiles::none && kind.keep_files ? ", kept with the record" : "");
+    if (!kind.printed.empty()) {
+        std::string printed;
+        for (const std::string& name : kind.printed) {
+            printed += (printed.empty() ? "" : ", ") + name;
+        }
+        std::println("  printed on its certificates: {}", printed);
+    }
 }
 
 } // namespace

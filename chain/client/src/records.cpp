@@ -290,7 +290,7 @@ Vault read_vault(const Session& session, const protocol::Id& record,
 }
 
 protocol::Id issue_record(Session& session, const crypto::Signer& signer,
-                          const IssueRequest& request) {
+                          const IssueRequest& request, Vault* kept_vault) {
     ledger::SystemEntropy entropy;
     if (request.fields.empty()) {
         throw UsageError{"a record needs at least one field"};
@@ -353,10 +353,14 @@ protocol::Id issue_record(Session& session, const crypto::Signer& signer,
             return files;
         };
     }
-    return session.submit(
+    const protocol::Id id = session.submit(
         signer, body, request.delegation, request.provenance, request.presence,
         [&](const protocol::Id& record) { return seal_vault(ledger, record, vault, vault_key); },
         {}, seal_files);
+    if (kept_vault != nullptr) {
+        *kept_vault = std::move(vault);
+    }
+    return id;
 }
 
 namespace {

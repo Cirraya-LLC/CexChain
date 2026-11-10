@@ -41,5 +41,10 @@ int cmd_console_service_install(const Args& args);
 int cmd_console_service_uninstall(const Args& args);
 int cmd_console_service_status(const Args& args);
 int cmd_console_session_revoke(const Args& args);
+int cmd_certificate_issue(const Args& args);
+int cmd_certificate_list(const Args& args);
+int cmd_certificate_show(const Args& args);
+int cmd_certificate_withdraw(const Args& args);
+int cmd_certificate_print(const Args& args);
 
 } // namespace cexchain::cli

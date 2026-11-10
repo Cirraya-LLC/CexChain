@@ -179,6 +179,21 @@ Kind parse_kind(const nlohmann::json& sheet) {
         bad("a kind's files are optional, required, or none");
     }
     kind.keep_files = flag_of(sheet, "keep_files", true);
+    if (const auto printed = sheet.find("printed"); printed != sheet.end() && !printed->is_null()) {
+        if (!printed->is_array()) {
+            bad("\"printed\" lists the fields a certificate shows");
+        }
+        for (const auto& name : *printed) {
+            if (!name.is_string() || std::ranges::find(kind.fields, name.get<std::string>(),
+                                                       &KindField::name) == kind.fields.end()) {
+                bad("\"printed\" names the kind's own fields");
+            }
+            if (std::ranges::contains(kind.printed, name.get<std::string>())) {
+                bad("\"printed\" names " + name.get<std::string>() + " twice");
+            }
+            kind.printed.push_back(name.get<std::string>());
+        }
+    }
     return kind;
 }
 
@@ -191,14 +206,18 @@ nlohmann::json kind_json(const Kind& kind) {
                           {"private", f.is_private},
                           {"required", f.required}});
     }
-    return {{"sheet", 1},
-            {"kind", "document"},
-            {"type", kind.type},
-            {"name", kind.name},
-            {"description", kind.description},
-            {"fields", fields},
-            {"files", files_name(kind.files)},
-            {"keep_files", kind.keep_files}};
+    nlohmann::json sheet = {{"sheet", 1},
+                            {"kind", "document"},
+                            {"type", kind.type},
+                            {"name", kind.name},
+                            {"description", kind.description},
+                            {"fields", fields},
+                            {"files", files_name(kind.files)},
+                            {"keep_files", kind.keep_files}};
+    if (!kind.printed.empty()) {
+        sheet["printed"] = kind.printed;
+    }
+    return sheet;
 }
 
 std::optional<std::string> check_value(const KindField& field, std::string_view value) {

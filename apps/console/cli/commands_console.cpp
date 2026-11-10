@@ -149,10 +149,11 @@ std::vector<CommandSpec> console_commands() {
          cmd_console_kind_add,
          "FILE is a kind sheet (JSON): {\"sheet\": 1, \"kind\": \"document\", \"type\": TYPE,\n"
          "\"name\": NAME, \"fields\": [{\"name\", \"label\", \"type\": text|number|date|yes-no,\n"
-         "\"private\", \"required\"}, ...], \"files\": optional|required|none, \"keep_files\"}.\n"
-         "A kind is the console's form for registering records of TYPE: private fields are\n"
-         "committed by salted hash, public ones go into the record's metadata. Kinds are not\n"
-         "part of the ledger."},
+         "\"private\", \"required\"}, ...], \"files\": optional|required|none, \"keep_files\",\n"
+         "\"printed\": [NAMES]}. A kind is the console's form for registering records of TYPE:\n"
+         "private fields are committed by salted hash, public ones go into the record's\n"
+         "metadata. \"printed\" makes it a certificate (certificate issue): the fields shown on\n"
+         "paper, and disclosed to whoever scans its QR code. Kinds are not part of the ledger."},
         {{"kind", "list"},
          "List the web console's document kinds",
          "Console",
@@ -178,6 +179,86 @@ std::vector<CommandSpec> console_commands() {
          with({ledger_option}),
          cmd_console_kind_remove,
          "Its records stay on the ledger; only the console's form goes."},
+        {{"certificate", "issue"},
+         "Issue certificates from a table, each at a private address for its QR code",
+         "Certificates",
+         "TYPE",
+         1,
+         1,
+         signing(
+             {{"csv", "FILE", "The table: a header naming the kind's fields, a row each", true},
+              {"out", "FILE",
+               "Where the issued certificates are listed (run again with it to carry on)", true},
+              {"url", "URL",
+               "The server's public address, for the certificates' addresses (default: the "
+               "server's, in client mode)"},
+              {"sheet", "FILE", "The kind's sheet (default: the console's kind of TYPE)"},
+              {"dry-run", "", "Check the table and say what would be issued"},
+              vault_key_option}),
+         cmd_certificate_issue,
+         "TYPE is a kind whose sheet lists the fields printed on paper (\"printed\": [NAMES]).\n"
+         "Each row of the table (CSV, UTF-8) is a record of TYPE, issued as record issue does,\n"
+         "then published: GET /c/TOKEN gives whoever scans its QR code the record as it is then\n"
+         "(revoked or replaced, it says so), with the printed fields disclosed and the others\n"
+         "sealed. --out lists line, fingerprint, record, token, and address; a run that stops\n"
+         "halfway carries on from it, issuing nothing twice (a row changed since is refused)."},
+        {{"certificate", "list"},
+         "List the certificates published",
+         "Certificates",
+         "[TYPE]",
+         0,
+         1,
+         with({ledger_option,
+               {"url", "URL", "The server's public address (default: the server's)"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
+         cmd_certificate_list,
+         "Each with its token, record, date issued, status (valid, revoked, or replaced), and\n"
+         "the printed fields."},
+        {{"certificate", "show"},
+         "Show a certificate, its address, and the link its QR code holds",
+         "Certificates",
+         "TOKEN",
+         1,
+         1,
+         with({ledger_option,
+               {"url", "URL", "The server's public address (default: the server's)"},
+               {"verifier-url", "URL",
+                "The verifier page (default: https://cexchain.cirraya.com/verify/)"},
+               {"language", "LANG", "The page's language: en, zh-Hant, or zh-Hans (default: en)"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
+         cmd_certificate_show},
+        {{"certificate", "withdraw"},
+         "Take a certificate's address down (the record stays on the ledger)",
+         "Certificates",
+         "TOKEN",
+         1,
+         1,
+         with(
+             {ledger_option, {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
+         cmd_certificate_withdraw,
+         "Its QR code then finds nothing. To say the certificate no longer stands, revoke the\n"
+         "record instead (cexchain record revoke): the QR code then shows it revoked."},
+        {{"certificate", "print"},
+         "Write certificates as pages to print or save as PDF, each with its QR code",
+         "Certificates",
+         "[TOKEN...]",
+         0,
+         100000,
+         with({ledger_option,
+               {"type", "TYPE", "Every valid certificate of this kind"},
+               {"out", "DIR", "Where the pages go (TOKEN.html each)", true},
+               {"template", "FILE", "An HTML template (default: a plain A4 page)"},
+               {"url", "URL", "The server's public address (default: the server's)"},
+               {"verifier-url", "URL",
+                "The verifier page (default: https://cexchain.cirraya.com/verify/)"},
+               {"language", "LANG",
+                "The default template's and the page's language: en, zh-Hant, or zh-Hans"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
+         cmd_certificate_print,
+         "A template fills {{kind}}, {{issuer}}, {{issued}}, {{record}}, {{verify_url}},\n"
+         "{{qr}} (the QR code, SVG), {{fields}} (the printed fields as a list), and {{NAME}} or\n"
+         "{{field.NAME}} for one printed field; a name it does not know stops it before\n"
+         "anything is written. Revoked and replaced certificates are not printed."},
         {{"settings", "show"},
          "Show the web console's settings",
          "Console",

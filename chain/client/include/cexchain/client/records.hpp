@@ -41,11 +41,6 @@ struct IssueRequest {
 /// The media type an attachment named `path` is given (by its extension).
 [[nodiscard]] std::string media_type_of(const std::filesystem::path& path);
 
-/// Commits to the fields and attachments, registers the record, and keeps
-/// the private data (values and salts) in the ledger directory's vault.
-protocol::Id issue_record(Session& session, const crypto::Signer& signer,
-                          const IssueRequest& request);
-
 struct VaultAttachment {
     std::string name;
     protocol::Nonce salt{};
@@ -56,6 +51,12 @@ struct Vault {
     std::vector<protocol::RecordField> fields;
     std::vector<VaultAttachment> attachments;
 };
+
+/// Commits to the fields and attachments, registers the record, and keeps
+/// the private data (values and salts) in the ledger directory's vault; a
+/// copy in `kept` too, if given (to disclose fields at once).
+protocol::Id issue_record(Session& session, const crypto::Signer& signer,
+                          const IssueRequest& request, Vault* kept = nullptr);
 
 // The vault holds the private data behind each record's commitments: field
 // values, salts, and attachment salts. Vault files are sealed with HPKE to the
