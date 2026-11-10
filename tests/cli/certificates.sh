@@ -167,7 +167,7 @@ contains "{{grades}}" out.txt || fail "a sealed field cannot be printed"
 # --- Revoked, then withdrawn ---------------------------------------------------------
 WONG_RECORD="$(echo "$LIST" | json '[c for c in d if c["token"] == "'"$WONG"'"][0]["record"]')"
 run record revoke --as root.key "$WONG_RECORD" --reason "issued in error" > /dev/null
-cert list | grep "$WONG" | contains revoked || fail "listed as revoked"
+cert list | grep -- "$WONG" | contains revoked || fail "listed as revoked"
 cert print --type "$TYPE" --out again --url "$URL" | contains "left out 1 revoked or replaced"
 [ ! -e "again/$WONG.html" ] || fail "a revoked certificate is not printed"
 expect_exit 2 cexchain-console certificate print "$WONG" --out again --url "$URL"

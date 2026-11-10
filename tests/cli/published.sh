@@ -65,7 +65,7 @@ TOKEN="$(echo "$P" | json 'd["token"]')"
 [ "$(echo "$P" | json '[f["name"] for f in d["fields"]]')" = "['name', 'degree']" ] || fail "the fields, as asked"
 [ "$(echo "$P" | json 'd["fields"][0]["value"]')" = "Chan Tai Man" ] || fail "the values shown"
 expect_exit 2 record publish --ledger local "$CERT" --disclose nickname
-run record published --ledger local | contains "$TOKEN"
+run record published --ledger local | contains -- "$TOKEN"
 [ "$(run record published --ledger local --json | json 'len(d)')" = 1 ] || fail "one published"
 [ -f "local/published/$TOKEN.cbor" ] || fail "kept beside the ledger"
 stat -c %a "local/published/$TOKEN.cbor" 2> /dev/null | contains -x 600 ||
@@ -115,7 +115,7 @@ unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
 run backup create --ledger local --log-key log.key --out b.cxb > /dev/null
 run backup restore b.cxb --ledger restored > /dev/null
 [ -f "restored/published/$TOKEN.cbor" ] || fail "restored"
-run record published --ledger restored --json | json 'd[0]["token"]' | contains -x "$TOKEN"
+run record published --ledger restored --json | json 'd[0]["token"]' | contains -x -- "$TOKEN"
 
 run record unpublish --ledger local "$TOKEN" > /dev/null
 [ "$(run record published --ledger local --json | json 'len(d)')" = 0 ] || fail "taken down"
