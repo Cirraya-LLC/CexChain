@@ -555,6 +555,9 @@ std::string_view record_type_purpose(std::string_view type) {
     if (type == "cexchain.contract-consent/1") {
         return "consenting to a call on a contract instance elsewhere (contract consent)";
     }
+    if (type == "cexchain.claim/1") {
+        return "confirming a condition on another record's fields, without them (claim issue)";
+    }
     return {};
 }
 

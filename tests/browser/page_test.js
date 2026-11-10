@@ -23,7 +23,8 @@ const recordId = text("record-id");
 
 function serve() {
   const files = { "/cexchain-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor"),
-                  "/contract.cbor": path.join(dir, "contract.cbor"), "/part.cbor": path.join(dir, "part.cbor") };
+                  "/contract.cbor": path.join(dir, "contract.cbor"), "/part.cbor": path.join(dir, "part.cbor"),
+                  "/claim.cbor": path.join(dir, "claim.cbor") };
   const server = http.createServer((req, res) => {
     const file = files[req.url];
     if (!file) { res.writeHead(404).end(); return; }
@@ -264,6 +265,23 @@ async function verdict(page) {
     await page.goto(link);
     await page.waitForFunction(() => window.verifierReady === true);
     assert.equal((await verdict(page)).title, "\u5df2\u9a8c\u8bc1");
+    await page.close();
+
+    // 11. A claim (v0.14): the condition confirmed, in words, outcome first,
+    // and none of the payslip's fields.
+    const claimLink = base + "/cexchain-verify.html#l=" + ledgerId + "&r=" + text("claim-id") + "&b=" +
+      encodeURIComponent(base + "/claim.cbor");
+    page = await open(claimLink + "&lang=zh-Hans");
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.equal(v.title, "\u5df2\u786e\u8ba4");
+    assert.match(v.detail, /monthly_salary \u9ad8\u4e8e HKD 30,000\.00\uff0c\u4e14 status \u5c5e\u4e8e "staff"\u3001"contractor" \u5176\u4e2d\u4e4b\u4e00/);
+    const claimSummary = await page.textContent("#summary");
+    assert.match(claimSummary, /Chan Tai Man/);
+    assert.doesNotMatch(await page.textContent("#result"), /32,000\.50/);
+    await page.selectOption("#language", "en");
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Confirmed");
+    assert.match((await verdict(page)).detail, /confirms: monthly_salary is above HKD 30,000\.00 and status is one of "staff", "contractor"/);
     await page.close();
 
     assert.deepEqual(problems, []);

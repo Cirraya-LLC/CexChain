@@ -67,6 +67,14 @@ run export "$(cat record-id)" --log-key log.key --disclose result,note --with-at
 run verify stamped.cbor --ledger-id "$(cat ledger-id)" --attachment report.pdf=report.pdf \
     --tsa-root tsa-root.pem --json > native-stamped-report.json
 
+# A claim (v0.14): a condition confirmed on another record's fields.
+PAYSLIP="$(run record issue --as root.key --type example.org.payslip/1 \
+    --field monthly_salary="HKD 32,000.50" --field status=staff | id_from)"
+run claim issue "$PAYSLIP" --as root.key --if 'monthly_salary > HKD 30000.00' \
+    --if 'status in staff,contractor' --subject "Chan Tai Man" --until 2099-01-01 | id_from > claim-id
+run checkpoint create --log-key log.key > /dev/null
+run export "$(cat claim-id)" --log-key log.key --out claim.cbor > /dev/null
+
 # Three organizations, each with its own ledger.
 for k in core-root core-log sup-root sup-log bank-root bank-log; do run key generate --out "$k.key" > /dev/null; done
 run init --org "Cirraya Core Enterprise" --root-key core-root.key --log-key core-log.key --ledger "$DIR/core" \

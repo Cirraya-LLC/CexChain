@@ -237,6 +237,7 @@ The `cexchain` tool controls every part of a ledger:
 | Actors | `actor add`, `actor list`, `actor show`, `actor revoke`, `actor rotate-key`, `actor set-presence`, `presence enroll` |
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types`, `record publish`, `record published`, `record unpublish` |
+| Claims | `claim issue`, `claim list`, `claim show`, `claim revoke` |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `checkpoint note`, `checkpoint network-cosign`, `checkpoint network-cosignatures`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses, and open networks' with `--vkey`); `witness network-entry` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -498,6 +499,25 @@ cexchain record unpublish 4kq0...    # takes the address down; the record stays
 
 For certificates in bulk, issued from a table and printed with their QR codes, see
 `cexchain-console certificate` in [the console's README](apps/console/README.md).
+
+## Claims
+
+A claim confirms a condition on a record's fields without disclosing them: "the monthly salary
+is above HKD 30,000.00", not the salary; "born before 2008-11-10", not the birth date. The issuer
+checks the condition against the record's private data and registers a `cexchain.claim/1`
+record that names the record, the condition, and the answer. Its evidence shows the condition
+in words and whether the record was revoked or replaced since, and nothing of its fields.
+
+```sh
+cexchain claim issue <payslip-id> --as hr.key --if 'monthly_salary > HKD 30000.00' \
+    --subject "Chan Tai Man" --until 2026-12-31
+# issued claim 7c41...: holds: monthly_salary is above HKD 30,000.00
+cexchain record publish <claim-id> --url https://ledger.example.com   # a QR code's address
+```
+
+Conditions compare numbers, money (`HKD 30000.00`), dates, and text with `>`, `>=`, `<`, `<=`,
+`=`, `!=`, `between`, `in`, and `exists`; several `--if` must all hold. A condition that does not
+hold gets no claim unless `--allow-no`, so that asking reveals nothing more than silence.
 
 ## An independent verifier
 

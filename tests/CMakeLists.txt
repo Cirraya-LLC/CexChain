@@ -260,6 +260,9 @@ add_test(NAME executor_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
 add_test(NAME files_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
+# Claims: conditions confirmed on a record's fields, without them.
+add_test(NAME claims_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/claims.sh $<TARGET_FILE:cexchain>)
 # Records published at a private address (a certificate's QR code).
 add_test(NAME published_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/published.sh $<TARGET_FILE:cexchain>)
