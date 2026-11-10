@@ -26,6 +26,7 @@
 #include <cexchain/client/records.hpp>
 #include <cexchain/client/relay_client.hpp>
 #include <cexchain/console/backups.hpp>
+#include <cexchain/console/certificates.hpp>
 #include <cexchain/console/keystore.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/users.hpp>
@@ -449,6 +450,48 @@ private:
                       nlohmann::json detail = nlohmann::json::object()) const;
     [[nodiscard]] http::Response tokens_route(const http::Request& request) const;
     [[nodiscard]] http::Response activity_route(const http::Request& request) const;
+    /// Certificates (certifying.cpp): GET /console/api/certificates, the
+    /// kinds that print fields (and whether the console's machine may issue
+    /// each) and the certificates published; POST .../check, a table's rows;
+    /// POST .../batch, a batch for an owner's or admin's passkey, and POST
+    /// .../start with it, after which the machine issues and publishes each
+    /// row on `certifier_`, followed with GET .../batch/ID; .../TOKEN/qr and
+    /// .../TOKEN/page (?language=), and DELETE .../TOKEN to withdraw one.
+    [[nodiscard]] http::Response certificates_route(const http::Request& request) const;
+    [[nodiscard]] http::Response batch_start_route(const http::Request& request) const;
+    struct Batch {
+        std::string user;
+        Kind kind;
+        std::vector<CertificateRow> rows;
+        /// Its list of what was issued (issued_list).
+        std::filesystem::path list;
+        Bytes challenge;
+        std::string origin;
+        protocol::Timestamp expires = 0;
+        /// "waiting" (for the passkey), "checking", "running", "done", or
+        /// "failed" (with `problem`: the same table again carries on).
+        std::string state = "waiting";
+        std::size_t total = 0;
+        std::size_t already = 0;
+        std::size_t issued = 0;
+        std::string problem;
+    };
+    struct Run {
+        Run(std::string i, Batch b) : id(std::move(i)), batch(std::move(b)) {}
+        std::string id;
+        Batch batch;
+    };
+    void issue(Run& run, const std::stop_token& stop) const;
+    /// The console's machine on the ledger, if the first run made it.
+    [[nodiscard]] std::optional<protocol::Id>
+    machine_actor(const protocol::LedgerState& state) const;
+    [[nodiscard]] std::filesystem::path issued_list(const Kind& kind, std::string_view table) const;
+    [[nodiscard]] std::vector<Certificate>
+    certificates_now(const protocol::LedgerState& state) const;
+    /// A record a person registered, of a kind that prints fields: published
+    /// at once with those fields disclosed.
+    void publish_certificate(const protocol::Id& record, const std::string& type,
+                             const std::vector<protocol::RecordField>& fields) const;
     /// GET /console/api/qr?text=LINK: a QR code (SVG) for a link to this
     /// console's own pages (qr.cpp).
     [[nodiscard]] http::Response qr_route(const http::Request& request) const;
@@ -683,6 +726,10 @@ private:
     /// ledger, the log key while unlocked, cosignatures kept by the node.
     client::RelaySender relay_sender_;
     mutable std::map<std::string, Handed> handed_;
+    mutable std::map<std::string, Batch> batches_;
+    /// One batch of certificates at a time, issued on its own thread.
+    mutable std::mutex certify_mutex_;
+    mutable std::jthread certifier_;
     /// One backup at a time.
     mutable std::mutex backup_mutex_;
     mutable std::mutex poll_mutex_;

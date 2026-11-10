@@ -922,6 +922,63 @@ TEST_CASE("a person approves a statement with one passkey tap", "[console][appro
     CHECK(w.approve(prepared, w.alice_passkey, w.challenge_of(prepared), w.token).status == 404);
 }
 
+TEST_CASE("certificates: who may check, issue, and withdraw them", "[console][certificates]") {
+    ApprovalWorld w;
+    console::Kind kind;
+    kind.type = "example.org.diploma/1";
+    kind.name = "Diploma";
+    kind.fields = {{"name", "Name", console::FieldType::text, true, true}};
+    kind.printed = {"name"};
+    console::save_kinds(w.dir.path, {kind});
+    auto get = [&](const std::string& path) {
+        auto r = request("GET", path, "localhost:7470", "http://localhost:7470");
+        r.headers.emplace_back("authorization", "Bearer " + w.token);
+        return w.web.handle(r);
+    };
+    // A member sees the kind, not yet issued by the console, and issues none.
+    auto listed = get("/console/api/certificates");
+    REQUIRE(listed.status == 200);
+    auto view = nlohmann::json::parse(body(listed));
+    REQUIRE(view["kinds"].size() == 1);
+    CHECK(view["kinds"][0]["granted"] == false);
+    CHECK(view["certificates"].empty());
+    CHECK(view["may_issue"] == false);
+    CHECK(view["reachable"] == false);
+    const nlohmann::json table{{"type", kind.type}, {"table", "Name\nChan Tai Man\nWong\n"}};
+    CHECK(w.post("/console/api/certificates/check", table, w.token).status == 403);
+
+    // An admin checks a table; a wrong one names its line.
+    console::People people = console::load_people(w.dir.path);
+    people.find("Alice")->role = console::Role::admin;
+    console::save_people(w.dir.path, people);
+    const auto checked = w.post("/console/api/certificates/check", table, w.token);
+    REQUIRE(checked.status == 200);
+    CHECK(nlohmann::json::parse(body(checked))["to_issue"] == 2);
+    const auto wrong = w.post("/console/api/certificates/check",
+                              {{"type", kind.type}, {"table", "Name\n\"open\n"}}, w.token);
+    CHECK(wrong.status == 400);
+    CHECK(body(wrong).find("line 2") != std::string::npos);
+    CHECK(w.post("/console/api/certificates/check", {{"type", "other/1"}, {"table", "Name\nA\n"}},
+                 w.token)
+              .status == 404);
+    // The console's machine may not issue them until an owner lets it.
+    CHECK(w.post("/console/api/certificates/batch", table, w.token).status == 409);
+    // Nothing waits under an unknown batch; nothing is published there.
+    CHECK(w.post("/console/api/certificates/start",
+                 {{"batch", "00"},
+                  {"credential_id", "AA"},
+                  {"authenticator_data", "AA"},
+                  {"client_data_json", "AA"},
+                  {"signature", "AA"}},
+                 w.token)
+              .status == 404);
+    CHECK(get("/console/api/certificates/AAAAAAAAAAAAAAAAAAAAAA/qr").status == 404);
+    // Only an owner prepares the machine's grant.
+    CHECK(w.post("/console/api/prepare", {{"action", "machine.certify"}, {"type", kind.type}},
+                 w.token)
+              .status == 403);
+}
+
 TEST_CASE("approvals refuse a wrong tap, a late one, another's, and the locked or unlinked",
           "[console][approve]") {
     ApprovalWorld w;

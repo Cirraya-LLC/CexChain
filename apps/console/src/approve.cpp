@@ -752,7 +752,18 @@ Console::sign_approval(const http::Request& request) const {
     if (!encoded) {
         return error(500, "internal", "the submission could not be encoded");
     }
-    return Signing{std::move(*encoded), true, draft.uploads};
+    Signing signing{std::move(*encoded), true, draft.uploads};
+    // A certificate's record: published once registered, its printed fields
+    // disclosed (certifying.cpp).
+    if (std::ranges::any_of(load_kinds(services_.directory), [&](const Kind& k) {
+            return k.type == registration.record_type && !k.printed.empty();
+        })) {
+        signing.after = [this, type = registration.record_type,
+                         fields = draft.vault.fields](const protocol::Id& id) {
+            publish_certificate(id, type, fields);
+        };
+    }
+    return signing;
 }
 
 http::Response Console::approve_route(const http::Request& request) const {

@@ -990,6 +990,23 @@ std::string unlock_secret(const std::string& file) {
     return text;
 }
 
+} // namespace
+
+void unlock_console_keys(console::KeyStore& keys, const Args& args) {
+    if (!keys.initialized()) {
+        throw CommandError{"the console's keys are not set up (cexchain-console key init)"};
+    }
+    const std::string secret = args.get("unlock-file")
+                                   ? unlock_secret(*args.get("unlock-file"))
+                                   : prompt_hidden("The console's passphrase or recovery code: ");
+    if (!keys.unlock({console::SlotKind::passphrase, {}}, secret) &&
+        !keys.unlock({console::SlotKind::recovery, {}}, secret)) {
+        throw UsageError{"that does not unlock the console's keys"};
+    }
+}
+
+namespace {
+
 Json slot_json(const console::Slot& slot) {
     return {{"kind", console::name_of(slot.kind)},
             {"id", slot.id.empty() ? Json() : Json(slot.id)}};

@@ -2,14 +2,19 @@
 // Copyright 2026 Cirraya
 
 #include <algorithm>
+#include <cerrno>
+#include <fcntl.h>
 #include <format>
 #include <qrcodegen.hpp>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 
+#include <cexchain/client/support.hpp>
 #include <cexchain/console/certificates.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/verifier/report.hpp>
 
 namespace cexchain::console {
 
@@ -316,6 +321,171 @@ std::vector<CertificateRow> certificate_rows(const Kind& kind, std::string_view 
         throw std::invalid_argument("the table has its first line only: no certificates");
     }
     return rows;
+}
+
+std::string row_fingerprint(const crypto::Provider& provider, const CertificateRow& row) {
+    std::vector<std::string> values;
+    for (const auto& [name, value] : row.fields) {
+        values.push_back(name + "=" + value);
+    }
+    for (const auto& [name, value] : row.metadata) {
+        values.push_back(name + "=" + value);
+    }
+    const std::string line = csv_line(values);
+    const auto digest = provider.digest(crypto::HashAlg::sha256, as_bytes(line));
+    if (!digest) {
+        throw std::runtime_error("hashing a row failed");
+    }
+    return to_hex(digest->bytes().first(16));
+}
+
+namespace {
+
+constexpr std::string_view issued_header = "line,fingerprint,record,token,address";
+
+} // namespace
+
+std::map<std::size_t, IssuedRow> read_issued(const std::filesystem::path& path) {
+    std::map<std::size_t, IssuedRow> out;
+    if (!std::filesystem::exists(path)) {
+        return out;
+    }
+    const Bytes bytes = client::read_file(path);
+    std::vector<std::vector<std::string>> lines;
+    try {
+        lines = parse_csv({reinterpret_cast<const char*>(bytes.data()), bytes.size()});
+    } catch (const std::invalid_argument& e) {
+        throw std::runtime_error(path.string() + ": " + e.what());
+    }
+    if (lines.empty() || csv_line(lines.front()) != issued_header) {
+        throw std::runtime_error(path.string() + " is not a list of issued certificates");
+    }
+    for (std::size_t i = 1; i < lines.size(); ++i) {
+        const auto& v = lines[i];
+        const bool number = v.size() == 5 && !v[0].empty() && v[0].size() < 8 &&
+                            std::ranges::all_of(v[0], [](char c) { return c >= '0' && c <= '9'; });
+        if (!number) {
+            throw std::runtime_error(std::format("{}: line {} is damaged", path.string(), i + 1));
+        }
+        out[std::stoul(v[0])] = {v[1], v[2], v[3], v[4]};
+    }
+    return out;
+}
+
+void append_issued(const std::filesystem::path& path, std::size_t line, const IssuedRow& row) {
+    const bool fresh = !std::filesystem::exists(path);
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        throw std::runtime_error("cannot write " + path.string());
+    }
+    const std::string text =
+        (fresh ? std::string(issued_header) + "\n" : std::string()) +
+        csv_line({std::to_string(line), row.fingerprint, row.record, row.token, row.address}) +
+        "\n";
+    std::size_t written = 0;
+    while (written < text.size()) {
+        const ssize_t n = ::write(fd, text.data() + written, text.size() - written);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            ::close(fd);
+            throw std::runtime_error("cannot write " + path.string());
+        }
+        written += static_cast<std::size_t>(n);
+    }
+    const bool synced = ::fsync(fd) == 0;
+    ::close(fd);
+    if (!synced) {
+        throw std::runtime_error("cannot write " + path.string());
+    }
+}
+
+std::vector<protocol::FieldDisclosure>
+printed_disclosures(const crypto::Provider& provider, crypto::HashAlg hash, const Kind& kind,
+                    const std::vector<protocol::RecordField>& fields) {
+    const auto commitment = protocol::commit_fields(provider, hash, fields);
+    if (!commitment) {
+        throw std::runtime_error("the certificate's fields: " +
+                                 std::string(commitment.error().detail));
+    }
+    std::vector<protocol::FieldDisclosure> out;
+    for (const std::string& name : kind.printed) {
+        if (std::ranges::find(fields, name, &protocol::RecordField::name) == fields.end()) {
+            continue; // public, or left empty
+        }
+        auto disclosure = protocol::disclose_field(provider, hash, *commitment, name);
+        if (!disclosure) {
+            throw std::runtime_error("disclosing " + name + ": " +
+                                     std::string(disclosure.error().detail));
+        }
+        out.push_back(std::move(*disclosure));
+    }
+    return out;
+}
+
+Certificate certificate_of(const Kind& kind, const protocol::RecordState& record,
+                           const std::optional<cbor::Value>& metadata,
+                           protocol::Timestamp issued_at, std::string token,
+                           protocol::Timestamp published_at,
+                           const std::vector<std::pair<std::string, std::string>>& disclosed) {
+    Certificate c;
+    c.token = std::move(token);
+    c.record = protocol::Id(record.id);
+    c.type = record.record_type;
+    c.kind = kind.name;
+    c.status = record.revoked ? "revoked" : record.superseded_by ? "replaced" : "valid";
+    c.issued_at = issued_at;
+    c.published_at = published_at;
+    for (const std::string& name : kind.printed) {
+        const auto field = std::ranges::find(kind.fields, name, &KindField::name);
+        std::string value;
+        if (field->is_private) {
+            const auto given =
+                std::ranges::find(disclosed, name, &std::pair<std::string, std::string>::first);
+            value = given == disclosed.end() ? std::string() : given->second;
+        } else if (const cbor::Value* v = metadata ? metadata->find(name) : nullptr) {
+            value = verifier::display_value(*v);
+        }
+        c.fields.push_back({name, field->label.empty() ? name : field->label, value});
+    }
+    return c;
+}
+
+nlohmann::json certificate_json(const Certificate& c, std::string_view address) {
+    nlohmann::json fields = nlohmann::json::array();
+    for (const auto& f : c.fields) {
+        fields.push_back({{"name", f.name}, {"label", f.label}, {"value", f.value}});
+    }
+    return {{"token", c.token},
+            {"address", address},
+            {"record", to_hex(c.record.bytes())},
+            {"type", c.type},
+            {"kind", c.kind},
+            {"status", c.status},
+            {"issued", verifier::iso_time(c.issued_at).substr(0, 10)},
+            {"published", verifier::iso_time(c.published_at)},
+            {"fields", fields}};
+}
+
+std::string certificate_language_of(std::string_view console_language) {
+    return console_language.starts_with("zh-Hant")   ? "zh-Hant"
+           : console_language.starts_with("zh-Hans") ? "zh-Hans"
+                                                     : "en";
+}
+
+CertificatePage page_of(const Certificate& c, std::string issuer, std::string verify_url) {
+    CertificatePage page;
+    page.kind = c.kind;
+    page.issuer = std::move(issuer);
+    page.issued = verifier::iso_time(c.issued_at).substr(0, 10);
+    page.record = to_hex(c.record.bytes());
+    page.verify_url = std::move(verify_url);
+    for (const auto& f : c.fields) {
+        page.fields.emplace_back(f.label, f.value);
+        page.by_name[f.name] = f.value;
+    }
+    return page;
 }
 
 bool certificate_language(std::string_view language) noexcept {

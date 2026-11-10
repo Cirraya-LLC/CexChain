@@ -454,6 +454,20 @@ http::Response Console::route(const http::Request& request) const {
         return ready() ? record_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");
     }
+    if (request.path == "/console/api/certificates/start") {
+        if (request.method != "POST") {
+            http::Response refused = error(405, "unsupported", "method not allowed");
+            refused.headers.emplace_back("Allow", "POST");
+            return refused;
+        }
+        return ready() ? batch_start_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
+    if (request.path == "/console/api/certificates" ||
+        request.path.starts_with("/console/api/certificates/")) {
+        return ready() ? certificates_route(request)
+                       : error(503, "unavailable", "this console keeps no users or sessions");
+    }
     if (request.path == "/console/api/kinds") {
         return ready() ? kinds_route(request)
                        : error(503, "unavailable", "this console keeps no users or sessions");

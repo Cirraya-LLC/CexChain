@@ -81,10 +81,21 @@ cexchain-console settings show
   template in English or Chinese, or your own HTML with `{{name}}`, `{{qr}}`, ...) to print or
   save as PDF; `certificate list`, `show`, and `withdraw` (the address down, the record kept).
 
+  The **Certificates** screen does the same in the browser. A table of hundreds cannot be one tap
+  each, so the console's machine signs them: an owner first lets it issue a kind (one tap: the
+  organization grants the machine a delegation for that record type only; `certificate allow`),
+  then an owner or admin checks a table and approves the batch with one passkey tap, and follows
+  it as the machine issues and publishes each row (`certificate issue --machine`). The ledger shows
+  those certificates as issued by the organization's device, and the activity log who started the
+  batch. A certificate registered one at a time with "Register a document" is the person's own, in
+  person, and is published as soon as it is registered. Each certificate shows its QR code and
+  link, its page to print in the console's language, and Withdraw.
+
   ```sh
   cexchain-console kind add diploma.json      # ... "printed": ["name", "degree", "year"]
+  cexchain-console certificate allow example.org.diploma/1
   cexchain-console certificate issue example.org.diploma/1 --csv class-of-2026.csv \
-      --as registrar.key --out issued.csv --url https://ledger.example.com
+      --machine --out issued.csv --url https://ledger.example.com
   cexchain-console certificate print --type example.org.diploma/1 --out pages \
       --url https://ledger.example.com --language zh-Hant
   ```

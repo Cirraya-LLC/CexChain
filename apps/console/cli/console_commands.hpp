@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cexchain/console/keystore.hpp>
+
 #include "commands.hpp"
 
 /// The cexchain-console program's command handlers (commands_console.cpp).
@@ -41,6 +43,10 @@ int cmd_console_service_install(const Args& args);
 int cmd_console_service_uninstall(const Args& args);
 int cmd_console_service_status(const Args& args);
 int cmd_console_session_revoke(const Args& args);
+/// Unlocks the console's sealed keys with --unlock-file, else a passphrase
+/// or recovery code typed on the terminal.
+void unlock_console_keys(console::KeyStore& keys, const Args& args);
+int cmd_certificate_allow(const Args& args);
 int cmd_certificate_issue(const Args& args);
 int cmd_certificate_list(const Args& args);
 int cmd_certificate_show(const Args& args);

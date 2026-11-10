@@ -1230,7 +1230,10 @@ async function kindsScreen() {
                            el("h2", { id: `kind-${kind.type}`, text: kind.name }),
                            el("p", { class: "id", text: kind.type }),
                            kind.description ? el("p", { text: kind.description }) : null,
-                           fields, el("p", { text: t(`kinds.files.${kind.files}`) }));
+                           fields, el("p", { text: t(`kinds.files.${kind.files}`) }),
+                           kind.printed?.length
+                               ? el("p", { text: t("kinds.printed_list", { fields: kind.printed.join(", ") }) })
+                               : null);
         if (listed.may_change) {
             const remove = el("button", { type: "button", text: t("kinds.remove"),
                                           "aria-label": t("kinds.remove_label", { name: kind.name }) });
@@ -1273,14 +1276,16 @@ function kindForm() {
                               el("option", { value: v, text: t(`field.${v}`) })));
         const secret = el("input", { type: "checkbox", checked: true });
         const required = el("input", { type: "checkbox" });
+        const printed = el("input", { type: "checkbox" });
         const row = el("fieldset", { class: "kind-field" },
                        el("legend", { text: t("kinds.field", { n }) }),
                        el("label", { for: `kind-field-${n}`, text: t("kinds.field_label") }), label,
                        kindOf,
                        el("label", { class: "check" }, secret, " ", t("kinds.private")),
-                       el("label", { class: "check" }, required, " ", t("kinds.required_box")));
+                       el("label", { class: "check" }, required, " ", t("kinds.required_box")),
+                       el("label", { class: "check" }, printed, " ", t("kinds.printed")));
         row.read = () => ({ name: label.value.trim(), type: kindOf.value, private: secret.checked,
-                            required: required.checked });
+                            required: required.checked, printed: printed.checked });
         rows.append(row);
         label.focus();
     };
@@ -1307,6 +1312,8 @@ function kindForm() {
                 fields: fields.map((f) => ({ name: f.name, label: f.name, type: f.type,
                                              private: f.private, required: f.required })),
                 files: files.value, keep_files: keep.checked,
+                ...(fields.some((f) => f.printed)
+                    ? { printed: fields.filter((f) => f.printed).map((f) => f.name) } : {}),
             });
             route();
         } catch (error) {
@@ -1607,6 +1614,200 @@ function machineWords(d, listed) {
     }
     const words = mayWords({ ...d.may, in_person: false, revoked: d.revoked }, listed);
     return words;
+}
+
+/// Certificates: the kinds that print fields, the certificates published
+/// (each with its QR code, its page to print, and Withdraw), and a table
+/// issued by the console's machine once a passkey approves the batch.
+async function certificatesScreen() {
+    const listed = await api("GET", "certificates");
+    const notice = el("div", { role: "status" });
+    const parts = [flash(), el("h1", { text: t("certificates.title") }),
+                   el("p", { class: "hint", text: t("certificates.intro") })];
+    if (!listed.reachable) {
+        parts.push(el("p", { class: "notice", text: t("certificates.unreachable", { address: listed.address || "-" }) }));
+    }
+    if (listed.kinds.length === 0) {
+        parts.push(el("p", { text: t("certificates.no_kinds") }),
+                   el("p", {}, el("a", { href: "#/kinds", text: t("certificates.to_kinds") })));
+        show(...parts);
+        return;
+    }
+    parts.push(...table(t("certificates.kinds"), [
+        ["column.name", (k) => k.name],
+        ["certificates.printed", (k) => k.printed.join(", ")],
+        ["certificates.by_console", (k) => (k.granted ? t("certificates.allowed_yes")
+            : listed.may_grant ? allowButton(k, notice) : t("certificates.allowed_not_yet"))],
+    ], listed.kinds));
+    parts.push(...table(t("certificates.list"), [
+        ["certificates.printed", (c) => c.fields.map((f) => f.value).join(" · ")],
+        ["certificates.kind", (c) => c.kind],
+        ["certificates.issued", (c) => c.issued],
+        ["certificates.status", (c) => t(`certificates.status.${c.status}`)],
+        ["column.actions", (c) => certificateActions(c, listed, notice)],
+    ], listed.certificates));
+    parts.push(notice);
+    if (listed.may_issue) {
+        parts.push(issueForm(listed));
+    }
+    show(...parts);
+}
+
+/// The organization lets the console's machine issue certificates of a
+/// kind: one tap of an owner's passkey.
+function allowButton(kind, notice) {
+    const button = el("button", { type: "button", text: t("certificates.allow"),
+                                  "aria-label": t("certificates.allow_label", { name: kind.name }) });
+    button.addEventListener("click", async () => {
+        try {
+            const prepared = await api("POST", "prepare", { action: "machine.certify", type: kind.type });
+            await approveScreen(prepared, new Map(), async () => {
+                state.flash = t("certificates.allowed", { name: kind.name });
+                // The approval was shown at this address: show the screen again.
+                route();
+                return TAKEN;
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    return button;
+}
+
+/// A certificate's QR code and link, its page to print, and Withdraw.
+function certificateActions(c, listed, notice) {
+    const what = c.fields.map((f) => f.value).join(" ") || c.kind;
+    const area = el("div");
+    const language = encodeURIComponent(state.language);
+    const qr = el("button", { type: "button", text: t("certificates.qr"),
+                              "aria-label": t("certificates.qr_label", { what }) });
+    qr.addEventListener("click", async () => {
+        const box = el("input", { type: "text", readonly: true, class: "id",
+                                  "aria-label": t("certificates.link_label", { what }) });
+        box.value = c.verify_url;
+        const shown = [box];
+        try {
+            const blob = await fetchBlob(`certificates/${c.token}/qr?language=${language}`);
+            shown.push(el("img", { class: "qr", src: URL.createObjectURL(blob), alt: t("certificates.qr_alt", { what }) }));
+        } catch (error) {
+            shown.push(problem(t("error.server", { message: error.message })));
+        }
+        area.replaceChildren(...shown);
+    });
+    const page = el("button", { type: "button", text: t("certificates.page"),
+                                "aria-label": t("certificates.page_label", { what }) });
+    page.addEventListener("click", async () => {
+        try {
+            const blob = await fetchBlob(`certificates/${c.token}/page?language=${language}`);
+            saveText(await blob.text(), `${c.token}.html`, "text/html");
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    const buttons = [qr, " ", c.status === "valid" ? page : null];
+    if (listed.may_issue) {
+        const withdraw = el("button", { type: "button", text: t("certificates.withdraw"),
+                                        "aria-label": t("certificates.withdraw_label", { what }) });
+        withdraw.addEventListener("click", async () => {
+            try {
+                await api("DELETE", `certificates/${c.token}`);
+                state.flash = t("certificates.withdrawn", { what });
+                route();
+            } catch (error) {
+                notice.replaceChildren(problem(t("error.server", { message: error.message })));
+            }
+        });
+        buttons.push(" ", withdraw);
+    }
+    return el("div", {}, el("div", {}, buttons), area);
+}
+
+/// A table (CSV) checked, then issued: the passkey approves the batch, the
+/// console's machine signs each certificate, and the page follows it.
+function issueForm(listed) {
+    const allowed = listed.kinds.filter((k) => k.granted);
+    const section = el("section", {}, el("h2", { text: t("certificates.issue_title") }),
+                       el("p", { class: "hint", text: t("certificates.issue_intro") }));
+    if (allowed.length === 0) {
+        section.append(el("p", { text: t("certificates.none_allowed") }));
+        return section;
+    }
+    const kind = el("select", { id: "certificate-kind" },
+                    allowed.map((k) => el("option", { value: k.type, text: k.name })));
+    const file = el("input", { type: "file", id: "certificate-table", accept: ".csv,text/csv" });
+    const result = el("div", { role: "status" });
+    const check = el("button", { type: "submit", text: t("certificates.check") });
+    const form = el("form", { novalidate: true },
+                    el("div", { class: "field" }, el("label", { for: "certificate-kind", text: t("certificates.kind") }), kind),
+                    el("div", { class: "field" }, el("label", { for: "certificate-table", text: t("certificates.table") }), file),
+                    check, result);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        result.replaceChildren();
+        if (!file.files.length) {
+            result.append(problem(t("certificates.choose_table")));
+            return;
+        }
+        const table = await file.files[0].text();
+        try {
+            const checked = await api("POST", "certificates/check", { type: kind.value, table });
+            result.append(el("p", { text: t("certificates.checked", checked) }));
+            if (checked.to_issue === 0) {
+                return;
+            }
+            const go = el("button", { type: "button", class: "primary",
+                                      text: t("certificates.issue", { count: checked.to_issue }) });
+            go.addEventListener("click", () => issueBatch(kind.value, table, go, result));
+            result.append(go);
+        } catch (error) {
+            result.append(problem(t("error.server", { message: error.message })));
+        }
+    });
+    section.append(form);
+    return section;
+}
+
+async function issueBatch(type, table, button, result) {
+    button.disabled = true;
+    try {
+        const batch = await api("POST", "certificates/batch", { type, table });
+        const options = batch.public_key;
+        const credential = await navigator.credentials.get({
+            publicKey: {
+                challenge: fromBase64url(options.challenge),
+                rpId: options.rpId,
+                allowCredentials: options.allowCredentials.map((c) => ({ type: c.type, id: fromBase64url(c.id) })),
+                userVerification: options.userVerification,
+                timeout: options.timeout,
+            },
+        });
+        await api("POST", "certificates/start", {
+            batch: batch.batch,
+            credential_id: toBase64url(credential.rawId),
+            authenticator_data: toBase64url(credential.response.authenticatorData),
+            client_data_json: toBase64url(credential.response.clientDataJSON),
+            signature: toBase64url(credential.response.signature),
+        });
+        const progress = el("p", { role: "status" });
+        result.replaceChildren(progress);
+        for (;;) {
+            const now = await api("GET", `certificates/batch/${batch.batch}`);
+            progress.textContent = t("certificates.issuing", { issued: now.issued, total: now.total - now.already });
+            if (now.state === "done") {
+                state.flash = t("certificates.done", { issued: now.issued });
+                route();
+                return;
+            }
+            if (now.state === "failed") {
+                result.replaceChildren(problem(t("certificates.failed", { problem: now.problem ?? "" })));
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+    } catch (error) {
+        result.append(problem(passkeyProblem(error)));
+        button.disabled = false;
+    }
 }
 
 async function automationScreen() {
@@ -4326,6 +4527,7 @@ async function route() {
             : newVersion ? newDocumentScreen(newVersion[1])
             : hash.startsWith("#/new") ? newDocumentScreen()
             : hash.startsWith("#/kinds") ? kindsScreen()
+            : hash.startsWith("#/certificates") ? certificatesScreen()
             : hash.startsWith("#/rules/new") ? rulesEditor()
             : hash.startsWith("#/rules") ? rulesScreen()
             : hash.startsWith("#/settings") ? settingsScreen() : homeScreen());

@@ -179,29 +179,53 @@ std::vector<CommandSpec> console_commands() {
          with({ledger_option}),
          cmd_console_kind_remove,
          "Its records stay on the ledger; only the console's form goes."},
+        {{"certificate", "allow"},
+         "Let the console's machine issue certificates of a kind",
+         "Certificates",
+         "TYPE",
+         1,
+         1,
+         with({ledger_option,
+               {"unlock-file", "FILE",
+                "The console's passphrase or recovery code (default: asked on the terminal)"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kind of TYPE)"}}),
+         cmd_certificate_allow,
+         "The organization grants the console's machine (a device of the ledger, already its\n"
+         "registrar and keeper) a delegation to register records of TYPE only, signed with the\n"
+         "root key the console keeps sealed, as an owner does on the Certificates screen. The\n"
+         "certificates it issues then show as issued by the organization's device."},
         {{"certificate", "issue"},
          "Issue certificates from a table, each at a private address for its QR code",
          "Certificates",
          "TYPE",
          1,
          1,
-         signing(
-             {{"csv", "FILE", "The table: a header naming the kind's fields, a row each", true},
-              {"out", "FILE",
-               "Where the issued certificates are listed (run again with it to carry on)", true},
-              {"url", "URL",
-               "The server's public address, for the certificates' addresses (default: the "
-               "server's, in client mode)"},
-              {"sheet", "FILE", "The kind's sheet (default: the console's kind of TYPE)"},
-              {"dry-run", "", "Check the table and say what would be issued"},
-              vault_key_option}),
+         with({ledger_option,
+               {"as", "KEY", "The signer's key file, or a pkcs11: URI for a key on a token"},
+               {"machine", "",
+                "Sign as the console's machine (allowed first: certificate allow), its key opened "
+                "with the console's passphrase or recovery code"},
+               {"unlock-file", "FILE",
+                "With --machine: the console's passphrase or recovery code (default: asked)"},
+               delegation_option,
+               passphrase_file_option,
+               {"csv", "FILE", "The table: a header naming the kind's fields, a row each", true},
+               {"out", "FILE",
+                "Where the issued certificates are listed (run again with it to carry on)", true},
+               {"url", "URL",
+                "The server's public address, for the certificates' addresses (default: the "
+                "server's, in client mode)"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kind of TYPE)"},
+               {"dry-run", "", "Check the table and say what would be issued"},
+               vault_key_option}),
          cmd_certificate_issue,
          "TYPE is a kind whose sheet lists the fields printed on paper (\"printed\": [NAMES]).\n"
          "Each row of the table (CSV, UTF-8) is a record of TYPE, issued as record issue does,\n"
          "then published: GET /c/TOKEN gives whoever scans its QR code the record as it is then\n"
          "(revoked or replaced, it says so), with the printed fields disclosed and the others\n"
          "sealed. --out lists line, fingerprint, record, token, and address; a run that stops\n"
-         "halfway carries on from it, issuing nothing twice (a row changed since is refused)."},
+         "halfway carries on from it, issuing nothing twice (a row changed since is refused).\n"
+         "Signed with --as KEY, or --machine as the Certificates screen signs a table."},
         {{"certificate", "list"},
          "List the certificates published",
          "Certificates",

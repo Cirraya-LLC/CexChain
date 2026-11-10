@@ -186,7 +186,35 @@ THROUGH="$(unset CEXCHAIN_LEDGER; cert list "${C[@]}" --sheet diploma.json --jso
 [ "$(echo "$THROUGH" | json 'len(d)')" = 2 ] || fail "listed through the server"
 echo "$THROUGH" | json 'd[0]["address"]' | contains "^$URL/c/" || fail "the server's address"
 
-for command in issue list show withdraw print; do
+# --- The console's machine signs, once the organization lets it --------------------
+python3 - << 'PY'
+import os
+def text(value):
+    data = value.encode()
+    return bytes([0x60 + len(data)]) + data
+credential = bytes([0xa3, 0x01]) + text("localhost") + bytes([0x02, 0x50]) + os.urandom(16)
+credential += bytes([0x03, 0x82, 0x32, 0x58, 0x20]) + os.urandom(32)
+open("owner.passkey", "wb").write(credential)
+PY
+printf 'console unlock words\n' > unlock.txt
+SCRIPTED="$WORK/scripted"
+run cexchain-console setup --ledger "$SCRIPTED" --name "Example Academy" --credential owner.passkey \
+    --unlock-file unlock.txt > /dev/null
+run cexchain-console kind add diploma.json --ledger "$SCRIPTED" > /dev/null
+M=(--ledger "$SCRIPTED" --machine --unlock-file unlock.txt --csv table.csv --out machine.csv)
+expect_exit 2 cexchain-console certificate issue "$TYPE" "${M[@]}"
+contains "no valid delegation\|may not\|delegation" out.txt || fail "not allowed yet"
+expect_exit 1 cexchain-console certificate issue "$TYPE" "${M[@]}" --as root.key
+cert allow "$TYPE" --ledger "$SCRIPTED" --unlock-file unlock.txt | contains "may now issue Diploma"
+[ "$(cert issue "$TYPE" "${M[@]}" --json | json 'd["issued"]')" = 3 ] || fail "issued by the machine"
+REC="$(cert list --ledger "$SCRIPTED" --json | json 'd[0]["record"]')"
+BY="$(run record show --ledger "$SCRIPTED" "$REC" --json | json 'd["registrant"]["id"]')"
+run actor show --ledger "$SCRIPTED" "$BY" --json | json 'd["kind"]' | contains -x device ||
+    fail "issued by the organization's device"
+run cexchain-console activity --ledger "$SCRIPTED" --json | contains "certificates.issue" ||
+    fail "the console's log says so"
+
+for command in allow issue list show withdraw print; do
     cert "$command" --help | contains -- '--json'
 done
 run cexchain-console completion bash | contains 'certificate'

@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/console/console.hpp>
+#include <cexchain/console/kinds.hpp>
 #include <cexchain/console/people.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
@@ -408,6 +409,36 @@ Console::machine_step(const Signed& who, const nlohmann::json& intent) const {
         static_cast<void>(is_agent);
         PersonStep step{protocol::Body{protocol::DelegationGrantBody{*actor, std::move(scope)}},
                         nullptr, intent.value("name", ""), "automation.delegate"};
+        step.as_organization = true;
+        return step;
+    }
+    if (action == "machine.certify") {
+        // The console's machine issues certificates of one kind: the
+        // organization lets it, an owner approves.
+        if (who.role != Role::owner) {
+            return error(403, "forbidden",
+                         "only an owner lets the console issue certificates (the organization "
+                         "signs it)");
+        }
+        const std::string type = intent.value("type", "");
+        const std::vector<Kind> kinds = load_kinds(services_.directory);
+        const auto kind = std::ranges::find(kinds, type, &Kind::type);
+        if (kind == kinds.end() || kind->printed.empty()) {
+            return error(404, "not_found", "no kind of that type prints fields");
+        }
+        std::optional<protocol::Id> machine;
+        served->read_state(
+            [&](const protocol::LedgerState& state) { machine = machine_actor(state); });
+        if (!machine) {
+            return error(409, "conflict", "this console's machine is not on the ledger");
+        }
+        protocol::Scope scope;
+        scope.statement_types = {protocol::StatementType::record_register};
+        scope.record_types = std::vector<std::string>{type};
+        scope.may_delegate = false;
+        scope.require_presence = false;
+        PersonStep step{protocol::Body{protocol::DelegationGrantBody{*machine, std::move(scope)}},
+                        nullptr, kind->name, "certificates.allow"};
         step.as_organization = true;
         return step;
     }
