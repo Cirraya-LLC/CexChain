@@ -5,7 +5,8 @@
 // opened from a QR link that names the ledger, the record, and the bundle's
 // URL; opened from disk with files chosen by hand; fed a forged attachment;
 // and given a contract instance's evidence, a part's, and one whose calls
-// made requests and answered them.
+// made requests and answered them; and in Chinese, as a certificate's QR code
+// opens it.
 // Usage: node page_test.js PAGE EVIDENCE_DIR CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -236,6 +237,33 @@ async function verdict(page) {
     assert.match(requestsText, /Notifier/);
     assert.match(requestsText, /requests and answers are derived from those calls/);
     assert.equal(await page.locator("#facts .chip.overdue").count(), 1);
+    await page.close();
+
+    // 10. A certificate's QR code, in Chinese: the outcome first and large,
+    // who issued it and when, the rest folded; the language can be changed.
+    page = await open(link + "&lang=zh-Hant");
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.equal(v.title, "\u5df2\u9a57\u8b49");
+    assert.match(v.detail, /\u300cCirraya Test Factory\u300d/);
+    assert.equal(await page.getAttribute("html", "lang"), "zh-Hant");
+    assert.match(await page.textContent("#summary"), /Cirraya Test Factory/);
+    assert.match(await page.textContent("#summary"), /\u6709\u6548/);
+    assert.equal(await page.getAttribute("#technical", "open"), null, "the details are folded");
+    assert.equal(await page.isVisible("#input"), false);
+    assert.ok(await page.evaluate(() => document.getElementById("result").compareDocumentPosition(
+      document.getElementById("input")) & Node.DOCUMENT_POSITION_FOLLOWING), "the outcome comes first");
+    await page.selectOption("#language", "en");
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "Verified");
+    assert.match(await page.textContent("#events"), /Endorsed as inspector/);
+    await page.click("#another");
+    assert.equal(await page.isVisible("#drop"), true);
+    await page.close();
+    // The browser's own language when the link names none.
+    page = await browser.newPage({ locale: "zh-CN" });
+    await page.goto(link);
+    await page.waitForFunction(() => window.verifierReady === true);
+    assert.equal((await verdict(page)).title, "\u5df2\u9a8c\u8bc1");
     await page.close();
 
     assert.deepEqual(problems, []);

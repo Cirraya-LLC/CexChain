@@ -478,7 +478,11 @@ cexchain qr <record-id> --bundle-url https://example.com/evidence/photo-1016.cbo
 
 Scanning the code opens the verifier with the ledger id, the record id, and the bundle's location.
 The page refuses evidence about another record or from another ledger, and shows who did what,
-person or AI agent, under whose authority.
+person or AI agent, under whose authority. Opened from a link, it shows the outcome first
+(verified, revoked, replaced by a newer version, or not verified), then who issued the record and
+when and the fields disclosed, with the technical details folded below. It speaks English,
+Traditional Chinese, and Simplified Chinese: the browser's language, or the link's `&lang=en`,
+`zh-Hant`, or `zh-Hans` (a contract's report lines are in English still).
 
 A bundle saved to a file stays as it was. To have the code show the record as it is when scanned,
 revoked or replaced since included, publish the record at a private address its server answers
