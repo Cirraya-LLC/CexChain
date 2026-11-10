@@ -18,6 +18,7 @@
 #include <utility>
 #include <variant>
 
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
 #include <cexchain/ledger/ledger.hpp>
 #include <cexchain/ledger/parallel.hpp>
@@ -2992,6 +2993,25 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
     if (committed) {
         std::vector<protocol::Statement> events;
         for (const std::uint64_t index : history) {
+            auto bytes = impl_->log.read(index);
+            if (!bytes) {
+                return std::unexpected(bytes.error());
+            }
+            auto entry = protocol::decode_log_entry(*bytes);
+            if (!entry) {
+                return std::unexpected(entry.error());
+            }
+            auto parsed = protocol::parse_statement(*impl_->provider, entry->statement, hash());
+            if (!parsed) {
+                return std::unexpected(parsed.error());
+            }
+            events.push_back(std::move(parsed->statement));
+        }
+        // A claim's source (v0.14): its statements count as events too.
+        const auto source = protocol::claim_source(events);
+        const protocol::RecordState* source_state = source ? state.record(*source) : nullptr;
+        for (const std::uint64_t index : source_state != nullptr ? source_state->history.to_vector()
+                                                                 : std::vector<std::uint64_t>{}) {
             auto bytes = impl_->log.read(index);
             if (!bytes) {
                 return std::unexpected(bytes.error());

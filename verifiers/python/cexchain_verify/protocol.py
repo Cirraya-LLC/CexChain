@@ -210,12 +210,15 @@ def parse_scope(value) -> Scope:
     _check(isinstance(types, list) and types, "a scope's statement types are not a non-empty list")
     for t in types:
         _check(_is_int(t) and t in STATEMENT_TYPE_NAMES, f"a scope names an unknown statement type ({t})")
+    _check(_strictly_ascending(types), "a scope's statement types are not strictly ascending")
     scope = Scope(types=list(types))
     if 2 in m:
         record_types = m[2]
         _check(isinstance(record_types, list) and record_types
                and all(isinstance(t, str) for t in record_types),
                "a scope's record types are not a non-empty list of text")
+        _check(_strictly_ascending(record_types, lambda t: t.encode()),
+               "a scope's record types are not strictly ascending")
         scope.record_types = list(record_types)
     if 3 in m:
         scope.not_before = _uint(m[3], "a scope's not-before time")

@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.13 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.14 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -57,6 +57,9 @@
 ;   v0.13 open witness networks (C2SP): their witnesses' cosignatures of a
 ;         checkpoint's note in anchors (anchor key 4; key 2 becomes
 ;         optional). Earlier objects remain valid.
+;   v0.14 claims: the cexchain.claim/1 mechanism type and its metadata
+;         (claim); a claim's bundle carries its source as an involved
+;         object. Earlier objects remain valid.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -300,8 +303,9 @@ delegation-revoke-body = {
 ; revocation. The prefix "cexchain." is reserved (v0.9): a registration
 ; whose type begins with it and is not one of the mechanism types
 ; (cexchain.access-request/1, cexchain.access-grant/1,
-; cexchain.access-receipt/1, cexchain.contract-consent/1) is refused. The
-; mechanism types have lifecycles of their own and take no endorsements.
+; cexchain.access-receipt/1, cexchain.contract-consent/1, and, v0.14,
+; cexchain.claim/1) is refused. The mechanism types have lifecycles of
+; their own and take no endorsements.
 record-register-body = {
   1 => tstr,                   ; record type, e.g. "example.org.inspection/1"
   2 => bstr .size 32,          ; field commitment root (see record-field)
@@ -830,6 +834,36 @@ request-id-input = [
   call: id,                    ; the requesting contract-call's statement_id
   position: 0..15,             ; the request's index in accept key 7
 ]
+
+; Metadata of a cexchain.claim/1 record (v0.14; initial state "confirmed",
+; no transitions; withdrawn by revoking it). The ledger checks it, and
+; refuses other keys: the source is a record of the same ledger, of a
+; generic type, neither revoked nor superseded at the claim's registration.
+claim = {
+  "source" => id,
+  "condition" => [1*16 claim-term],    ; all of them hold (and)
+  "holds" => bool,
+  "as_of" => uint,                     ; ms, at most the registration time
+  ? "until" => uint,                   ; ms, after "as_of": lapsed after it
+  ? "subject" => tstr .size (1..256),
+  ? "for" => [ledger: id, record: id], ; an access request it answers
+}
+claim-term = [
+  field: tstr .size (1..64),           ; the source's field name
+  op: claim-op,
+  type: "number" / "money" / "date" / "text",
+  value: claim-value / [claim-value, claim-value] / [1*64 claim-value] / null,
+]
+; ">", ">=", "<", "<=": number, money, date. "=", "!=": every type.
+; "between": number, money, date: [low, high] of the type, low not above
+; high, both included, money in one currency. "in": every type, 1 to 64
+; values distinct as values (1 and "1.0" are one number). "exists": type
+; "text", value null (the source has the field). Integers: any CBOR int.
+claim-op = ">" / ">=" / "<" / "<=" / "=" / "!=" / "between" / "in" / "exists"
+claim-value = claim-number / claim-money / claim-date / tstr .size (1..256)
+claim-number = int / tstr .regexp "-?[0-9]+(\\.[0-9]+)?"   ; text: at most 40
+claim-money = [amount: int, currency: tstr .regexp "[A-Z]{3}", scale: 0..4]
+claim-date = tstr .regexp "[0-9]{4}-[0-9]{2}-[0-9]{2}"         ; a valid date
 
 ; Metadata of a cexchain.contract-consent/1 record (initial state "given",
 ; which may become "withdrawn"), on the consenting party's ledger. It is

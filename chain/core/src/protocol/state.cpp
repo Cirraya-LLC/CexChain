@@ -6,6 +6,7 @@
 #include <utility>
 #include <variant>
 
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -793,6 +794,34 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     return fail(Errc::rejected,
                                 "the record type is reserved: types beginning with \"cexchain.\" "
                                 "are the protocol's own");
+                }
+                // Claims (v0.14): the metadata's shape, and a source of
+                // this ledger, generic and live when the claim is made.
+                if (b.record_type == claim_type) {
+                    if (!b.metadata) {
+                        return fail(Errc::malformed, "a claim names its source and condition");
+                    }
+                    auto claim = decode_claim(*b.metadata);
+                    if (!claim) {
+                        return std::unexpected(claim.error());
+                    }
+                    const RecordState* source = record(claim->source);
+                    if (source == nullptr) {
+                        return fail(Errc::not_found,
+                                    "a claim's source is not a record of this ledger");
+                    }
+                    if (find_record_type(source->record_type) != nullptr) {
+                        return fail(Errc::rejected,
+                                    "a claim's source is a record of a generic type");
+                    }
+                    if (source->revoked || source->superseded_by) {
+                        return fail(Errc::rejected,
+                                    "a claim's source is neither revoked nor superseded");
+                    }
+                    if (claim->as_of > now) {
+                        return fail(Errc::rejected,
+                                    "a claim is evaluated no later than its registration");
+                    }
                 }
                 if (!b.supersedes) {
                     return {};

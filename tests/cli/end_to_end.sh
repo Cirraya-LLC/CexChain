@@ -134,7 +134,7 @@ run delegation show "$GRANT" --json | json 'd["scope"]["may_delegate"]' | contai
 # --- Records -------------------------------------------------------------------
 run record types | contains 'requested -> withdrawn'
 run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.contract-consent/1'
-run record types --json | json 'len(d)' | contains -x 4
+run record types --json | json 'len(d)' | contains -x 5
 run record types | contains 'reserved for the protocol'
 # Any other type is the user's own; the protocol's own say what they are for.
 run record types | contains 'type is a name its registrant'

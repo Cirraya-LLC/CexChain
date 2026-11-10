@@ -60,6 +60,8 @@ KIND_NAMES = {ORG: "organization", PERSON: "person", AGENT: "agent", DEVICE: "de
 TYPE_NAMES = {16: "record-register", 17: "record-endorse", 18: "record-transition", 19: "record-revoke",
               22: "contract-call"}
 CONSENT = g.CONTRACT_CONSENT
+CLAIM = g.CLAIM
+EMPLOYMENT = "example.org.employment/1"
 INTERFACE = {"propose": 1, "result": 2, "update": 2}
 MODEL = "example-model-7"
 
@@ -214,6 +216,7 @@ class Forge:
         self.contracts: dict[bytes, dict] = {}
         self.instances: dict[bytes, dict] = {}
         self.requests: dict[bytes, dict] = {}
+        self.claims: dict[bytes, bytes] = {}  # claim -> its source (v0.14)
         self.time = t0
         self.nonce = 0
         self.root = root or Key(f"{name} root")
@@ -295,6 +298,9 @@ class Forge:
 
     def grant(self, grantee: bytes, scope: dict, *, by=None, under=None, presence=None) -> bytes:
         by = by or self.org
+        # The CDDL's scope: statement and record types strictly ascending.
+        assert scope[1] == sorted(set(scope[1])), scope[1]
+        assert 2 not in scope or scope[2] == sorted(set(scope[2]), key=str.encode), scope[2]
         d = self.add(5, self.key_of(by), by, {1: grantee, 2: scope}, under, creates=2, refs=[grantee],
                      presence=presence)
         self.delegations[d] = {"grantor": by, "parent": under, "grantee": grantee}
@@ -352,6 +358,8 @@ class Forge:
                        touches=[supersedes] if supersedes is not None else (), presence=presence,
                        provenance=provenance, issued_at=issued_at, encode=encode)
         self.records[rid] = {"names": [n for n, _ in ordered], "leaves": leaves, "attachments": opened}
+        if kind == CLAIM and isinstance(metadata, dict) and "source" in metadata:
+            self.claims[rid] = metadata["source"]
         return rid
 
     def about(self, kind: int, record: bytes, body: dict, by: bytes, delegation=None, **kw) -> bytes:
@@ -418,11 +426,17 @@ class Forge:
     def involved(self, subject: bytes, size: int) -> list[bytes]:
         """Section 11, step 7: the record (or the instance and its contract),
         each event's signer, an agent signer's responsible person, and every
-        delegation in the chain with its grantor."""
+        delegation in the chain with its grantor. A claim's source (v0.14) is
+        involved too, and its statements count as events."""
         out = [subject]
         if subject in self.instances:
             out.append(self.instances[subject]["contract"])
-        for i in self.events(subject, size):
+        events = self.events(subject, size)
+        source = self.claims.get(subject)
+        if source is not None:
+            out.append(source)
+            events = sorted(set(events) | {i for i in self.leaves[source][2] if i < size})
+        for i in events:
             signer = self.info[i]["signer"]
             out.append(signer)
             if self.actors[signer]["kind"] == AGENT:
@@ -1356,6 +1370,108 @@ def record_cases(suite: Suite, one: Authority, two: Authority) -> None:
                 "root key.", unknown_signer)
 
 
+def claim_cases(suite: Suite) -> None:
+    """Claims (v0.14, sections 6 and 11): a claim's bundle carries its source
+    as an involved object, whose statements count as events, so that its
+    report says whether the source is live, revoked, or replaced since."""
+    f = Forge("Claims Employer")
+    hr = f.actor(PERSON, "HR Officer", Key("claims hr"))
+    d_hr = f.grant(hr, {1: [16, 19], 2: [CLAIM, EMPLOYMENT]})  # strictly ascending (UTF-8 bytes)
+    payroll = f.actor(DEVICE, "Payroll System", Key("claims payroll"))
+    d_pay = f.grant(payroll, {1: [16, 19], 2: [EMPLOYMENT]})
+    s1 = f.record(payroll, EMPLOYMENT, delegation=d_pay, fields={
+        "name": "Chan Tai Man", "monthly_salary": [3500000, "HKD", 2], "status": "staff"})
+    s2 = f.record(payroll, EMPLOYMENT, delegation=d_pay, fields={
+        "name": "Lee Siu Ming", "monthly_salary": [2800000, "HKD", 2], "status": "contractor"})
+    s3 = f.record(payroll, EMPLOYMENT, delegation=d_pay, fields={
+        "name": "Wong Mei Ling", "monthly_salary": [4200000, "HKD", 2], "status": "staff"})
+    request = [hashlib.sha256(b"a requester's ledger").digest(), hashlib.sha256(b"its access request").digest()]
+
+    def claim(by, delegation, source, condition, **extra):
+        """A claim on `source`, evaluated half a minute before its
+        registration."""
+        meta = {"source": source, "condition": condition, "holds": True, "as_of": f.time - 30 * SECOND, **extra}
+        return f.record(by, CLAIM, delegation=delegation, fields={"basis": "the payroll of 2026-10"},
+                        metadata=meta), meta
+
+    c1, m1 = claim(hr, d_hr, s1, g.SPEC_CLAIM_EXAMPLE, until=f.time + 30 * DAY, subject="Chan Tai Man")
+    c2, m2 = claim(hr, d_hr, s2, [["status", "=", "text", "contractor"]], subject="Lee Siu Ming",
+                   **{"for": request})
+    c3, m3 = claim(f.org, None, s3, [["monthly_salary", ">=", "money", [4000000, "HKD", 2]],
+                                     ["start_date", "exists", "text", None]], until=f.time + 30 * SECOND)
+    c4, m4 = claim(hr, d_hr, s3, [["monthly_salary", "between", "money", [[3000000, "HKD", 2],
+                                                                          [4000000, "HKD", 2]]]], holds=False)
+    first = f.commit() + 1
+    revocation = f.about(19, s1, {2: "corrected"}, payroll, d_pay)
+    s2b = f.record(payroll, EMPLOYMENT, delegation=d_pay, supersedes=s2, fields={
+        "name": "Lee Siu Ming", "monthly_salary": [3100000, "HKD", 2], "status": "staff"})
+    withdrawal = f.about(19, c4, {2: "issued in error"}, hr, d_hr)
+    payroll_revoked = f.revoke_actor(payroll)
+    f.commit()
+
+    def claim_fact(meta: dict, status: str, lapsed: bool = False) -> dict:
+        return {"source": meta["source"].hex(), "source_type": EMPLOYMENT, "source_status": status,
+                "condition": meta["condition"], "text": g.claim_words(meta["condition"]), "holds": meta["holds"],
+                "as_of": iso(meta["as_of"]), "until": iso(meta["until"]) if "until" in meta else None,
+                "lapsed": lapsed, "subject": meta.get("subject"),
+                "for": [x.hex() for x in meta["for"]] if "for" in meta else None}
+
+    def record_fact(c: bytes, claim: dict, revoked: bool = False) -> dict:
+        return {"id": c.hex(), "type": CLAIM, "state": "confirmed", "revoked": revoked, "supersedes": None,
+                "superseded_by": None, "claim": claim}
+
+    assert g.claim_words(m1["condition"]) == g.SPEC_CLAIM_WORDS
+    suite.add("claim-source-live",
+              "A person's claim, in the specification's words, on a device's record of a generic type, which is "
+              "live: the bundle carries the source's statements and a state proof for it and for everyone they "
+              "involve.", "record", enc(f.bundle(c1, size=first)), True, ledger_id=f.id, facts={
+                  "record": record_fact(c1, claim_fact(m1, "live")),
+                  "events": [f.event_fact(f.index[c1])], "complete": True})
+    suite.add("claim-lapsed",
+              "The organization's claim whose until is before the checkpoint's time: it verifies, and the report "
+              "says it has lapsed.", "record", enc(f.bundle(c3, size=first)), True, ledger_id=f.id, facts={
+                  "record": record_fact(c3, claim_fact(m3, "live", lapsed=True)),
+                  "events": [f.event_fact(f.index[c3])], "complete": True})
+    suite.add("claim-source-revoked",
+              "The same claim after its source was revoked: it verifies, and the report says the source is "
+              "revoked.", "record", enc(f.bundle(c1)), True, ledger_id=f.id, facts={
+                  "record": record_fact(c1, claim_fact(m1, "revoked")),
+                  "events": [f.event_fact(f.index[c1])], "complete": True})
+    suite.add("claim-source-replaced",
+              "A claim, answering an access request, whose source a newer version superseded since: the bundle "
+              "carries the superseding registration, and the report says the source is replaced.", "record",
+              enc(f.bundle(c2)), True, ledger_id=f.id, facts={
+                  "record": record_fact(c2, claim_fact(m2, "replaced")),
+                  "events": [f.event_fact(f.index[c2])], "complete": True})
+    suite.add("claim-withdrawn",
+              "A claim that does not hold, withdrawn by its issuer by revoking it; its source is live.", "record",
+              enc(f.bundle(c4)), True, ledger_id=f.id, facts={
+                  "record": record_fact(c4, claim_fact(m4, "live"), revoked=True),
+                  "events": [f.event_fact(f.index[c4]), f.event_fact(f.index[withdrawal])], "complete": True})
+    suite.add("claim-source-own-bundle",
+              "The source's own bundle: a claim's registration is a statement about the claim only, so the "
+              "source's history does not list it and its report shows no claim.", "record", enc(f.bundle(s1)),
+              True, ledger_id=f.id, facts={
+                  "record": {"id": s1.hex(), "type": EMPLOYMENT, "revoked": True, "claim": None},
+                  "events": [f.event_fact(f.index[s1]), f.event_fact(f.index[revocation])], "complete": True})
+    suite.add("claim-source-proof-left-out", "A claim's bundle holds no state proof for its source.", "record",
+              enc(f.bundle(c1, drop_proofs=[s1])), False, rule="11 step 7 (a claim's source is involved)",
+              ledger_id=f.id)
+    suite.add("claim-source-revocation-left-out",
+              "A claim's bundle leaves out its source's revocation, so the source looks live.", "record",
+              enc(f.bundle(c1, drop=[f.index[revocation]])), False, rule="11 step 7 (a claim's source is involved)",
+              ledger_id=f.id)
+    suite.add("claim-source-signer-revocation-left-out",
+              "A claim's bundle leaves out the revocation of the device that registered its source and the "
+              "source's new version.", "record", enc(f.bundle(c2, drop=[f.index[payroll_revoked]])), False,
+              rule="11 step 7 (the source's statements count as events)", ledger_id=f.id)
+    suite.add("claim-source-left-out",
+              "A claim's bundle leaves out its source's registration.", "record",
+              enc(f.bundle(c1, size=first, drop=[f.index[s1]])), False,
+              rule="6 claims, 11 steps 3 and 7", ledger_id=f.id)
+    assert f.index[s2b] in f.leaves[s2][2], "the new version's registration is in the source's history"
+
+
 def contract_cases(suite: Suite) -> None:
     code = g.oracle_contract(w)
 
@@ -1680,6 +1796,7 @@ def generate(openssl: str = "openssl") -> None:
         one, two = Authority("One"), Authority("Two")
         suite = Suite()
         record_cases(suite, one, two)
+        claim_cases(suite)
         contract_cases(suite)
     document = {"format": 1, "description": DESCRIPTION, "cases": suite.cases}
     OUT.write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")

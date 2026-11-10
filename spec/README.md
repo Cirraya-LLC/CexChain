@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.13 (draft). Wire protocol version 1.
+Revision v0.14 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.14.** Claims: a record of the new mechanism type `cexchain.claim/1` says that, in another record of the same ledger (its source), a condition on fields holds or does not, without disclosing them (section 6). A claim's evidence carries its source as an involved object, so that a verifier sees whether the source was revoked or replaced since, and the report states the condition in words (section 11). Nothing else changes; the wire protocol stays version 1, and a log without claims replays as before.
 
 **Changes in v0.13.** Open witness networks: the witnesses of transparency networks that follow C2SP's specifications can cosign a SHA-256 ledger's checkpoints, as text notes under a name derived from the ledger id, and a verifier that trusts them counts their cosignatures as it counts its own witnesses' (sections 10.2, 11, 16, and 17). Bundles carry such cosignatures in anchors (key 4 of `anchor`, whose key 2 becomes optional). Nothing else changes; the wire protocol stays version 1, and a bundle without them verifies as before.
 
@@ -221,7 +223,7 @@ What a type's fields mean, which roles matter, and when a document stops countin
 
 **Versions** (v0.10). A registration may name the record it supersedes (key 6): a new version of a form, a policy, or a price list. A record is superseded at most once, and a registration supersedes at most one record, so a record's versions form one chain, oldest first; the types may differ (`example.org.form/1`, then `example.org.form/2`). A superseded record keeps its state, and may still be endorsed and revoked: it is what was in force until then. A revoked record may still be superseded, so that a version withdrawn by mistake can be replaced. Mechanism types neither supersede nor are superseded. The registration is a statement about both records (section 9), so a complete bundle of an old version shows whether a newer one replaced it (section 11). Anything with rules of its own, such as states that change or parties who must agree, is a contract instance (section 15), which may name records in its state.
 
-**Mechanism types.** Four types belong to the protocol's own mechanisms, each with its lifecycle. None takes endorsements:
+**Mechanism types.** Five types belong to the protocol's own mechanisms, each with its lifecycle. None takes endorsements:
 
 | Type | Initial state | Transitions | Used in |
 |---|---|---|---|
@@ -229,10 +231,21 @@ What a type's fields mean, which roles matter, and when a document stops countin
 | `cexchain.access-grant/1` | granted | none (revoke the record) | access |
 | `cexchain.access-receipt/1` | received | none | access |
 | `cexchain.contract-consent/1` | given | given → withdrawn | consents to contract calls (section 15) |
+| `cexchain.claim/1` (v0.14) | confirmed | none (revoke the record) | claims, below |
 
-**The `cexchain.` prefix is reserved** (v0.9). A registration whose type begins with the nine bytes `cexchain.` and is not one of the four is refused, so that nobody can pass off a type as the protocol's. This covers the types that earlier revisions built in and v0.9 removed: `cexchain.certificate/1`, `cexchain.delivery/1`, and `cexchain.agreement/1` (v0.1), and `cexchain.receivable/1`, `cexchain.warehouse-receipt/1`, and `cexchain.asset-consent/1` (v0.5). The rule applies to registrations only: a scope may list any type, and a type nobody can register covers nothing.
+**The `cexchain.` prefix is reserved** (v0.9). A registration whose type begins with the nine bytes `cexchain.` and is not one of the five is refused, so that nobody can pass off a type as the protocol's. This covers the types that earlier revisions built in and v0.9 removed: `cexchain.certificate/1`, `cexchain.delivery/1`, and `cexchain.agreement/1` (v0.1), and `cexchain.receivable/1`, `cexchain.warehouse-receipt/1`, and `cexchain.asset-consent/1` (v0.5). The rule applies to registrations only: a scope may list any type, and a type nobody can register covers nothing.
 
 Record-transition (type 18) stays for the mechanism types: it is how a party withdraws an access request or a consent. On a record of the generic lifecycle it is always refused.
+
+**Claims** (v0.14). A claim is the issuer's word that, in its record the claim names (the **source**), a condition on the source's fields holds, or does not, as of a time: "Chan Tai Man's monthly salary is above HKD 30,000.00" without the salary. It is a `cexchain.claim/1` record whose public metadata (key 5) is `claim` in the CDDL:
+- `source`: the source's id. The ledger refuses a claim unless the source is a record of this ledger, of a generic type (no mechanism record is a source), neither revoked nor superseded when the claim is registered. The claim's registration is a statement about the claim only: the source's history is unchanged, and the signer's scope need cover only the claim's type.
+- `condition`: 1 to 16 terms, all of which must hold. A term is `[field, op, type, value]`: the source's field name (1 to 64 bytes), an operator, the type of the value, and the value. The types are `number` (an integer, or a decimal text `-?[0-9]+(\.[0-9]+)?` of at most 40 characters), `money` (`[amount, currency, scale]`: the integer amount in units of 10^-scale, an ISO 4217 code of three upper-case letters, and a scale of 0 to 4), `date` (`YYYY-MM-DD`, a valid date), and `text` (1 to 256 bytes). The operators are `>`, `>=`, `<`, `<=` (numbers, money, and dates), `=`, `!=` (every type), `between` (numbers, money, and dates: a value `[low, high]` of the type, both included, low not above high, money in one currency), `in` (every type: an array of 1 to 64 distinct values of the type, distinct as values: `1` and `"1.0"` are one number, `[100, "HKD", 0]` and `[10000, "HKD", 2]` one amount), and `exists` (the type is `text`, and the value null: the source has the field). Integers are any CBOR integer (−2^64 to 2^64 − 1); a date is of the proleptic Gregorian calendar.
+- `holds`: whether the condition holds. Implementations SHOULD register a claim that does not hold only when its issuer chose to: by default, a condition that does not hold gets no claim, so that asking reveals nothing more than silence.
+- `as_of` (ms): when the issuer evaluated it, no later than the claim's registration; `until` (ms, optional, after `as_of`, possibly before the registration): after it the claim has lapsed.
+- `subject` (optional, 1 to 256 bytes): whom or what the source is about, as the issuer names it.
+- `for` (optional): `[ledger, record]`, an access request the claim answers (reserved for asking; nothing checks it yet).
+
+The ledger checks the metadata's shape and refuses other keys. It cannot check the answer: the values are sealed. A claim's own fields (at least one, as every record's) are the issuer's: the reference implementation commits the values it checked, sealed like any record's, so that the issuer can show later what it relied on. A claim is the issuer's statement, attributed to its signer as any registration is; what a verifier learns is the condition, the answer, the subject, and the source's type and status, nothing of the source's fields.
 
 **The vault** is informative and local to an implementation. The reference implementation keeps each record's values and salts sealed with HPKE (RFC 9180, base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM) to the ledger's vault key. Each sealed file is bound to its ledger and record.
 
@@ -358,7 +371,7 @@ A ledger can also be witnessed by the witnesses of open transparency networks th
 An evidence bundle (`evidence-bundle`) holds:
 
 - the record id, or an instance's id (section 15);
-- log entries with their receipts, in ascending order, starting with genesis: the record's statements (with the registration that supersedes it, if any; not the record it supersedes) and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
+- log entries with their receipts, in ascending order, starting with genesis: the record's statements (with the registration that supersedes it, if any; not the record it supersedes) and every statement they depend on (signers' registrations and key rotations, delegation chains, referenced actors), and every rotation of the organization's keys below the checkpoint's size. For a claim (v0.14), also its source's statements (with the registration that superseded the source, if any) and theirs. For an instance created by a call, also its ancestors' calls up to the one that created each next generation (section 15);
 - the signed checkpoint all receipts lead to, and witness cosignatures of it;
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
 - state proofs for every involved object;
@@ -368,14 +381,14 @@ A verifier MUST:
 
 1. Take the ledger's identity, hash, and first keys from the genesis entry. If it expects a particular ledger, check the ledger id.
 2. Check every receipt's inclusion proof against the checkpoint (same size and root), with indices strictly ascending from 0.
-3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations. A registration that supersedes a record the bundle does not hold (v0.10) is checked under every rule except those about that record: that record's own bundle shows the link.
+3. Replay the included statements under the ledger rules (section 5), at their registration times. This follows the organization's key rotations. A registration that supersedes a record the bundle does not hold (v0.10) is checked under every rule except those about that record: that record's own bundle shows the link. A claim's source (v0.14) has no such exception: a claim's bundle without its source fails.
 4. Verify the checkpoint and every receipt's signature with the log key in effect at the checkpoint's size, and each state commitment with the one in effect at its index. A bundle that leaves out a log key rotation fails here, since keys never repeat.
 5. Check disclosed fields against the record's field root and count, and the contents provided for opened attachments against their sizes and commitments: a content that does not match fails the evidence. A content given for an attachment the bundle does not open is reported as not provided (v0.12).
 6. Count cosignatures only by witnesses it trusts, each witness once, network witnesses' among them (step 8). A cosignature over another checkpoint, and one by a trusted witness that does not verify, fail the evidence; one by a witness it does not trust is counted and relied on for nothing (v0.12).
 7. If the last entry the checkpoint covers is a state commitment (included with its receipt):
    - check it as replay would;
    - verify every state proof against its root;
-   - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract. For an instance created by a call, its ancestors' included calls count as events too, and the ancestors themselves need no proof (section 15).
+   - for the record and each involved object, require a proof whose leaf equals that object's leaf in the replayed state. The involved objects are each event's signer, an agent signer's responsible person, and every delegation in the chain with its grantor; for an instance, also its contract; for a claim (v0.14), also its source, whose statements count as events too. For an instance created by a call, its ancestors' included calls count as events too, and the ancestors themselves need no proof (section 15).
 
    A missing or differing proof fails the evidence, and so do state proofs in a bundle that does not include that commitment (v0.12). Only then is the report **complete**: nothing, such as a later revocation, was left out.
 8. For each anchor (v0.11):
@@ -388,10 +401,27 @@ A report states:
 - who did what, when, and under whose authority;
 - for each event, whether a person proved presence and how, and any AI provenance;
 - for a record, the record it supersedes, and the registration that superseded it, if any (by whom and when);
+- for a claim (v0.14): its condition in words (below), whether it holds, the subject, `as_of`, `until` and whether the checkpoint's time is past it, and its source's id, type, and status: revoked if it was revoked, else replaced if it was superseded, else live. The report's events are the claim's own;
 - the disclosed fields and attachment checks;
 - the witnesses, and each network cosignature, in the bundle's order: its witness, the size it cosigned, its time, and whether the witness is trusted (v0.13). A ledger witness is one by its key, a network witness by its verifier key, so each is counted once;
 - the time-stamp tokens, and for each event the time by which a trusted authority saw it (v0.11);
 - whether it is complete.
+
+**A claim in words** (v0.14). A report states a claim's condition as one line of text, which every verifier gives the same. Each term is its field name, the operator's words, and the value, and the terms are joined by ` and `:
+
+| `op` | English | 繁體中文 (informative) | 简体中文 (informative) |
+|---|---|---|---|
+| `>` | `is above V` | `高於 V` | `高于 V` |
+| `>=` | `is at least V` | `不低於 V` | `不低于 V` |
+| `<` | `is below V` | `低於 V` | `低于 V` |
+| `<=` | `is at most V` | `不高於 V` | `不高于 V` |
+| `=` | `is V` | `為 V` | `为 V` |
+| `!=` | `is not V` | `不是 V` | `不是 V` |
+| `between` | `is between L and H` | `介乎 L 至 H` | `介于 L 至 H` |
+| `in` | `is one of V1, V2` (`, ` between them) | `屬於 V1、V2 其中之一` | `属于 V1、V2 其中之一` |
+| `exists` | `is given` | `已填寫` | `已填写` |
+
+A number is written as it is encoded (an integer in decimal digits, a decimal text as is). Money is its currency, a space, and the amount: a `-` if negative, the integer part's digits in groups of three from the right separated by `,`, and, for a scale above 0, a `.` and that many digits (`[3000000, "HKD", 2]` is `HKD 30,000.00`). A date is written as it is encoded, and text between double quotes, as it is. So `[["monthly_salary", ">", "money", [3000000, "HKD", 2]], ["status", "in", "text", ["staff", "contractor"]]]` is `monthly_salary is above HKD 30,000.00 and status is one of "staff", "contractor"`. In Chinese the terms are joined by `，且 ` (a space before the next field's name).
 
 ## 12. Access across organizations
 
@@ -923,6 +953,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.10.json` | versions (v0.10): a chain of three versions across two record types, a revoked version superseded, a version endorsed and revoked after it was superseded, and a version registered by the organization over a delegated one; refused: a record superseded twice, an unknown record, a mechanism type on either side, a scope that does not cover the old type; the state, whose leaves list the superseding registration in both histories, and the log under a checkpoint |
 | `protocol-v0.11.json` | time-stamp tokens (v0.11): RFC 3161 tokens by OpenSSL's responder over the checkpoints of `protocol-v0.10.json`, one per hash, each with its imprint, time, accuracy, and authority, under a root and authority certificate made by Python's `cryptography` |
 | `protocol-v0.13.json` | open witness networks (v0.13, section 10.2): the SHA-256 checkpoint of `protocol-v0.10.json` as a checkpoint note under its origin, signed with a note key, an add-checkpoint body, network witnesses' cosignatures of the Ed25519 and ML-DSA-44 kinds (valid, and over another size or time), an anchor carrying them, and signed-note's own example, all from c2sp.org's texts with Python's `cryptography` |
+| `protocol-v0.14.json` | claims (v0.14, sections 6 and 11): claim metadata, valid with its encoding and its condition in words (the specification's example among them), and refused, each for the one rule it breaks; an employer's ledger whose clerk and organization claim conditions on employment records: claims accepted on live records of a generic type, and refused on a record that does not exist, on another claim, on a revoked record, on a superseded one, with `as_of` after the registration, and with an unknown key; claims that take no endorsement or transition and are withdrawn by revoking them; sources revoked and replaced after the claims, with what a report states of each claim; the state, in which a claim's registration is in the claim's history only, and the log under a checkpoint |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `evidence-v1.json` | conformance (sections 11 and 15): record evidence and contract evidence forged from this specification independently of both verifiers, each with the options to verify it with, the verdict this specification decides (a failure names the section and step that decide it), and facts its report must show. A verifier passes it: `tests/verifiers/conformance.py` runs `cexchain verify` and `contract verify` on every case, and the Python verifier (`verifiers/python`) its own command line |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |

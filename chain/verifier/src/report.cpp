@@ -321,6 +321,30 @@ std::string timestamps_text(const protocol::EvidenceReport& r) {
 
 } // namespace
 
+namespace {
+
+Json claim_json(const protocol::EvidenceReport::ClaimReport& c) {
+    Json condition = Json::array();
+    for (const protocol::ClaimTerm& t : c.claim.condition) {
+        condition.push_back(Json::array({t.field, t.op, t.type, cbor_json(t.value)}));
+    }
+    return {{"source", hex_id(c.claim.source)},
+            {"source_type", c.source_type},
+            {"source_status", c.source_status},
+            {"condition", std::move(condition)},
+            {"text", c.text},
+            {"holds", c.claim.holds},
+            {"as_of", iso_time(c.claim.as_of)},
+            {"until", c.claim.until ? Json(iso_time(*c.claim.until)) : Json(nullptr)},
+            {"lapsed", c.lapsed},
+            {"subject", c.claim.subject ? Json(*c.claim.subject) : Json(nullptr)},
+            {"for", c.claim.answers ? Json::array({hex_id(c.claim.answers->first),
+                                                   hex_id(c.claim.answers->second)})
+                                    : Json(nullptr)}};
+}
+
+} // namespace
+
 Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
     Json events = Json::array();
     for (const protocol::RecordEvent& e : r.events) {
@@ -384,7 +408,8 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
           {"revoked", r.revoked},
           {"metadata", r.metadata ? cbor_json(*r.metadata) : Json(nullptr)},
           {"supersedes", r.supersedes ? Json(hex_id(*r.supersedes)) : Json(nullptr)},
-          {"superseded_by", r.superseded_by ? Json(hex_id(*r.superseded_by)) : Json(nullptr)}}},
+          {"superseded_by", r.superseded_by ? Json(hex_id(*r.superseded_by)) : Json(nullptr)},
+          {"claim", r.claim ? claim_json(*r.claim) : Json(nullptr)}}},
         {"events", std::move(events)},
         {"disclosed_fields", std::move(fields)},
         {"attachments", std::move(attachments)},
@@ -430,7 +455,23 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     if (r.supersedes) {
         line(std::format("  Supersedes   the earlier version, id {}", short_id(*r.supersedes)));
     }
-    if (r.metadata) {
+    if (r.claim) {
+        // A claim (v0.14) in words, and its source's status.
+        const auto& c = *r.claim;
+        line(std::format("  Claim        {}: {}", c.claim.holds ? "holds" : "does NOT hold",
+                         c.text));
+        if (c.claim.subject) {
+            line(std::format("  Subject      {}", *c.claim.subject));
+        }
+        line(std::format("  As of        {}{}", format_time(c.claim.as_of),
+                         c.claim.until ? std::format(", until {}{}", format_time(*c.claim.until),
+                                                     c.lapsed ? " - LAPSED" : "")
+                                       : std::string()));
+        line(std::format("  Source       {} (id {}), {}", c.source_type, short_id(c.claim.source),
+                         c.source_status == "live"      ? "live"
+                         : c.source_status == "revoked" ? "REVOKED since"
+                                                        : "REPLACED since"));
+    } else if (r.metadata) {
         for (const cbor::MapEntry& m : *r.metadata->as_map()) {
             line(std::format("  Metadata     {} = {}", display_value(m.key),
                              display_value(m.value)));

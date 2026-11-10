@@ -1,0 +1,2405 @@
+{
+ "description": "CexChain protocol objects of specification revision v0.14 (claims), built by an independent Python encoder from spec/README.md and spec/cexchain.cddl. `claim_type` is the fifth mechanism type's lifecycle (initial state \"confirmed\", no transitions, no roles; withdrawn by revoking it). `claim_metadata` holds claim metadata (record key 5) on its own: `valid` cases, each its deterministic CBOR (`metadata`), its condition as JSON, and the condition in words (`text`, section 11, \"A claim in words\"), the specification's own example first; `refused` cases, each breaking one rule of the `claim` CDDL or its limits in section 6, which `why` names: \"unknown key\", \"missing key\", \"source\" (not a 32-byte id), \"condition\" (not 1 to 16 terms), \"term\" (not [field, op, type, value]), \"field\" (not 1 to 64 bytes of text), \"operator\", \"type\", \"operator and type\" (an order operator on text, exists on another type), \"value\" (not the shape the operator takes: one value, [low, high], 1 to 64 values, or null for exists), \"number\", \"money\", \"date\", \"text\" (a value that is not one of the type), \"order\" (between with low above high), \"distinct\" (in with a value twice), \"holds\", \"as_of\", \"until\" (not after as_of), \"subject\", \"for\". `ledgers` holds an employer's ledger for each hash: the organization delegates employment records (example.org.employment/1) and claims to a clerk, who registers records and claims on them. Each statement registers at its `registered_at` (the log entries carry it). `refused` statements are validated against the state after the first `after` statements, at `at`, and break exactly one rule, which `why` names: \"role\" and \"transition\" (a claim takes neither), \"no such source\", \"source of a mechanism type\" (here another claim), \"source revoked\", \"source superseded\", \"as_of after registration\", \"mechanism\" (a claim neither supersedes nor is superseded), \"revoked\" (a revoked claim takes nothing more), \"no metadata\", and the metadata rules above (\"unknown key\", \"operator and type\"); every refused statement parses, since a claim's metadata is checked by the ledger rules. A claim's registration is a statement about the claim only: its source's history does not list it. `claims` lists the accepted claims, and `records` gives each record's type, state, revocation, registrant, history, versions, and, for a claim, what a report states of it (section 11) at the checkpoint: its source, the source's type and status (\"live\", \"revoked\", or \"replaced\" by a newer version), the condition and its words, holds, as_of and until (ms), whether `checkpoint_time` is past until (`lapsed`), the subject, and the access request it answers (`for`). `log_entries` holds the whole log, ending with the state commitment over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers it. Signatures are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: <name>\").",
+ "t0": 1794268800000,
+ "claim_type": {
+  "type": "cexchain.claim/1",
+  "initial": "confirmed",
+  "transitions": [],
+  "roles": []
+ },
+ "mechanism_types": [
+  {
+   "type": "cexchain.access-request/1",
+   "initial": "requested",
+   "transitions": [
+    [
+     "requested",
+     "withdrawn"
+    ]
+   ]
+  },
+  {
+   "type": "cexchain.access-grant/1",
+   "initial": "granted",
+   "transitions": []
+  },
+  {
+   "type": "cexchain.access-receipt/1",
+   "initial": "received",
+   "transitions": []
+  },
+  {
+   "type": "cexchain.contract-consent/1",
+   "initial": "given",
+   "transitions": [
+    [
+     "given",
+     "withdrawn"
+    ]
+   ]
+  },
+  {
+   "type": "cexchain.claim/1",
+   "initial": "confirmed",
+   "transitions": []
+  }
+ ],
+ "claim_words": {
+  ">": "is above V",
+  ">=": "is at least V",
+  "<": "is below V",
+  "<=": "is at most V",
+  "=": "is V",
+  "!=": "is not V",
+  "between": "is between L and H",
+  "in": "is one of V1, V2",
+  "exists": "is given",
+  "joined_by": " and "
+ },
+ "claim_metadata": {
+  "valid": [
+   {
+    "name": "the specification's example, with until and subject",
+    "metadata": "a66561735f6f661b000001a1c2c1240065686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+    "condition": [
+     [
+      "monthly_salary",
+      ">",
+      "money",
+      [
+       3000000,
+       "HKD",
+       2
+      ]
+     ],
+     [
+      "status",
+      "in",
+      "text",
+      [
+       "staff",
+       "contractor"
+      ]
+     ]
+    ],
+    "text": "monthly_salary is above HKD 30,000.00 and status is one of \"staff\", \"contractor\""
+   },
+   {
+    "name": "each order operator on numbers, integers and decimal texts",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e858463616765623e3d666e756d62657212846573636f7265613c666e756d6265726439392e35846762616c616e6365623c3d666e756d62657238f9846472617465613e666e756d626572652d302e37358464636f6465613c666e756d626572663030372e3530",
+    "condition": [
+     [
+      "age",
+      ">=",
+      "number",
+      18
+     ],
+     [
+      "score",
+      "<",
+      "number",
+      "99.5"
+     ],
+     [
+      "balance",
+      "<=",
+      "number",
+      -250
+     ],
+     [
+      "rate",
+      ">",
+      "number",
+      "-0.75"
+     ],
+     [
+      "code",
+      "<",
+      "number",
+      "007.50"
+     ]
+    ],
+    "text": "age is at least 18 and score is below 99.5 and balance is at most -250 and rate is above -0.75 and code is below 007.50"
+   },
+   {
+    "name": "equality on every type",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8484656772616465613d64746578746141846462616e6462213d666e756d6265720384676465706f736974613d656d6f6e65798300635553440284666a6f696e656462213d64646174656a323032342d30322d3239",
+    "condition": [
+     [
+      "grade",
+      "=",
+      "text",
+      "A"
+     ],
+     [
+      "band",
+      "!=",
+      "number",
+      3
+     ],
+     [
+      "deposit",
+      "=",
+      "money",
+      [
+       0,
+       "USD",
+       2
+      ]
+     ],
+     [
+      "joined",
+      "!=",
+      "date",
+      "2024-02-29"
+     ]
+    ],
+    "text": "grade is \"A\" and band is not 3 and deposit is USD 0.00 and joined is not 2024-02-29"
+   },
+   {
+    "name": "between, both bounds included, of numbers, dates, and money",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e848465666c6f6f72676265747765656e666e756d6265728205058466686569676874676265747765656e666e756d626572820163312e3584657374617274676265747765656e6464617465826a323030302d30322d32396a323032362d31322d3331846673616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402",
+    "condition": [
+     [
+      "floor",
+      "between",
+      "number",
+      [
+       5,
+       5
+      ]
+     ],
+     [
+      "height",
+      "between",
+      "number",
+      [
+       1,
+       "1.5"
+      ]
+     ],
+     [
+      "start",
+      "between",
+      "date",
+      [
+       "2000-02-29",
+       "2026-12-31"
+      ]
+     ],
+     [
+      "salary",
+      "between",
+      "money",
+      [
+       [
+        2000000,
+        "HKD",
+        2
+       ],
+       [
+        4000000,
+        "HKD",
+        2
+       ]
+      ]
+     ]
+    ],
+    "text": "floor is between 5 and 5 and height is between 1 and 1.5 and start is between 2000-02-29 and 2026-12-31 and salary is between HKD 20,000.00 and HKD 40,000.00"
+   },
+   {
+    "name": "in, of every type",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e84846673746174757362696e64746578748165737461666684656c6576656c62696e666e756d62657283010263332e35846366656562696e656d6f6e65798283186463455552008318fa6345555200846672657669657762696e6464617465826a323032362d30332d33316a323032362d30392d3330",
+    "condition": [
+     [
+      "status",
+      "in",
+      "text",
+      [
+       "staff"
+      ]
+     ],
+     [
+      "level",
+      "in",
+      "number",
+      [
+       1,
+       2,
+       "3.5"
+      ]
+     ],
+     [
+      "fee",
+      "in",
+      "money",
+      [
+       [
+        100,
+        "EUR",
+        0
+       ],
+       [
+        250,
+        "EUR",
+        0
+       ]
+      ]
+     ],
+     [
+      "review",
+      "in",
+      "date",
+      [
+       "2026-03-31",
+       "2026-09-30"
+      ]
+     ]
+    ],
+    "text": "status is one of \"staff\" and level is one of 1, 2, 3.5 and fee is one of EUR 100, EUR 250 and review is one of 2026-03-31, 2026-09-30"
+   },
+   {
+    "name": "exists, a claim that does not hold, answering an access request",
+    "metadata": "a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d9415582068aa8fde0a2e6883b3b744e0b38ff84bf41e14e8fc1a67d410f51c73d53a8eee6561735f6f661b000001a1c2c1240065686f6c6473f466736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846e6c6963656e63655f6e756d626572666578697374736474657874f6",
+    "condition": [
+     [
+      "licence_number",
+      "exists",
+      "text",
+      null
+     ]
+    ],
+    "text": "licence_number is given"
+   },
+   {
+    "name": "money: groups of three, signs, and scales 0 to 4",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e87846161613e656d6f6e6579831b0000001cbe991a14634a505900846162613c656d6f6e657983246355534402846163623e3d656d6f6e657983056343484604846164623c3d656d6f6e6579833a0001869f6347425000846165613d656d6f6e6579831903e863484b440384616662213d656d6f6e6579833a0001e23f63434e5901846167613e656d6f6e6579831903e76353474400",
+    "condition": [
+     [
+      "a",
+      ">",
+      "money",
+      [
+       123456789012,
+       "JPY",
+       0
+      ]
+     ],
+     [
+      "b",
+      "<",
+      "money",
+      [
+       -5,
+       "USD",
+       2
+      ]
+     ],
+     [
+      "c",
+      ">=",
+      "money",
+      [
+       5,
+       "CHF",
+       4
+      ]
+     ],
+     [
+      "d",
+      "<=",
+      "money",
+      [
+       -100000,
+       "GBP",
+       0
+      ]
+     ],
+     [
+      "e",
+      "=",
+      "money",
+      [
+       1000,
+       "HKD",
+       3
+      ]
+     ],
+     [
+      "f",
+      "!=",
+      "money",
+      [
+       -123456,
+       "CNY",
+       1
+      ]
+     ],
+     [
+      "g",
+      ">",
+      "money",
+      [
+       999,
+       "SGD",
+       0
+      ]
+     ]
+    ],
+    "text": "a is above JPY 123,456,789,012 and b is below USD -0.05 and c is at least CHF 0.0005 and d is at most GBP -100,000 and e is HKD 1.000 and f is not CNY -12,345.6 and g is above SGD 999"
+   },
+   {
+    "name": "the largest and smallest integers",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8384616e623c3d666e756d6265721bffffffffffffffff84616d623e3d666e756d6265723bffffffffffffffff8463626967613c656d6f6e6579831bffffffffffffffff63484b4402",
+    "condition": [
+     [
+      "n",
+      "<=",
+      "number",
+      18446744073709551615
+     ],
+     [
+      "m",
+      ">=",
+      "number",
+      -18446744073709551616
+     ],
+     [
+      "big",
+      "<",
+      "money",
+      [
+       18446744073709551615,
+       "HKD",
+       2
+      ]
+     ]
+    ],
+    "text": "n is at most 18446744073709551615 and m is at least -18446744073709551616 and big is below HKD 184,467,440,737,095,516.15"
+   },
+   {
+    "name": "text as it is, between double quotes, and names in any script",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a6563747818e999b3e5a4a7e6968720284368616e20546169204d616e2969636f6e646974696f6e8284646e616d65613d64746578746e4368616e2022546169204d616e228466e5908de5ad9762213d647465787469e999b3e5a4a7e69687",
+    "condition": [
+     [
+      "name",
+      "=",
+      "text",
+      "Chan \"Tai Man\""
+     ],
+     [
+      "名字",
+      "!=",
+      "text",
+      "陳大文"
+     ]
+    ],
+    "text": "name is \"Chan \"Tai Man\"\" and 名字 is not \"陳大文\""
+   },
+   {
+    "name": "sixteen terms",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e9084686669656c645f3030613e666e756d6265720084686669656c645f3031613e666e756d6265720184686669656c645f3032613e666e756d6265720284686669656c645f3033613e666e756d6265720384686669656c645f3034613e666e756d6265720484686669656c645f3035613e666e756d6265720584686669656c645f3036613e666e756d6265720684686669656c645f3037613e666e756d6265720784686669656c645f3038613e666e756d6265720884686669656c645f3039613e666e756d6265720984686669656c645f3130613e666e756d6265720a84686669656c645f3131613e666e756d6265720b84686669656c645f3132613e666e756d6265720c84686669656c645f3133613e666e756d6265720d84686669656c645f3134613e666e756d6265720e84686669656c645f3135613e666e756d6265720f",
+    "condition": [
+     [
+      "field_00",
+      ">",
+      "number",
+      0
+     ],
+     [
+      "field_01",
+      ">",
+      "number",
+      1
+     ],
+     [
+      "field_02",
+      ">",
+      "number",
+      2
+     ],
+     [
+      "field_03",
+      ">",
+      "number",
+      3
+     ],
+     [
+      "field_04",
+      ">",
+      "number",
+      4
+     ],
+     [
+      "field_05",
+      ">",
+      "number",
+      5
+     ],
+     [
+      "field_06",
+      ">",
+      "number",
+      6
+     ],
+     [
+      "field_07",
+      ">",
+      "number",
+      7
+     ],
+     [
+      "field_08",
+      ">",
+      "number",
+      8
+     ],
+     [
+      "field_09",
+      ">",
+      "number",
+      9
+     ],
+     [
+      "field_10",
+      ">",
+      "number",
+      10
+     ],
+     [
+      "field_11",
+      ">",
+      "number",
+      11
+     ],
+     [
+      "field_12",
+      ">",
+      "number",
+      12
+     ],
+     [
+      "field_13",
+      ">",
+      "number",
+      13
+     ],
+     [
+      "field_14",
+      ">",
+      "number",
+      14
+     ],
+     [
+      "field_15",
+      ">",
+      "number",
+      15
+     ]
+    ],
+    "text": "field_00 is above 0 and field_01 is above 1 and field_02 is above 2 and field_03 is above 3 and field_04 is above 4 and field_05 is above 5 and field_06 is above 6 and field_07 is above 7 and field_08 is above 8 and field_09 is above 9 and field_10 is above 10 and field_11 is above 11 and field_12 is above 12 and field_13 is above 13 and field_14 is above 14 and field_15 is above 15"
+   },
+   {
+    "name": "sizes at their limits: a 64-byte field, a 256-byte text, a 40-character decimal, 64 values in, and a 256-byte subject",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a6563747901007373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737369636f6e646974696f6e8384784066666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666613d647465787479010074747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474846164613d666e756d62657278282d393939393939393939393939393939393939392e3939393939393939393939393939393939393984617662696e666e756d6265729840000102030405060708090a0b0c0d0e0f101112131415161718181819181a181b181c181d181e181f1820182118221823182418251826182718281829182a182b182c182d182e182f1830183118321833183418351836183718381839183a183b183c183d183e183f",
+    "condition": [
+     [
+      "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "=",
+      "text",
+      "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+     ],
+     [
+      "d",
+      "=",
+      "number",
+      "-9999999999999999999.9999999999999999999"
+     ],
+     [
+      "v",
+      "in",
+      "number",
+      [
+       0,
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9,
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18,
+       19,
+       20,
+       21,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30,
+       31,
+       32,
+       33,
+       34,
+       35,
+       36,
+       37,
+       38,
+       39,
+       40,
+       41,
+       42,
+       43,
+       44,
+       45,
+       46,
+       47,
+       48,
+       49,
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       60,
+       61,
+       62,
+       63
+      ]
+     ]
+    ],
+    "text": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff is \"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\" and d is -9999999999999999999.9999999999999999999 and v is one of 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63"
+   },
+   {
+    "name": "until one millisecond after as_of",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f565756e74696c1b000001a1c2c1240166736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657200",
+    "condition": [
+     [
+      "x",
+      "=",
+      "number",
+      0
+     ]
+    ],
+    "text": "x is 0"
+   }
+  ],
+  "refused": [
+   {
+    "name": "an unknown key",
+    "metadata": "a5646e6f74656568656c6c6f6561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "unknown key"
+   },
+   {
+    "name": "a misspelt optional key",
+    "metadata": "a564756e74691b000001a1c7e780006561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "unknown key"
+   },
+   {
+    "name": "no source",
+    "metadata": "a36561735f6f661b000001a1c2c1240065686f6c6473f569636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "missing key"
+   },
+   {
+    "name": "no condition",
+    "metadata": "a36561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1",
+    "why": "missing key"
+   },
+   {
+    "name": "no holds",
+    "metadata": "a36561735f6f661b000001a1c2c1240066736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "missing key"
+   },
+   {
+    "name": "no as_of",
+    "metadata": "a365686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "missing key"
+   },
+   {
+    "name": "a source of 31 bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365581f21f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0d69636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "source"
+   },
+   {
+    "name": "a source as text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f7572636578403231663465643062333262353531356530656130616532383963376563343665626138613063336637643439343830353133373331666338333530653064633169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "source"
+   },
+   {
+    "name": "no terms",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e80",
+    "why": "condition"
+   },
+   {
+    "name": "seventeen terms",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e9184686669656c645f3030613e666e756d6265720084686669656c645f3031613e666e756d6265720184686669656c645f3032613e666e756d6265720284686669656c645f3033613e666e756d6265720384686669656c645f3034613e666e756d6265720484686669656c645f3035613e666e756d6265720584686669656c645f3036613e666e756d6265720684686669656c645f3037613e666e756d6265720784686669656c645f3038613e666e756d6265720884686669656c645f3039613e666e756d6265720984686669656c645f3130613e666e756d6265720a84686669656c645f3131613e666e756d6265720b84686669656c645f3132613e666e756d6265720c84686669656c645f3133613e666e756d6265720d84686669656c645f3134613e666e756d6265720e84686669656c645f3135613e666e756d6265720f846178613d666e756d62657201",
+    "why": "condition"
+   },
+   {
+    "name": "a condition that is one term, not a list of terms",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e846178613d666e756d62657201",
+    "why": "term"
+   },
+   {
+    "name": "a term of three elements",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81836178613d666e756d626572",
+    "why": "term"
+   },
+   {
+    "name": "a term of five elements",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81856178613d666e756d6265720102",
+    "why": "term"
+   },
+   {
+    "name": "an empty field name",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e818460613d666e756d62657201",
+    "why": "field"
+   },
+   {
+    "name": "a field name of 65 bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e818478416666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666613d666e756d62657201",
+    "why": "field"
+   },
+   {
+    "name": "a field name as bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81844178613d666e756d62657201",
+    "why": "field"
+   },
+   {
+    "name": "the operator '=='",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178623d3d666e756d62657201",
+    "why": "operator"
+   },
+   {
+    "name": "the operator '≥'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617863e289a5666e756d62657201",
+    "why": "operator"
+   },
+   {
+    "name": "the operator 'BETWEEN'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178674245545745454e666e756d62657201",
+    "why": "operator"
+   },
+   {
+    "name": "the operator 'contains'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617868636f6e7461696e73666e756d62657201",
+    "why": "operator"
+   },
+   {
+    "name": "the operator ''",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617860666e756d62657201",
+    "why": "operator"
+   },
+   {
+    "name": "the type 'percent'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d6770657263656e7401",
+    "why": "type"
+   },
+   {
+    "name": "the type 'integer'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d67696e746567657201",
+    "why": "type"
+   },
+   {
+    "name": "the type 'Text'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d645465787401",
+    "why": "type"
+   },
+   {
+    "name": "the type 'string'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d66737472696e6701",
+    "why": "type"
+   },
+   {
+    "name": "> on text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613e64746578746162",
+    "why": "operator and type"
+   },
+   {
+    "name": ">= on text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178623e3d64746578746162",
+    "why": "operator and type"
+   },
+   {
+    "name": "< on text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613c64746578746162",
+    "why": "operator and type"
+   },
+   {
+    "name": "<= on text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178623c3d64746578746162",
+    "why": "operator and type"
+   },
+   {
+    "name": "exists on a number",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617866657869737473666e756d626572f6",
+    "why": "operator and type"
+   },
+   {
+    "name": "exists on a date",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178666578697374736464617465f6",
+    "why": "operator and type"
+   },
+   {
+    "name": "exists with a value",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617866657869737473647465787463796573",
+    "why": "value"
+   },
+   {
+    "name": "= with null",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572f6",
+    "why": "value"
+   },
+   {
+    "name": "> with null",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613e6464617465f6",
+    "why": "value"
+   },
+   {
+    "name": "between with one value",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e666e756d62657205",
+    "why": "value"
+   },
+   {
+    "name": "between with three values",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e666e756d62657283010203",
+    "why": "value"
+   },
+   {
+    "name": "in with no values",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e666e756d62657280",
+    "why": "value"
+   },
+   {
+    "name": "in with 65 values",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e666e756d6265729841000102030405060708090a0b0c0d0e0f101112131415161718181819181a181b181c181d181e181f1820182118221823182418251826182718281829182a182b182c182d182e182f1830183118321833183418351836183718381839183a183b183c183d183e183f1840",
+    "why": "value"
+   },
+   {
+    "name": "in with one value, not a list",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e6474657874657374616666",
+    "why": "value"
+   },
+   {
+    "name": "the number '1e5'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657263316535",
+    "why": "number"
+   },
+   {
+    "name": "the number '1.'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657262312e",
+    "why": "number"
+   },
+   {
+    "name": "the number '.5'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572622e35",
+    "why": "number"
+   },
+   {
+    "name": "the number '+1'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572622b31",
+    "why": "number"
+   },
+   {
+    "name": "the number '1,000'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657265312c303030",
+    "why": "number"
+   },
+   {
+    "name": "the number '１'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657263efbc91",
+    "why": "number"
+   },
+   {
+    "name": "the number ' 1'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572622031",
+    "why": "number"
+   },
+   {
+    "name": "the number '1 '",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572623120",
+    "why": "number"
+   },
+   {
+    "name": "the number '1.2.3'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657265312e322e33",
+    "why": "number"
+   },
+   {
+    "name": "the number '-'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572612d",
+    "why": "number"
+   },
+   {
+    "name": "the number ''",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657260",
+    "why": "number"
+   },
+   {
+    "name": "the number '0x10'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d6265726430783130",
+    "why": "number"
+   },
+   {
+    "name": "a decimal text of 41 characters",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572782931313131313131313131313131313131313131312e3131313131313131313131313131313131313131",
+    "why": "number"
+   },
+   {
+    "name": "a number that is true",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d626572f5",
+    "why": "number"
+   },
+   {
+    "name": "a number as bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d6265724101",
+    "why": "number"
+   },
+   {
+    "name": "a number as money",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657283186463484b4402",
+    "why": "number"
+   },
+   {
+    "name": "money: a lower-case currency",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186463686b6402",
+    "why": "money"
+   },
+   {
+    "name": "money: a four-letter currency",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186464484b444402",
+    "why": "money"
+   },
+   {
+    "name": "money: a two-letter currency",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186462484b02",
+    "why": "money"
+   },
+   {
+    "name": "money: a scale of 5",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186463484b4405",
+    "why": "money"
+   },
+   {
+    "name": "money: a scale of -1",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186463484b4420",
+    "why": "money"
+   },
+   {
+    "name": "money: an amount as text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e6579836331303063484b4402",
+    "why": "money"
+   },
+   {
+    "name": "money: no scale",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657982186463484b44",
+    "why": "money"
+   },
+   {
+    "name": "money: four elements",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657984186463484b440200",
+    "why": "money"
+   },
+   {
+    "name": "money: an integer",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e65791864",
+    "why": "money"
+   },
+   {
+    "name": "money: a currency in full-width letters",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983186469efbca8efbcabefbca402",
+    "why": "money"
+   },
+   {
+    "name": "money: an amount that is true",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d656d6f6e657983f563484b4402",
+    "why": "money"
+   },
+   {
+    "name": "the date '2026-02-30'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362d30322d3330",
+    "why": "date"
+   },
+   {
+    "name": "the date '2025-02-29'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032352d30322d3239",
+    "why": "date"
+   },
+   {
+    "name": "the date '1900-02-29'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a313930302d30322d3239",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-13-01'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362d31332d3031",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-00-10'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362d30302d3130",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-01-00'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362d30312d3030",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-04-31'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362d30342d3331",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-1-01'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d646461746569323032362d312d3031",
+    "why": "date"
+   },
+   {
+    "name": "the date '20260101'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d6464617465683230323630313031",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026-01-01T00:00:00Z'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d646461746574323032362d30312d30315430303a30303a30305a",
+    "why": "date"
+   },
+   {
+    "name": "the date '2026/01/01'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174656a323032362f30312f3031",
+    "why": "date"
+   },
+   {
+    "name": "the date '２０２６-01-01'",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d646461746572efbc92efbc90efbc92efbc962d30312d3031",
+    "why": "date"
+   },
+   {
+    "name": "a date as an integer",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64646174651a01352505",
+    "why": "date"
+   },
+   {
+    "name": "an empty text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d647465787460",
+    "why": "text"
+   },
+   {
+    "name": "a text of 257 bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d64746578747901017474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474747474",
+    "why": "text"
+   },
+   {
+    "name": "a text as bytes",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d6474657874457374616666",
+    "why": "text"
+   },
+   {
+    "name": "a text that is a number",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d647465787405",
+    "why": "text"
+   },
+   {
+    "name": "one of the in values is not text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e64746578748265737461666605",
+    "why": "text"
+   },
+   {
+    "name": "between numbers, low above high",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e666e756d626572820a05",
+    "why": "order"
+   },
+   {
+    "name": "between a decimal and an integer, low above high",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e666e756d6265728263312e3501",
+    "why": "order"
+   },
+   {
+    "name": "between dates, low above high",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e6464617465826a323032362d31322d33316a323032362d30312d3031",
+    "why": "order"
+   },
+   {
+    "name": "between money of one currency, low above high (4.00 and 3)",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178676265747765656e656d6f6e6579828319019063484b4402830363484b4400",
+    "why": "order"
+   },
+   {
+    "name": "in with a text twice",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e6474657874836573746166666a636f6e74726163746f72657374616666",
+    "why": "distinct"
+   },
+   {
+    "name": "in with a date twice",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e6464617465826a323032362d30312d30316a323032362d30312d3031",
+    "why": "distinct"
+   },
+   {
+    "name": "in with an integer twice",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e8184617862696e666e756d62657283010201",
+    "why": "distinct"
+   },
+   {
+    "name": "holds as an integer",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c64730166736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "holds"
+   },
+   {
+    "name": "holds as text",
+    "metadata": "a46561735f6f661b000001a1c2c1240065686f6c6473647472756566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "holds"
+   },
+   {
+    "name": "a negative as_of",
+    "metadata": "a46561735f6f662065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "as_of"
+   },
+   {
+    "name": "as_of as text",
+    "metadata": "a46561735f6f666a323032362d31312d313065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "as_of"
+   },
+   {
+    "name": "until equal to as_of",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f565756e74696c1b000001a1c2c1240066736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "until"
+   },
+   {
+    "name": "until before as_of",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f565756e74696c1b000001a1c2c123ff66736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "until"
+   },
+   {
+    "name": "until as text",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f565756e74696c6a323032362d31322d313066736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "until"
+   },
+   {
+    "name": "an empty subject",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a6563746069636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "subject"
+   },
+   {
+    "name": "a subject of 257 bytes",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a656374790101737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737369636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "subject"
+   },
+   {
+    "name": "a subject as bytes",
+    "metadata": "a56561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc1677375626a656374444368616e69636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "subject"
+   },
+   {
+    "name": "for with one id",
+    "metadata": "a563666f72815820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d94156561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "for"
+   },
+   {
+    "name": "for with three ids",
+    "metadata": "a563666f72835820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d9415582068aa8fde0a2e6883b3b744e0b38ff84bf41e14e8fc1a67d410f51c73d53a8eee582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc16561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "for"
+   },
+   {
+    "name": "for with an id of 16 bytes",
+    "metadata": "a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d94155068aa8fde0a2e6883b3b744e0b38ff84b6561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "for"
+   },
+   {
+    "name": "for as a map",
+    "metadata": "a563666f72a2666c65646765725820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d9415667265636f7264582068aa8fde0a2e6883b3b744e0b38ff84bf41e14e8fc1a67d410f51c73d53a8eee6561735f6f661b000001a1c2c1240065686f6c6473f566736f75726365582021f4ed0b32b5515e0ea0ae289c7ec46eba8a0c3f7d49480513731fc8350e0dc169636f6e646974696f6e81846178613d666e756d62657201",
+    "why": "for"
+   }
+  ]
+ },
+ "seeds": {
+  "org_root": "630768b982cb2d643f743acf44765c24f120370083cb7e8a96533f80f0f33139",
+  "log": "a528c3e71c75bf0b24befe1a9de4ee0f0e09645ad4ea01f8f3725c966f618f7e",
+  "clerk": "de97c9f16fec9a70471581c41305caa569b7da807eadaba0b7f6f69100c0ee30"
+ },
+ "ledgers": [
+  {
+   "hash": -16,
+   "ledger_id": "86dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab",
+   "statements": [
+    {
+     "name": "genesis",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a05881a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4012f02704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe91145840ed6f85a54a5a7638ed2763b0f21788372c1b6b3064c03920e0deed7e67c5330ac9316f49c23e2c77045f6f3330393bd6d3c4a328c2de5dddcfb206b325cf650e",
+     "payload": "a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4012f02704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe9114",
+     "statement_id": "86dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab",
+     "registered_at": 1794268801000
+    },
+    {
+     "name": "register the clerk",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0589aa70001010202582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec125840248faad44fab921f15241730a0bb222cb1e46202edf0d072a53980d5bcd51413d4dfe9383ec3e02e4c146027d494fc6f6aa1b9d6b7c075c2e62d6209e2a7360a",
+     "payload": "a70001010202582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec12",
+     "statement_id": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "registered_at": 1794268861000
+    },
+    {
+     "name": "delegate employment records and claims to the clerk",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a058c1a70001010502582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2fab406500000000000000000000000000000000307a20158204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d02a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f3158402ca80026142c5a05ca8aa87e2cfd32922276cd105f51d24f2245df6ba55c20546d6a371d6ac73b4d6eed92b1460270396696018855c2b32412c90a50bf1a530b",
+     "payload": "a70001010502582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2fab406500000000000000000000000000000000307a20158204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d02a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f31",
+     "statement_id": "eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64",
+     "registered_at": 1794268921000
+    },
+    {
+     "name": "register an employment record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209f9ed2a56429ce374d24508999cd269d8b50bcaad385641a04da90a84d4d1da0030405a16a6465706172746d656e74684163636f756e74735840b4d6d8d74494f3822e2737450e9fab5ce82e8034bc670a7bdf88dcd4c5f29bcefa90739fed65c418ae929fb23770fa4225583bfb95a87e72b4e56726dc924d01",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209f9ed2a56429ce374d24508999cd269d8b50bcaad385641a04da90a84d4d1da0030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "82e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+     "registered_at": 1794268981000
+    },
+    {
+     "name": "the clerk claims the specification's example of it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590178a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258409bd74fc37e646561209d3003b9e18d003f808408d77e44b627b90f6e2de211a542fd042cbc5ca43cbbae54151da28190c34aab90534129ddbb8fbf364efc5805",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "statement_id": "30fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+     "registered_at": 1794269041000
+    },
+    {
+     "name": "the organization claims a condition that does not hold",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0590168a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f65840893a04cabbfc3e03ba67cb0a7b45b8cd936ab642c22c396b645daeefc295241537af33f41acb3a3948082c29596ee6b19eae0e4a92799b76515bd18bdef8620e",
+     "payload": "a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f6",
+     "statement_id": "b1e96d7c65096762801e10ee47de988ff9415a93a1fb4ad927db0a16f2bb3f53",
+     "registered_at": 1794269101000
+    },
+    {
+     "name": "register a second employee's record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fe98869ca2e5be11b6ba19d1a437cb8f0f46e44ef75d727d887e0189bbff6393030405a16a6465706172746d656e74684163636f756e7473584099add4c668950c8f87a3a5d13abe206314c7d1b7df706e4fd2b313407c0140295d9c2f516e1a12d2458d768c9e74aad247afa8d677489cb1b1ac2b13f5b1a007",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fe98869ca2e5be11b6ba19d1a437cb8f0f46e44ef75d727d887e0189bbff6393030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "4bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1",
+     "registered_at": 1794269161000
+    },
+    {
+     "name": "a new version supersedes it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590105a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f3102582026d2ad278684bcc6d0642a2ea440ac3b17aea36cb61527e59c3e247402fb9afd030405a16a6465706172746d656e74684163636f756e74730658204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d158400079ff2ee4ea7223d0e1004cb7ff2f7e647f31d056be38a8386e044237f56bcf53d8787bc965f010a258184d2058c792f0f4d7cdd7aa7647dfd83ca94af54f08",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f3102582026d2ad278684bcc6d0642a2ea440ac3b17aea36cb61527e59c3e247402fb9afd030405a16a6465706172746d656e74684163636f756e74730658204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1",
+     "statement_id": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "registered_at": 1794269221000
+    },
+    {
+     "name": "a claim on the new version, until two minutes later",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590172a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d303158402ae9e8defaa8ea1e3496050c99cf17eab67ee3850cb12c234bae3f4d78ebc20e1580af037cbdd8cbf5cae8942ce59ade092f5ce9d5c47811e4cb933393a3a80e",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d3031",
+     "statement_id": "6fafb6e20f536319a4c45cc7d93d6cb80b5fc6ce9cad953aeb2c21f7a6e1279e",
+     "registered_at": 1794269281000
+    },
+    {
+     "name": "register a third employee's record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f3102582030caed907c55414a2eecb4379fd3c7e219ba46c70a61bf3358368902d8bc9bfa030405a16a6465706172746d656e74684163636f756e74735840ca2e6d6fd6789313ea484679e5daddce8021569f1d01a5f8b3fe4f2f7c66d3223d40b46f781a55f0af8948be5107944e3b89df5e1908b2e418a80feb5a244a09",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f3102582030caed907c55414a2eecb4379fd3c7e219ba46c70a61bf3358368902d8bc9bfa030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6",
+     "registered_at": 1794269341000
+    },
+    {
+     "name": "the organization revokes it",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0589ba70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2ca4db406500000000000000000000000000000001607a2015820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6026d656e746572656420747769636558405298056bf755ec3149ba10a2c34ffb9b56c56a0614051dd4f5f91a6d233d05212f13cecd6ccc967f52237b8a4b6e0c0229d0b68d4896f970aabf90f929c47a0e",
+     "payload": "a70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2ca4db406500000000000000000000000000000001607a2015820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6026d656e7465726564207477696365",
+     "statement_id": "6ec5b934de79b9bbe583078a6f8186bb08cf7423fd8c77ad167c4bc3ee50af57",
+     "registered_at": 1794269401000
+    },
+    {
+     "name": "the organization's version supersedes the second record's",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a058e2a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fbbbbf5419fa290823bdb92faa86aadb4994aab597857e22dc0da65b5ea1e6dd030405a16a6465706172746d656e74684163636f756e7473065820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c58408d328ab1b42aa7f368a83f2650692287c6b58c16f89ec57366efbf26f6dd3c5267a8a2fd13e0ad93b3bb8b8e8b9e59f0c155684bf53a4bd1a82d67456005fa0f",
+     "payload": "a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fbbbbf5419fa290823bdb92faa86aadb4994aab597857e22dc0da65b5ea1e6dd030405a16a6465706172746d656e74684163636f756e7473065820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "statement_id": "b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1",
+     "registered_at": 1794269461000
+    },
+    {
+     "name": "the clerk withdraws the first claim by revoking it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058cca80001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cc227406500000000000000000000000000000001907a201582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7602781a69737375656420666f72207468652077726f6e67206d6f6e746858407f985f56f279864eae4458daa4206392811b18545e26164c8fc35d7fd91ce0082ff437e8753a06fcc5ae32f739bfa3bed1b177deaa4941c710768e2146ff780e",
+     "payload": "a80001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cc227406500000000000000000000000000000001907a201582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7602781a69737375656420666f72207468652077726f6e67206d6f6e7468",
+     "statement_id": "c9e4a25c754ab8ba77d67040f9e0be7f5fe4aa712c3d5b86a74af4d1fd1f63a3",
+     "registered_at": 1794269521000
+    },
+    {
+     "name": "the organization revokes the first record",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a05892a70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f02646c6566745840e12d86932f45425a0e986ef94fd74a317bc765aaa3f4d00d188389c405d0146337afb1d213a579309fd2e1c690c56c99ca170093ff69fc0287bb5d002b279100",
+     "payload": "a70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f02646c656674",
+     "statement_id": "b76b31dc22f8ecd16cd98fa4ff605e995f75b937bfc70ab26e21579e90d18aba",
+     "registered_at": 1794269581000
+    },
+    {
+     "name": "a claim on the latest version",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa059016fa80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f757263655820b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b440258405f02f8c22bef663b1989548d2b652e665d7189ab5dffc17bb668551a999d40924ba6d83e6d9c0c9430850acff3a22733aabfc42c1fcb67df493ad3da08bd6b05",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f757263655820b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b4402",
+     "statement_id": "5104026e5a7f1cb6e7de5026d32513572634e55312dfe382faaeb5896ef4f812",
+     "registered_at": 1794269641000
+    }
+   ],
+   "refused": [
+    {
+     "name": "endorse the claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058b9a80001011102582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000607a201582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7602687265766965776572584025470f00400647cd8bf2d01d54fb3e560d38854f224e9a1f77adc82fd800f0a1498e4a4baac9dedbad106e9267f74f9b8a6501fffc11d9daf0f793f7b0570302",
+     "payload": "a80001011102582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000607a201582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7602687265766965776572",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "role"
+    },
+    {
+     "name": "move the claim to withdrawn",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058c5a80001011202582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000707a301582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe760269636f6e6669726d6564036977697468647261776e58405d15e5562177810d265f42e14cfbf818ec6e415fc58345b46fff10440448d01116b3c6a4061ba04d2a52840f10085413bf8afd1b9534328f87fa776342f20501",
+     "payload": "a80001011202582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000707a301582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe760269636f6e6669726d6564036977697468647261776e",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "transition"
+    },
+    {
+     "name": "a claim on a record that does not exist",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590154a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000807a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820c92c8c55d333d24204fcb453596cf1c784ea2755e6fc963c1176314c3e2bee9f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f725840ff3559672bf9268073374e7940fdf2530d023a56e0c058c1522e6a351c35be3977c67ffa3bab45cf777ae5760aa28c5e956d962bcfdfee361e3d8d3e4f492901",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000807a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820c92c8c55d333d24204fcb453596cf1c784ea2755e6fc963c1176314c3e2bee9f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "no such source"
+    },
+    {
+     "name": "a claim on a mechanism record, the first claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590124a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000907a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7669636f6e646974696f6e818466736f75726365666578697374736474657874f6584057cf3bd47adb02da485d92116aa345eed7810517132276bcc18bdfd87d2332a66123dbac972be84e792e06cc74092781a4710c716fe398d071ff3e2a0ad7e401",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000907a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7669636f6e646974696f6e818466736f75726365666578697374736474657874f6",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "source of a mechanism type"
+    },
+    {
+     "name": "a claim evaluated after its registration",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590154a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000a07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5bbc965686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f725840f8d0e82fa19f5d9606e493b328b959a9a453d8a1b622a29f4da0493854eef89c2580181687d618e6323a56ea8f228acae4dc1c290f50cc4f3a3ddc407889d902",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000a07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5bbc965686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "as_of after registration"
+    },
+    {
+     "name": "a claim whose metadata has an unknown key",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590162a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000b07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a5646e6f746568696e666f726d616c6561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72584040b8b62ab7bdac88b89a06cf3b483eee6096fdebd77fd30486525c9e374468856d85d72d9007d18d96d137733b1cb3eba0a16432ec56c92881ca37fa8b2cf202",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000b07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a5646e6f746568696e666f726d616c6561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "unknown key"
+    },
+    {
+     "name": "a claim without metadata",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058c3a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000c07a30170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030158407b06fec04858dacd6c9d4c1165deab65ecfd2e0863585f345729ce144b9a3ed5f2b7c77fe4529265ae1f40dc9c1c6b8b53daac83e41262a5e09b9046b7e94106",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000c07a30170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b4515060301",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "no metadata"
+    },
+    {
+     "name": "a claim whose condition is malformed (exists on a number)",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa059012ea80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000d07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e81846e6d6f6e74686c795f73616c61727966657869737473666e756d626572f6584037c0f4e625247645d608b25cc55af71e08400abdd900af4bcbe280c69d3b2ec749d060eb33396d1869ed3437f680477bda5c416945b3bda4becbb347f54b3501",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000d07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e81846e6d6f6e74686c795f73616c61727966657869737473666e756d626572f6",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "operator and type"
+    },
+    {
+     "name": "a claim that supersedes a record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590177a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000e07a50170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7206582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f584028e493056f58fe0e9b9a360105ae8f12a236531e61b52cd239b41085a1ff0c1b0e9f9ce95ee8fb29adc2d0afa819cf60c5855e118604e54e77066a9a36165f0c",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000e07a50170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7206582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "mechanism"
+    },
+    {
+     "name": "a record that supersedes the claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590105a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000f07a50178186578616d706c652e6f72672e656d706c6f796d656e742f310258206a756fa09ec4eec28ecfc27f21760a1bab26117d29b0c5814b562e23f61632ba030405a16a6465706172746d656e74684163636f756e747306582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7658403b227a3706e72f421ed980d8b9f4e7b722a87350e72e45df5fc18e405fd089ca520dba347c0cbd156579bf9d12f2586e717b3ce9f3dbb019b4db6549d38b1606",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c5b9d406500000000000000000000000000000000f07a50178186578616d706c652e6f72672e656d706c6f796d656e742f310258206a756fa09ec4eec28ecfc27f21760a1bab26117d29b0c5814b562e23f61632ba030405a16a6465706172746d656e74684163636f756e747306582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "mechanism"
+    },
+    {
+     "name": "a claim on the superseded version",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590129a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c878f406500000000000000000000000000000001307a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c805b865686f6c6473f566736f7572636558204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d169636f6e646974696f6e818466737461747573613d64746578746a636f6e74726163746f7258404a0b2ea6fbe3f4cb6095094c46558e1ae038aa527be6656c544acbe7315edc2c72ec0935c62754456bcbb59755e0eeaaf51fe41147a5f6e3862e9c913fb2830b",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c878f406500000000000000000000000000000001307a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2c805b865686f6c6473f566736f7572636558204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d169636f6e646974696f6e818466737461747573613d64746578746a636f6e74726163746f72",
+     "after": 8,
+     "at": 1794269281000,
+     "why": "source superseded"
+    },
+    {
+     "name": "a claim on the revoked record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590124a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cb381406500000000000000000000000000000001707a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2cac4d865686f6c6473f566736f757263655820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae669636f6e646974696f6e818466737461747573613d647465787465737461666658406dac3636502c49e69d71204fb4d6868893e9396af1c4478540392af04c90cb951b25083436413f5a95d0a6d3606e577b42184dc6608420144162be962f015c03",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cb381406500000000000000000000000000000001707a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2cac4d865686f6c6473f566736f757263655820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae669636f6e646974696f6e818466737461747573613d6474657874657374616666",
+     "after": 11,
+     "at": 1794269461000,
+     "why": "source revoked"
+    },
+    {
+     "name": "revoke the first claim again",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058afa80001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cd0cd406500000000000000000000000000000001a07a101582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe765840b271adb0608b6b19d326fda45772a3ee3bda1bae8ccf4d98006664dbdbd50d93bed04b18a24b05391516e16db8d944aa59e7dc76361a176e249fe9fcca1fa80c",
+     "payload": "a80001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cd0cd406500000000000000000000000000000001a07a101582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+     "after": 13,
+     "at": 1794269581000,
+     "why": "revoked"
+    },
+    {
+     "name": "a claim on the first record, revoked since",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590154a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cee19406500000000000000000000000000000001d07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2ce6e5865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f725840e7d21745d696a8b8e6e9a65aa75eabc41f7bde2fef1cb8bf12e16d3a57dc7c963c136a52492d59c27437e2d6819f6881e1e7e00d3fec0540d62b027ed0e03e07",
+     "payload": "a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cee19406500000000000000000000000000000001d07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a46561735f6f661b000001a1c2ce6e5865686f6c6473f566736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 15,
+     "at": 1794269701000,
+     "why": "source revoked"
+    }
+   ],
+   "claims": [
+    "30fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+    "b1e96d7c65096762801e10ee47de988ff9415a93a1fb4ad927db0a16f2bb3f53",
+    "6fafb6e20f536319a4c45cc7d93d6cb80b5fc6ce9cad953aeb2c21f7a6e1279e",
+    "5104026e5a7f1cb6e7de5026d32513572634e55312dfe382faaeb5896ef4f812"
+   ],
+   "records": [
+    {
+     "id": "82e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": true,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      3,
+      13
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "30fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": true,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      4,
+      12
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "82e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+      "source_type": "example.org.employment/1",
+      "source_status": "revoked",
+      "condition": [
+       [
+        "monthly_salary",
+        ">",
+        "money",
+        [
+         3000000,
+         "HKD",
+         2
+        ]
+       ],
+       [
+        "status",
+        "in",
+        "text",
+        [
+         "staff",
+         "contractor"
+        ]
+       ]
+      ],
+      "text": "monthly_salary is above HKD 30,000.00 and status is one of \"staff\", \"contractor\"",
+      "holds": true,
+      "as_of": 1794269011000,
+      "until": 1796860800000,
+      "lapsed": false,
+      "subject": "Chan Tai Man",
+      "for": null
+     }
+    },
+    {
+     "id": "b1e96d7c65096762801e10ee47de988ff9415a93a1fb4ad927db0a16f2bb3f53",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "86dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab",
+     "history": [
+      5
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "82e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+      "source_type": "example.org.employment/1",
+      "source_status": "revoked",
+      "condition": [
+       [
+        "start_date",
+        "<=",
+        "date",
+        "2024-01-31"
+       ],
+       [
+        "grade",
+        "exists",
+        "text",
+        null
+       ]
+      ],
+      "text": "start_date is at most 2024-01-31 and grade is given",
+      "holds": false,
+      "as_of": 1794269071000,
+      "until": null,
+      "lapsed": false,
+      "subject": null,
+      "for": [
+       "bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d9415",
+       "8aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d0"
+      ]
+     }
+    },
+    {
+     "id": "4bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      6,
+      7
+     ],
+     "supersedes": null,
+     "superseded_by": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "claim": null
+    },
+    {
+     "id": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      7,
+      11
+     ],
+     "supersedes": "4bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1",
+     "superseded_by": "b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1",
+     "claim": null
+    },
+    {
+     "id": "6fafb6e20f536319a4c45cc7d93d6cb80b5fc6ce9cad953aeb2c21f7a6e1279e",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      8
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+      "source_type": "example.org.employment/1",
+      "source_status": "replaced",
+      "condition": [
+       [
+        "monthly_salary",
+        "between",
+        "money",
+        [
+         [
+          2000000,
+          "HKD",
+          2
+         ],
+         [
+          4000000,
+          "HKD",
+          2
+         ]
+        ]
+       ],
+       [
+        "start_date",
+        ">=",
+        "date",
+        "2024-01-01"
+       ]
+      ],
+      "text": "monthly_salary is between HKD 20,000.00 and HKD 40,000.00 and start_date is at least 2024-01-01",
+      "holds": true,
+      "as_of": 1794269251000,
+      "until": 1794269401000,
+      "lapsed": true,
+      "subject": null,
+      "for": null
+     }
+    },
+    {
+     "id": "322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": true,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      9,
+      10
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "86dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab",
+     "history": [
+      11
+     ],
+     "supersedes": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "5104026e5a7f1cb6e7de5026d32513572634e55312dfe382faaeb5896ef4f812",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      14
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1",
+      "source_type": "example.org.employment/1",
+      "source_status": "live",
+      "condition": [
+       [
+        "status",
+        "!=",
+        "text",
+        "contractor"
+       ],
+       [
+        "monthly_salary",
+        "in",
+        "money",
+        [
+         [
+          3300000,
+          "HKD",
+          2
+         ],
+         [
+          3400000,
+          "HKD",
+          2
+         ]
+        ]
+       ]
+      ],
+      "text": "status is not \"contractor\" and monthly_salary is one of HKD 33,000.00, HKD 34,000.00",
+      "holds": true,
+      "as_of": 1794269611000,
+      "until": null,
+      "lapsed": false,
+      "subject": "Lee Siu Ming",
+      "for": null
+     }
+    }
+   ],
+   "log_entries": [
+    "a301582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab021b000001a1c2c127e803590116d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a05881a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4012f02704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe91145840ed6f85a54a5a7638ed2763b0f21788372c1b6b3064c03920e0deed7e67c5330ac9316f49c23e2c77045f6f3330393bd6d3c4a328c2de5dddcfb206b325cf650e",
+    "a30158204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d021b000001a1c2c212480359012fd284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0589aa70001010202582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec125840248faad44fab921f15241730a0bb222cb1e46202edf0d072a53980d5bcd51413d4dfe9383ec3e02e4c146027d494fc6f6aa1b9d6b7c075c2e62d6209e2a7360a",
+    "a3015820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64021b000001a1c2c2fca803590156d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a058c1a70001010502582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c2fab406500000000000000000000000000000000307a20158204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d02a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f3158402ca80026142c5a05ca8aa87e2cfd32922276cd105f51d24f2245df6ba55c20546d6a371d6ac73b4d6eed92b1460270396696018855c2b32412c90a50bf1a530b",
+    "a301582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f021b000001a1c2c3e70803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209f9ed2a56429ce374d24508999cd269d8b50bcaad385641a04da90a84d4d1da0030405a16a6465706172746d656e74684163636f756e74735840b4d6d8d74494f3822e2737450e9fab5ce82e8034bc670a7bdf88dcd4c5f29bcefa90739fed65c418ae929fb23770fa4225583bfb95a87e72b4e56726dc924d01",
+    "a301582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76021b000001a1c2c4d1680359020ed284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590178a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258409bd74fc37e646561209d3003b9e18d003f808408d77e44b627b90f6e2de211a542fd042cbc5ca43cbbae54151da28190c34aab90534129ddbb8fbf364efc5805",
+    "a3015820b1e96d7c65096762801e10ee47de988ff9415a93a1fb4ad927db0a16f2bb3f53021b000001a1c2c5bbc8035901fed284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0590168a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f69636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f65840893a04cabbfc3e03ba67cb0a7b45b8cd936ab642c22c396b645daeefc295241537af33f41acb3a3948082c29596ee6b19eae0e4a92799b76515bd18bdef8620e",
+    "a30158204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1021b000001a1c2c6a62803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fe98869ca2e5be11b6ba19d1a437cb8f0f46e44ef75d727d887e0189bbff6393030405a16a6465706172746d656e74684163636f756e7473584099add4c668950c8f87a3a5d13abe206314c7d1b7df706e4fd2b313407c0140295d9c2f516e1a12d2458d768c9e74aad247afa8d677489cb1b1ac2b13f5b1a007",
+    "a3015820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c021b000001a1c2c790880359019bd284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590105a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f3102582026d2ad278684bcc6d0642a2ea440ac3b17aea36cb61527e59c3e247402fb9afd030405a16a6465706172746d656e74684163636f756e74730658204bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d158400079ff2ee4ea7223d0e1004cb7ff2f7e647f31d056be38a8386e044237f56bcf53d8787bc965f010a258184d2058c792f0f4d7cdd7aa7647dfd83ca94af54f08",
+    "a30158206fafb6e20f536319a4c45cc7d93d6cb80b5fc6ce9cad953aeb2c21f7a6e1279e021b000001a1c2c87ae803590208d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa0590172a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d303158402ae9e8defaa8ea1e3496050c99cf17eab67ee3850cb12c234bae3f4d78ebc20e1580af037cbdd8cbf5cae8942ce59ade092f5ce9d5c47811e4cb933393a3a80e",
+    "a3015820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6021b000001a1c2c9654803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058e2a80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f3102582030caed907c55414a2eecb4379fd3c7e219ba46c70a61bf3358368902d8bc9bfa030405a16a6465706172746d656e74684163636f756e74735840ca2e6d6fd6789313ea484679e5daddce8021569f1d01a5f8b3fe4f2f7c66d3223d40b46f781a55f0af8948be5107944e3b89df5e1908b2e418a80feb5a244a09",
+    "a30158206ec5b934de79b9bbe583078a6f8186bb08cf7423fd8c77ad167c4bc3ee50af57021b000001a1c2ca4fa803590130d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a0589ba70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2ca4db406500000000000000000000000000000001607a2015820322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6026d656e746572656420747769636558405298056bf755ec3149ba10a2c34ffb9b56c56a0614051dd4f5f91a6d233d05212f13cecd6ccc967f52237b8a4b6e0c0229d0b68d4896f970aabf90f929c47a0e",
+    "a3015820b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1021b000001a1c2cb3a0803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a058e2a70001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820fbbbbf5419fa290823bdb92faa86aadb4994aab597857e22dc0da65b5ea1e6dd030405a16a6465706172746d656e74684163636f756e7473065820147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c58408d328ab1b42aa7f368a83f2650692287c6b58c16f89ec57366efbf26f6dd3c5267a8a2fd13e0ad93b3bb8b8e8b9e59f0c155684bf53a4bd1a82d67456005fa0f",
+    "a3015820c9e4a25c754ab8ba77d67040f9e0be7f5fe4aa712c3d5b86a74af4d1fd1f63a3021b000001a1c2cc246803590161d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa058cca80001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cc227406500000000000000000000000000000001907a201582030fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe7602781a69737375656420666f72207468652077726f6e67206d6f6e746858407f985f56f279864eae4458daa4206392811b18545e26164c8fc35d7fd91ce0082ff437e8753a06fcc5ae32f739bfa3bed1b177deaa4941c710768e2146ff780e",
+    "a3015820b76b31dc22f8ecd16cd98fa4ff605e995f75b937bfc70ab26e21579e90d18aba021b000001a1c2cd0ec803590127d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820164f1a96ed4de2ddd646b7aaea7b75a2327723b87cceb718aad5c91929663aa5a05892a70001011302582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab03582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582082e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f02646c6566745840e12d86932f45425a0e986ef94fd74a317bc765aaa3f4d00d188389c405d0146337afb1d213a579309fd2e1c690c56c99ca170093ff69fc0287bb5d002b279100",
+    "a30158205104026e5a7f1cb6e7de5026d32513572634e55312dfe382faaeb5896ef4f812021b000001a1c2cdf92803590205d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f72045820672917f5864191f8ef2be1697c603d8f8c91576d3bd5f8eab5928bf76ada1ccfa059016fa80001011002582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab0358204f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d045820eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f310258202171cb80988414499f39327faa2727543db97346168fa599bdb8fb854b451506030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f757263655820b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b440258405f02f8c22bef663b1989548d2b652e665d7189ab5dffc17bb668551a999d40924ba6d83e6d9c0c9430850acff3a22733aabfc42c1fcb67df493ad3da08bd6b05",
+    "a301582000b18f7f0fc1e3f97c48658efb3522fe718202dbde393aa81347858b904d50be021b000001a1c2cee3880458e6d2845848a3013203781f6170706c69636174696f6e2f636578636861696e2d73746174652b63626f72045820ebc6df5fb4b924edb7dc5a332ec3f5c5dead75d660dbac770c07920d18609718a05855a501582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab022f030f0458201b5680849684f4b28e73043ebc628a9991fdeab241d844f2b634c330ec49c771051b000001a1c2cee388584018620a67abf3eb5ead58259fa089b1f4f5e243e03763cc338515a73e4bc11ed1575cd627e8824d065d6ab24dd86bafdce0e057f1d1ece05705d78f9c0422f808"
+   ],
+   "state_leaves": [
+    {
+     "kind": 3,
+     "id": "147b4c35e86457b7691bf98b50cfd359e68e41a65913b81051dea000f4c44a9c",
+     "history": [
+      7,
+      11
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "30fd386059903184b672720e6342d8090b08e774671ffc8cc2220afe0376fe76",
+     "history": [
+      4,
+      12
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "322672980d68d6e3af81e545ea9896653173df7254ad5990c6efbef28bccaae6",
+     "history": [
+      9,
+      10
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "4bf0ec2e959f6dcfd5292356e7ce372876726c68b67ea0643366c76b86f1c0d1",
+     "history": [
+      6,
+      7
+     ]
+    },
+    {
+     "kind": 1,
+     "id": "4f913d6843fa66d191feb5ec181321ffa42c7a86d560677bf81b474562a6219d",
+     "history": [
+      1
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "5104026e5a7f1cb6e7de5026d32513572634e55312dfe382faaeb5896ef4f812",
+     "history": [
+      14
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "6fafb6e20f536319a4c45cc7d93d6cb80b5fc6ce9cad953aeb2c21f7a6e1279e",
+     "history": [
+      8
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "82e81d41cf9399a7c5c7c6530d64ccaa925a3127a72125d1edea7428e536658f",
+     "history": [
+      3,
+      13
+     ]
+    },
+    {
+     "kind": 1,
+     "id": "86dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab",
+     "history": [
+      0
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "b1e96d7c65096762801e10ee47de988ff9415a93a1fb4ad927db0a16f2bb3f53",
+     "history": [
+      5
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "b308926f357bb39a830c2b889674fa5546899e8582e3603ec59bbc7f25e1bab1",
+     "history": [
+      11
+     ]
+    },
+    {
+     "kind": 2,
+     "id": "eb002c774fde90349fe13d888ea49169dc09aa504eacc7d1288d82331f8d3f64",
+     "history": [
+      2
+     ]
+    }
+   ],
+   "state_root": "1b5680849684f4b28e73043ebc628a9991fdeab241d844f2b634c330ec49c771",
+   "state_commitment": {
+    "index": 15,
+    "id": "00b18f7f0fc1e3f97c48658efb3522fe718202dbde393aa81347858b904d50be"
+   },
+   "checkpoint": "d284584da301320378246170706c69636174696f6e2f636578636861696e2d636865636b706f696e742b63626f72045820ebc6df5fb4b924edb7dc5a332ec3f5c5dead75d660dbac770c07920d18609718a05855a501582086dd8409d458bc2bfeaf9da28d91a01d725b87b5ab873708170026c2ccfc7aab022f0310045820457bea5ad3a7cc966f4c5730fb45af2b447de94bf6331ca55620131e14859e87051b000001a1c2cee770584025f2704c198fd606e73a99de79c699d4215723c82c3d940d76974dcc2221896c7723b5d517cedea345a49f4fe724771fd13371fad9e4b293a9684b0176157002",
+   "checkpoint_time": 1794269702000
+  },
+  {
+   "hash": -65538,
+   "ledger_id": "5db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f",
+   "statements": [
+    {
+     "name": "genesis",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea05885a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4013a0001000102704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe911458407f181cf0a6927ef120e909a08f1f9f2cf5b4f55f1f32a29c5014f179bc19c64b9cd596c54e81037ac91b32022669dc7e6199d3196adc9aed6e9edc0395324c00",
+     "payload": "a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4013a0001000102704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe9114",
+     "statement_id": "5db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f",
+     "registered_at": 1794268801000
+    },
+    {
+     "name": "register the clerk",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0589aa7000101020258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec12584088e1ff6b41529a5e3905e555055c2c77dec1c17c7bda4a4e31936fdda00ad43ab49addf3ed7901eccd9bbe20e9ef8467ced88351c83e84d30271d6610dd0d309",
+     "payload": "a7000101020258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec12",
+     "statement_id": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "registered_at": 1794268861000
+    },
+    {
+     "name": "delegate employment records and claims to the clerk",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea058c1a7000101050258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2fab406500000000000000000000000000000000307a2015820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505202a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f315840b4a98cf469270aabc32b58eb1419c373e5767a0506380d8d064bab99d3d55babdf55019c4c55b3202844efa3aefab9ed3d1f63b38bc3f0719a42f6e02f6e5302",
+     "payload": "a7000101050258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2fab406500000000000000000000000000000000307a2015820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505202a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f31",
+     "statement_id": "39e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce",
+     "registered_at": 1794268921000
+    },
+    {
+     "name": "register an employment record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820ac9534d57132688f0686a3819b201c98b2739d36837fc52d78fc95e0c0ac469e030405a16a6465706172746d656e74684163636f756e74735840ca45cc8e3afd58e37306d659c0e7c6df5feb08578eb9040bec30cf7695a8454c44d02f9012d527de37a39c25e04b908ec7c9b67f49c4c4ab4eb1f816eb00fc0b",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820ac9534d57132688f0686a3819b201c98b2739d36837fc52d78fc95e0c0ac469e030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "78044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+     "registered_at": 1794268981000
+    },
+    {
+     "name": "the clerk claims the specification's example of it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590178a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258401b24bb8a85612f3d984601bac695123398732887afb657ab8814d261a84251b9b05eff672bfa9ea0ba43c2cf8c526efae25e4adb11603e94f93cc77110e7d003",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "statement_id": "e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+     "registered_at": 1794269041000
+    },
+    {
+     "name": "the organization claims a condition that does not hold",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0590168a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f658401a6275db7a105ff8d4046888ab972b168615aeab907a985585f2bf21269198d342b8481d78e906b4fbb4bbfa66e5ee2819444bc640333d75c888e32aa014ab0b",
+     "payload": "a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f6",
+     "statement_id": "0befa248e716d1417327d64553b7b3bfb297c310c1c2c0c73d09ad1e559fe1d7",
+     "registered_at": 1794269101000
+    },
+    {
+     "name": "register a second employee's record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209bf774350aeca0836b6b9231a1b79c07576cf988d9ee0991c7ae08e56cdf28ce030405a16a6465706172746d656e74684163636f756e7473584073c0333bd1250b022935023bf12fc92152c22b8898d8f7d712ff32c62e2bd5e01d004ddb46d5794f56fb747766a4380e020471f64d5d43b47546810df70d8904",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209bf774350aeca0836b6b9231a1b79c07576cf988d9ee0991c7ae08e56cdf28ce030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d",
+     "registered_at": 1794269161000
+    },
+    {
+     "name": "a new version supersedes it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590105a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820cb4d6b55d7181d81f8fada9bced65cf0b2a438ac64edf8f806aeebb7c37c1c5a030405a16a6465706172746d656e74684163636f756e7473065820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d5840936581b9742daebc9c07a475f91cec3bcb5de4bb1e024a31a00db430c59842e86891b9a04a80e11c3fb07da65e227822a1557b49aa798eb1baac7d398f325606",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820cb4d6b55d7181d81f8fada9bced65cf0b2a438ac64edf8f806aeebb7c37c1c5a030405a16a6465706172746d656e74684163636f756e7473065820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d",
+     "statement_id": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "registered_at": 1794269221000
+    },
+    {
+     "name": "a claim on the new version, until two minutes later",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590172a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d303158405ae5b93cc1c1962111de28b145909cc6808cbe3e5303261ca723a40190e529987e9896050df115c2187062816c439d926e0fbfe300c72b853299fe82952ec502",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d3031",
+     "statement_id": "06a920e7edd51aaa6fffc2837e69b5ee98c240daa1b7d08e2b2412627de3dc27",
+     "registered_at": 1794269281000
+    },
+    {
+     "name": "register a third employee's record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209d37947c642a286145923c29ee306a8f09f303de271b3305e9eb4789d3ef3b98030405a16a6465706172746d656e74684163636f756e7473584053c704a17e88f98eec92b7e8b2c20eaa44adcba984ff953a36805f80f56bc88f5e101c76c35f8bdcd480d76f063cfce85ec6ffad846bb4be4974edbb52c9f403",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209d37947c642a286145923c29ee306a8f09f303de271b3305e9eb4789d3ef3b98030405a16a6465706172746d656e74684163636f756e7473",
+     "statement_id": "74764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9",
+     "registered_at": 1794269341000
+    },
+    {
+     "name": "the organization revokes it",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0589ba7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2ca4db406500000000000000000000000000000001607a201582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9026d656e74657265642074776963655840013ba096e366d432a32e4c0eb3388f2ea476d2f33d173f6a0597c71e048e9e4b47feec1be28dfbe7b8b3b93d354e1cba6a76756ae75fe954e064656d9131a004",
+     "payload": "a7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2ca4db406500000000000000000000000000000001607a201582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9026d656e7465726564207477696365",
+     "statement_id": "1530bbb947e8cb6016eecc8e145ee24eb28de38a2add40669d3c30073fd86ed7",
+     "registered_at": 1794269401000
+    },
+    {
+     "name": "the organization's version supersedes the second record's",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea058e2a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820b04053cb7a1740b3c3f4ccf89011c9ea0fec86fb358bcd206bc78734dd12a3c7030405a16a6465706172746d656e74684163636f756e7473065820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab5840df8b9818cc1b0a91ad03d9d7eaed5f049f4a482a9b1025537ab2210dbad8368fe2d2ab5886bc805c6b0efa318bb0a9131251e5d65d4291bbe9493cb99103770f",
+     "payload": "a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820b04053cb7a1740b3c3f4ccf89011c9ea0fec86fb358bcd206bc78734dd12a3c7030405a16a6465706172746d656e74684163636f756e7473065820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "statement_id": "7b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4",
+     "registered_at": 1794269461000
+    },
+    {
+     "name": "the clerk withdraws the first claim by revoking it",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058cca8000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cc227406500000000000000000000000000000001907a2015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639002781a69737375656420666f72207468652077726f6e67206d6f6e74685840fe0f57aeff558b60ff3d501c39c2cb04d056dc86f729301386a24673215e9de4f76200ec3cda363bcf564a2d7ae1356e57a65615aea2cc3fa00aa93848982906",
+     "payload": "a8000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cc227406500000000000000000000000000000001907a2015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639002781a69737375656420666f72207468652077726f6e67206d6f6e7468",
+     "statement_id": "4d05f2b100f6c862d8a6f8d65916336b7e2483aaf25a6d9edc841a92f37c649c",
+     "registered_at": 1794269521000
+    },
+    {
+     "name": "the organization revokes the first record",
+     "signer": "org_root",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea05892a7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1202646c65667458407f02fab3311f2bfd5a806016f049bf5c7295381d60f9f823bf12d01269b801de56f2d475377654a9c488110eb4f7c073752b45b4b4b70ce83cd37ee25cacdf02",
+     "payload": "a7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1202646c656674",
+     "statement_id": "3b8f62254240896f6cf299163a64653868ad1e750bf50a42d27b5454eee095f2",
+     "registered_at": 1794269581000
+    },
+    {
+     "name": "a claim on the latest version",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa059016fa8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f7572636558207b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b44025840fcac6ecca69b533301a38a12c9b53a1f3158c5e6905c3a28171ed1c840d677a6f305f5c8bbeb7fee06db1aa272eb3bfbff26611c3eda126bf924d4cdd1cb130f",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f7572636558207b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b4402",
+     "statement_id": "2224411ef24cc2fe1c5741cd91a91fa180b6adf4b0567097c32cc84ff9b9f78f",
+     "registered_at": 1794269641000
+    }
+   ],
+   "refused": [
+    {
+     "name": "endorse the claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058b9a8000101110258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000607a2015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639002687265766965776572584025a8172a1774d06f1d990d83ebb1bcdfe1c50444552afaf28065c7922d139b6994700c8d2ce0552803c765f3189b46041b3cd061333cb52fb12123b23fe57a06",
+     "payload": "a8000101110258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000607a2015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639002687265766965776572",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "role"
+    },
+    {
+     "name": "move the claim to withdrawn",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058c5a8000101120258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000707a3015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a63900269636f6e6669726d6564036977697468647261776e5840b669ae65ea0e7d9e321330cae114f89ab0253e008a0124fb5c86112dbed9240c22ae59c15c855397bad1779b396c7aeb7d1d01f56c1c285cbc44917f9cb0330c",
+     "payload": "a8000101120258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000707a3015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a63900269636f6e6669726d6564036977697468647261776e",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "transition"
+    },
+    {
+     "name": "a claim on a record that does not exist",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590154a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000807a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820f8d9dcc26dd11006b9d8272bd10992a0c8400a2f54ac27f374b1100e8d9c150b69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f725840cd152b7643b7f6ccccde26388200753ff6f5d862e9103ccce3844bc6c1a7b591914e3b2b20d8081bc75253b8214a9c23abc24c717bb4c1143eeed399690b640c",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000807a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820f8d9dcc26dd11006b9d8272bd10992a0c8400a2f54ac27f374b1100e8d9c150b69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "no such source"
+    },
+    {
+     "name": "a claim on a mechanism record, the first claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590124a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000907a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639069636f6e646974696f6e818466736f75726365666578697374736474657874f658400a6041f1424288889b587470a1ebac0b6bced2605b8fdb64004e7460c0dae5d234b5499927cd694c0d43b8f74a7416b476a6607508c2d87f6c7bb775d2bb5803",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000907a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f757263655820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639069636f6e646974696f6e818466736f75726365666578697374736474657874f6",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "source of a mechanism type"
+    },
+    {
+     "name": "a claim evaluated after its registration",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590154a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000a07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5bbc965686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258401f985a2195f0b4acfbbe9f4b5b2c7af4b105a67da07fb4ce94fe120067712d7829310d4bb4ac06f4f42c9aeb88826aedc51161f6cf20669e8ec35fdc46a73a03",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000a07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5bbc965686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "as_of after registration"
+    },
+    {
+     "name": "a claim whose metadata has an unknown key",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590162a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000b07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a5646e6f746568696e666f726d616c6561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258404b4884d01cdae08118e874b01970a65c15732a869a1abbac00b936f928fcf6637602298c16989ddca95d63a74fd7523d02aa9045bd372a74d96a1041ea333b04",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000b07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a5646e6f746568696e666f726d616c6561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "unknown key"
+    },
+    {
+     "name": "a claim without metadata",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058c3a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000c07a30170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c929003015840176024ca08f6c8dc47a6b350be798698a61bcb4208fc9440dfb1befb499aa6a528f529c3ad0c0bde0de321f0402ff74db8982d8b72b3d1f1af709ac8046dfd0a",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000c07a30170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c92900301",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "no metadata"
+    },
+    {
+     "name": "a claim whose condition is malformed (exists on a number)",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa059012ea8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000d07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e81846e6d6f6e74686c795f73616c61727966657869737473666e756d626572f6584042339c36a737653a5fb8375f1c4838ea74619e9eebe827951a7cf30c5131f4dce2ec7fc518361de1e27984fab63e263e6923be50ae1e336f3bee688bb2e1960b",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000d07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e81846e6d6f6e74686c795f73616c61727966657869737473666e756d626572f6",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "operator and type"
+    },
+    {
+     "name": "a claim that supersedes a record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590177a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000e07a50170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7206582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e125840139318f8e3acca0cc341afb8299934e1f11663923e35664a974d4f44ba0b7688b6c3a38a37779df4b488c065b171ee8a1001bbed7921eb914c85826dc6b91609",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000e07a50170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c5469865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7206582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "mechanism"
+    },
+    {
+     "name": "a record that supersedes the claim",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590105a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000f07a50178186578616d706c652e6f72672e656d706c6f796d656e742f310258201b456de4c63bd11dd509ee85ba6e5aaf53d59315e73aca6936a234398abc110d030405a16a6465706172746d656e74684163636f756e7473065820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390584021d9ac2e5bdcd0e61ac3efc72d7277a5a6bd8c2e2b362bdabf7a7c4d0611391b56dfa052432eb6ccfa2073baccd5cdc2472330e87e06bd73e334fa4fcd5c8509",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c5b9d406500000000000000000000000000000000f07a50178186578616d706c652e6f72672e656d706c6f796d656e742f310258201b456de4c63bd11dd509ee85ba6e5aaf53d59315e73aca6936a234398abc110d030405a16a6465706172746d656e74684163636f756e7473065820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+     "after": 5,
+     "at": 1794269101000,
+     "why": "mechanism"
+    },
+    {
+     "name": "a claim on the superseded version",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590129a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c878f406500000000000000000000000000000001307a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c805b865686f6c6473f566736f757263655820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d69636f6e646974696f6e818466737461747573613d64746578746a636f6e74726163746f725840c9576eb6c4251a528a6dbbc0c0e2c3f941357f8a0e35494e3f8232fd60c21f465b1fb8b9a590de1db38e1b95c39250c93c6467e8d3bbf7735b3c8b23c09a490a",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c878f406500000000000000000000000000000001307a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2c805b865686f6c6473f566736f757263655820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d69636f6e646974696f6e818466737461747573613d64746578746a636f6e74726163746f72",
+     "after": 8,
+     "at": 1794269281000,
+     "why": "source superseded"
+    },
+    {
+     "name": "a claim on the revoked record",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590124a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cb381406500000000000000000000000000000001707a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2cac4d865686f6c6473f566736f75726365582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e969636f6e646974696f6e818466737461747573613d6474657874657374616666584090ab4cb7c1cbb71dfbd8c75f078853e934fcb4e380c669b7be1e470879bfbe42ff739ae55e716789e621b90e5bf8ff2b3b489cf1331164ad6415e3109e9f7603",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cb381406500000000000000000000000000000001707a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2cac4d865686f6c6473f566736f75726365582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e969636f6e646974696f6e818466737461747573613d6474657874657374616666",
+     "after": 11,
+     "at": 1794269461000,
+     "why": "source revoked"
+    },
+    {
+     "name": "revoke the first claim again",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058afa8000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cd0cd406500000000000000000000000000000001a07a1015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390584041d01345b2b764c915d148dca1104195909ec280ed470ee4bd51e77cf84f11c220e6d32c4c7caedc5cd413f9f3369db968288e5fd5221c0a58d115866911980a",
+     "payload": "a8000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cd0cd406500000000000000000000000000000001a07a1015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+     "after": 13,
+     "at": 1794269581000,
+     "why": "revoked"
+    },
+    {
+     "name": "a claim on the first record, revoked since",
+     "signer": "clerk",
+     "encoded": "d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590154a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cee19406500000000000000000000000000000001d07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2ce6e5865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f725840d446bae4cb354c0dae8a36e4285bf2a6738dd49533aab0be36511a11f5f8d41fcac37d964b324a2fcfe8fb29b834f5aa5255efe749dfb4656e2c93360067e10f",
+     "payload": "a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cee19406500000000000000000000000000000001d07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a46561735f6f661b000001a1c2ce6e5865686f6c6473f566736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f72",
+     "after": 15,
+     "at": 1794269701000,
+     "why": "source revoked"
+    }
+   ],
+   "claims": [
+    "e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+    "0befa248e716d1417327d64553b7b3bfb297c310c1c2c0c73d09ad1e559fe1d7",
+    "06a920e7edd51aaa6fffc2837e69b5ee98c240daa1b7d08e2b2412627de3dc27",
+    "2224411ef24cc2fe1c5741cd91a91fa180b6adf4b0567097c32cc84ff9b9f78f"
+   ],
+   "records": [
+    {
+     "id": "78044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": true,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      3,
+      13
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": true,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      4,
+      12
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "78044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+      "source_type": "example.org.employment/1",
+      "source_status": "revoked",
+      "condition": [
+       [
+        "monthly_salary",
+        ">",
+        "money",
+        [
+         3000000,
+         "HKD",
+         2
+        ]
+       ],
+       [
+        "status",
+        "in",
+        "text",
+        [
+         "staff",
+         "contractor"
+        ]
+       ]
+      ],
+      "text": "monthly_salary is above HKD 30,000.00 and status is one of \"staff\", \"contractor\"",
+      "holds": true,
+      "as_of": 1794269011000,
+      "until": 1796860800000,
+      "lapsed": false,
+      "subject": "Chan Tai Man",
+      "for": null
+     }
+    },
+    {
+     "id": "0befa248e716d1417327d64553b7b3bfb297c310c1c2c0c73d09ad1e559fe1d7",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "5db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f",
+     "history": [
+      5
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "78044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+      "source_type": "example.org.employment/1",
+      "source_status": "revoked",
+      "condition": [
+       [
+        "start_date",
+        "<=",
+        "date",
+        "2024-01-31"
+       ],
+       [
+        "grade",
+        "exists",
+        "text",
+        null
+       ]
+      ],
+      "text": "start_date is at most 2024-01-31 and grade is given",
+      "holds": false,
+      "as_of": 1794269071000,
+      "until": null,
+      "lapsed": false,
+      "subject": null,
+      "for": [
+       "bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d9415",
+       "8aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d0"
+      ]
+     }
+    },
+    {
+     "id": "cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      6,
+      7
+     ],
+     "supersedes": null,
+     "superseded_by": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "claim": null
+    },
+    {
+     "id": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      7,
+      11
+     ],
+     "supersedes": "cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d",
+     "superseded_by": "7b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4",
+     "claim": null
+    },
+    {
+     "id": "06a920e7edd51aaa6fffc2837e69b5ee98c240daa1b7d08e2b2412627de3dc27",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      8
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+      "source_type": "example.org.employment/1",
+      "source_status": "replaced",
+      "condition": [
+       [
+        "monthly_salary",
+        "between",
+        "money",
+        [
+         [
+          2000000,
+          "HKD",
+          2
+         ],
+         [
+          4000000,
+          "HKD",
+          2
+         ]
+        ]
+       ],
+       [
+        "start_date",
+        ">=",
+        "date",
+        "2024-01-01"
+       ]
+      ],
+      "text": "monthly_salary is between HKD 20,000.00 and HKD 40,000.00 and start_date is at least 2024-01-01",
+      "holds": true,
+      "as_of": 1794269251000,
+      "until": 1794269401000,
+      "lapsed": true,
+      "subject": null,
+      "for": null
+     }
+    },
+    {
+     "id": "74764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": true,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      9,
+      10
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "7b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4",
+     "type": "example.org.employment/1",
+     "state": "registered",
+     "revoked": false,
+     "registrant": "5db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f",
+     "history": [
+      11
+     ],
+     "supersedes": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "superseded_by": null,
+     "claim": null
+    },
+    {
+     "id": "2224411ef24cc2fe1c5741cd91a91fa180b6adf4b0567097c32cc84ff9b9f78f",
+     "type": "cexchain.claim/1",
+     "state": "confirmed",
+     "revoked": false,
+     "registrant": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      14
+     ],
+     "supersedes": null,
+     "superseded_by": null,
+     "claim": {
+      "source": "7b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4",
+      "source_type": "example.org.employment/1",
+      "source_status": "live",
+      "condition": [
+       [
+        "status",
+        "!=",
+        "text",
+        "contractor"
+       ],
+       [
+        "monthly_salary",
+        "in",
+        "money",
+        [
+         [
+          3300000,
+          "HKD",
+          2
+         ],
+         [
+          3400000,
+          "HKD",
+          2
+         ]
+        ]
+       ]
+      ],
+      "text": "status is not \"contractor\" and monthly_salary is one of HKD 33,000.00, HKD 34,000.00",
+      "holds": true,
+      "as_of": 1794269611000,
+      "until": null,
+      "lapsed": false,
+      "subject": "Lee Siu Ming",
+      "for": null
+     }
+    }
+   ],
+   "log_entries": [
+    "a30158205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f021b000001a1c2c127e80359011ad284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea05885a500010101051b000001a1c2c125f406500000000000000000000000000000000107a4013a0001000102704578616d706c6520456d706c6f796572038232582076c8c2105f4e84ac2032a19788f1bb1a6418082d026c0fe28e5ea18b40af7e8f04823258201f62d0cd27c7db4e222ccf6dfe03f3d48424c59d84f7d4b98ae74bcd60fe911458407f181cf0a6927ef120e909a08f1f9f2cf5b4f55f1f32a29c5014f179bc19c64b9cd596c54e81037ac91b32022669dc7e6199d3196adc9aed6e9edc0395324c00",
+    "a3015820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052021b000001a1c2c212480359012fd284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0589aa7000101020258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2105406500000000000000000000000000000000207a301010268485220436c65726b038232582021fb188b18b3234183fe2d938984f37e63d497996b2ba85ae62f8749351aec12584088e1ff6b41529a5e3905e555055c2c77dec1c17c7bda4a4e31936fdda00ad43ab49addf3ed7901eccd9bbe20e9ef8467ced88351c83e84d30271d6610dd0d309",
+    "a301582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce021b000001a1c2c2fca803590156d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea058c1a7000101050258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c2fab406500000000000000000000000000000000307a2015820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505202a2018410111213028270636578636861696e2e636c61696d2f3178186578616d706c652e6f72672e656d706c6f796d656e742f315840b4a98cf469270aabc32b58eb1419c373e5767a0506380d8d064bab99d3d55babdf55019c4c55b3202844efa3aefab9ed3d1f63b38bc3f0719a42f6e02f6e5302",
+    "a301582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12021b000001a1c2c3e70803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c3e51406500000000000000000000000000000000407a40178186578616d706c652e6f72672e656d706c6f796d656e742f31025820ac9534d57132688f0686a3819b201c98b2739d36837fc52d78fc95e0c0ac469e030405a16a6465706172746d656e74684163636f756e74735840ca45cc8e3afd58e37306d659c0e7c6df5feb08578eb9040bec30cf7695a8454c44d02f9012d527de37a39c25e04b908ec7c9b67f49c4c4ab4eb1f816eb00fc0b",
+    "a3015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390021b000001a1c2c4d1680359020ed284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590178a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c4cf7406500000000000000000000000000000000507a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a66561735f6f661b000001a1c2c45c3865686f6c6473f565756e74696c1b000001a25d3fec0066736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12677375626a6563746c4368616e20546169204d616e69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279613e656d6f6e6579831a002dc6c063484b4402846673746174757362696e6474657874826573746166666a636f6e74726163746f7258401b24bb8a85612f3d984601bac695123398732887afb657ab8814d261a84251b9b05eff672bfa9ea0ba43c2cf8c526efae25e4adb11603e94f93cc77110e7d003",
+    "a30158200befa248e716d1417327d64553b7b3bfb297c310c1c2c0c73d09ad1e559fe1d7021b000001a1c2c5bbc8035901fed284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0590168a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2c5b9d406500000000000000000000000000000001007a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a563666f72825820bf05a05eaa45a197010c0e9812ac982426b88dae3310a7652b0ce66a536d941558208aab3daf24a112bd9e09abc022f0e5e834c47c94605ce4c811bf9c0eda4e44d06561735f6f661b000001a1c2c5469865686f6c6473f466736f75726365582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1269636f6e646974696f6e82846a73746172745f64617465623c3d64646174656a323032342d30312d333184656772616465666578697374736474657874f658401a6275db7a105ff8d4046888ab972b168615aeab907a985585f2bf21269198d342b8481d78e906b4fbb4bbfa66e5ee2819444bc640333d75c888e32aa014ab0b",
+    "a3015820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d021b000001a1c2c6a62803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c6a43406500000000000000000000000000000001107a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209bf774350aeca0836b6b9231a1b79c07576cf988d9ee0991c7ae08e56cdf28ce030405a16a6465706172746d656e74684163636f756e7473584073c0333bd1250b022935023bf12fc92152c22b8898d8f7d712ff32c62e2bd5e01d004ddb46d5794f56fb747766a4380e020471f64d5d43b47546810df70d8904",
+    "a3015820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab021b000001a1c2c790880359019bd284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590105a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c78e9406500000000000000000000000000000001207a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820cb4d6b55d7181d81f8fada9bced65cf0b2a438ac64edf8f806aeebb7c37c1c5a030405a16a6465706172746d656e74684163636f756e7473065820cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d5840936581b9742daebc9c07a475f91cec3bcb5de4bb1e024a31a00db430c59842e86891b9a04a80e11c3fb07da65e227822a1557b49aa798eb1baac7d398f325606",
+    "a301582006a920e7edd51aaa6fffc2837e69b5ee98c240daa1b7d08e2b2412627de3dc27021b000001a1c2c87ae803590208d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa0590172a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c878f406500000000000000000000000000000001407a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2c805b865686f6c6473f565756e74696c1b000001a1c2ca4fa866736f757263655820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab69636f6e646974696f6e82846e6d6f6e74686c795f73616c617279676265747765656e656d6f6e657982831a001e848063484b4402831a003d090063484b4402846a73746172745f64617465623e3d64646174656a323032342d30312d303158405ae5b93cc1c1962111de28b145909cc6808cbe3e5303261ca723a40190e529987e9896050df115c2187062816c439d926e0fbfe300c72b853299fe82952ec502",
+    "a301582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9021b000001a1c2c9654803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058e2a8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2c9635406500000000000000000000000000000001507a40178186578616d706c652e6f72672e656d706c6f796d656e742f310258209d37947c642a286145923c29ee306a8f09f303de271b3305e9eb4789d3ef3b98030405a16a6465706172746d656e74684163636f756e7473584053c704a17e88f98eec92b7e8b2c20eaa44adcba984ff953a36805f80f56bc88f5e101c76c35f8bdcd480d76f063cfce85ec6ffad846bb4be4974edbb52c9f403",
+    "a30158201530bbb947e8cb6016eecc8e145ee24eb28de38a2add40669d3c30073fd86ed7021b000001a1c2ca4fa803590130d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea0589ba7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2ca4db406500000000000000000000000000000001607a201582074764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9026d656e74657265642074776963655840013ba096e366d432a32e4c0eb3388f2ea476d2f33d173f6a0597c71e048e9e4b47feec1be28dfbe7b8b3b93d354e1cba6a76756ae75fe954e064656d9131a004",
+    "a30158207b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4021b000001a1c2cb3a0803590177d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea058e2a7000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cb381406500000000000000000000000000000001807a50178186578616d706c652e6f72672e656d706c6f796d656e742f31025820b04053cb7a1740b3c3f4ccf89011c9ea0fec86fb358bcd206bc78734dd12a3c7030405a16a6465706172746d656e74684163636f756e7473065820bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab5840df8b9818cc1b0a91ad03d9d7eaed5f049f4a482a9b1025537ab2210dbad8368fe2d2ab5886bc805c6b0efa318bb0a9131251e5d65d4291bbe9493cb99103770f",
+    "a30158204d05f2b100f6c862d8a6f8d65916336b7e2483aaf25a6d9edc841a92f37c649c021b000001a1c2cc246803590161d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa058cca8000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cc227406500000000000000000000000000000001907a2015820e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a639002781a69737375656420666f72207468652077726f6e67206d6f6e74685840fe0f57aeff558b60ff3d501c39c2cb04d056dc86f729301386a24673215e9de4f76200ec3cda363bcf564a2d7ae1356e57a65615aea2cc3fa00aa93848982906",
+    "a30158203b8f62254240896f6cf299163a64653868ad1e750bf50a42d27b5454eee095f2021b000001a1c2cd0ec803590127d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f720458201e057d46fd0bf98ec3af1fd690ada0b6a3796f60bbda0dbf74f040ab2028b99ea05892a7000101130258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f0358205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f051b000001a1c2cd0cd406500000000000000000000000000000001b07a201582078044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e1202646c65667458407f02fab3311f2bfd5a806016f049bf5c7295381d60f9f823bf12d01269b801de56f2d475377654a9c488110eb4f7c073752b45b4b4b70ce83cd37ee25cacdf02",
+    "a30158202224411ef24cc2fe1c5741cd91a91fa180b6adf4b0567097c32cc84ff9b9f78f021b000001a1c2cdf92803590205d284584ca301320378236170706c69636174696f6e2f636578636861696e2d73746174656d656e742b63626f7204582002a05840abc145b3d206103c6bb3ec1bd22ab9695aaa49ea2aaebfb70225ea9fa059016fa8000101100258205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f035820b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e4505204582039e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce051b000001a1c2cdf73406500000000000000000000000000000001c07a40170636578636861696e2e636c61696d2f31025820cfd25f9e7d83c2c6897239aef36a236783cf09fcb24aa3813e7b0254b91c9290030105a56561735f6f661b000001a1c2cd83f865686f6c6473f566736f7572636558207b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4677375626a6563746c4c656520536975204d696e6769636f6e646974696f6e82846673746174757362213d64746578746a636f6e74726163746f72846e6d6f6e74686c795f73616c61727962696e656d6f6e657982831a00325aa063484b4402831a0033e14063484b44025840fcac6ecca69b533301a38a12c9b53a1f3158c5e6905c3a28171ed1c840d677a6f305f5c8bbeb7fee06db1aa272eb3bfbff26611c3eda126bf924d4cdd1cb130f",
+    "a30158200895aaf5df31cedd4cb9ad750fce2c305b4b3b802ad6e81cfb359483ded41d32021b000001a1c2cee3880458ead2845848a3013203781f6170706c69636174696f6e2f636578636861696e2d73746174652b63626f72045820a451f54e85a8058363e709a5a28600eee73daad333260923164b8888d26462d7a05859a50158205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f023a00010001030f0458206c5b6cf5e8f61eb23ed41c181218196cceeafe2da3d99be9d70260c52d6eba85051b000001a1c2cee38858408d230027b18dcac8d55bfc63d2de75facaf07f56ef114d0e5211bd20aecaceae974facd2e8b3d37c9ddbbf20ec36ad37f08ca0528b1f9820c548edc82cf87604"
+   ],
+   "state_leaves": [
+    {
+     "kind": 3,
+     "id": "06a920e7edd51aaa6fffc2837e69b5ee98c240daa1b7d08e2b2412627de3dc27",
+     "history": [
+      8
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "0befa248e716d1417327d64553b7b3bfb297c310c1c2c0c73d09ad1e559fe1d7",
+     "history": [
+      5
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "2224411ef24cc2fe1c5741cd91a91fa180b6adf4b0567097c32cc84ff9b9f78f",
+     "history": [
+      14
+     ]
+    },
+    {
+     "kind": 2,
+     "id": "39e4fe7e7d2ce813549934f9d9b17a166d34e1d18794760f0ccb3574db55acce",
+     "history": [
+      2
+     ]
+    },
+    {
+     "kind": 1,
+     "id": "5db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f",
+     "history": [
+      0
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "74764b3c9275ff5fb9f05e7a2bf5c7735fac7b62ab7278a82391649b2a6e71e9",
+     "history": [
+      9,
+      10
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "78044d2f8b029b69c14946bc54a0123457d377c1b7e9a178fef9ac13f6464e12",
+     "history": [
+      3,
+      13
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "7b6a27fbc2b6bc9213fba9a492304b75e453187ab6e4c31408051b91e20517c4",
+     "history": [
+      11
+     ]
+    },
+    {
+     "kind": 1,
+     "id": "b3e422e760061fc49cb5597f43554603611ed318624f32fb97931d86c3e45052",
+     "history": [
+      1
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "bb76a484d4b002dd6560fa4a4dbd1df1a4541987df55ba676f9d92920f9ce3ab",
+     "history": [
+      7,
+      11
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "cdeca722c3e11686d61397b169b495d2c312aa0f760bd1aacac9b01e58b7447d",
+     "history": [
+      6,
+      7
+     ]
+    },
+    {
+     "kind": 3,
+     "id": "e7eb52f6d258e7fd1323514c892a04b6fe63695484ebb75009b0f32b190a6390",
+     "history": [
+      4,
+      12
+     ]
+    }
+   ],
+   "state_root": "6c5b6cf5e8f61eb23ed41c181218196cceeafe2da3d99be9d70260c52d6eba85",
+   "state_commitment": {
+    "index": 15,
+    "id": "0895aaf5df31cedd4cb9ad750fce2c305b4b3b802ad6e81cfb359483ded41d32"
+   },
+   "checkpoint": "d284584da301320378246170706c69636174696f6e2f636578636861696e2d636865636b706f696e742b63626f72045820a451f54e85a8058363e709a5a28600eee73daad333260923164b8888d26462d7a05859a50158205db9653e7fdec33e9c11c53445e077d308d06b6d08b275621e19726e2b41005f023a000100010310045820e974676f624c8a92f369b50ae1eddfab6835736bc4dc0287c47a88b0dac5d402051b000001a1c2cee7705840ccaedb58253665234cbbe71af864dbe43332907ada8dc90931319466a4b3095400a9dc8b672eb67fb17708d231bd11adaf2a6afa02a3af3fd455a77661e9f509",
+   "checkpoint_time": 1794269702000
+  }
+ ]
+}

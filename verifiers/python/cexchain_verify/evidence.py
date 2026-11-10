@@ -262,13 +262,19 @@ def involved_objects(ledger: rules.Ledger, subject) -> dict:
     """Section 11, step 7: the record, or the instance and its contract, and
     for each of its events the signer, an agent signer's responsible person,
     and every delegation in the chain with its grantor. A child's ancestors
-    need no proof, but their included calls count as events. Returns {id:
-    state kind}."""
+    need no proof, but their included calls count as events. A claim's source
+    (v0.14) is involved, and its statements count as events too, the
+    registration that superseded it included. Returns {id: state kind}."""
+    events = event_indices(ledger, subject)
     if isinstance(subject, rules.Record):
         involved = {subject.id: statetree.RECORD}
+        if subject.claim is not None:
+            source = ledger.records[subject.claim.source]
+            involved[source.id] = statetree.RECORD
+            events = sorted(set(events) | set(source.history))
     else:
         involved = {subject.id: statetree.INSTANCE, subject.contract: statetree.CONTRACT}
-    for index in event_indices(ledger, subject):
+    for index in events:
         applied = ledger.applied[index]
         signer = ledger.actors[applied.signer]
         involved[signer.id] = statetree.ACTOR

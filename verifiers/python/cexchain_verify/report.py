@@ -11,7 +11,7 @@ verifiers' reports can be compared field by field.
 
 from __future__ import annotations
 
-from . import cbor, crypto, rules
+from . import cbor, claims, crypto, rules
 from .evidence import Report
 from .protocol import (AGENT, CONTRACT_CALL, ORGANIZATION, PERSON, RECORD_ENDORSE, RECORD_REGISTER, RECORD_REVOKE,
                        RECORD_TRANSITION)
@@ -185,6 +185,34 @@ def authority_json(ledger: rules.Ledger, applied: rules.Applied) -> list:
     return out
 
 
+def source_status(ledger: rules.Ledger, claim: claims.Claim) -> str:
+    """A claim's source as the replay leaves it (section 11): live, revoked,
+    or replaced by a newer version. A revoked source that a newer version
+    also superseded is reported revoked."""
+    source = ledger.records[claim.source]
+    if source.revoked:
+        return "revoked"
+    return "replaced" if source.superseded_by is not None else "live"
+
+
+def lapsed(report: Report, claim: claims.Claim) -> bool:
+    """Whether the checkpoint's time is past the claim's until."""
+    return claim.until is not None and report.checkpoint.timestamp > claim.until
+
+
+def claim_json(report: Report, claim: claims.Claim) -> dict:
+    """What a report states of a claim (section 11, v0.14): its condition, as
+    terms and in words, whether it holds, the subject, as_of and until, whether
+    it has lapsed, the access request it answers, and its source's id, type,
+    and status. Nothing of the source's fields."""
+    return {"source": claim.source.hex(), "source_type": report.ledger.records[claim.source].type,
+            "source_status": source_status(report.ledger, claim),
+            "condition": [[t.field, t.op, t.type, json_value(t.value)] for t in claim.condition],
+            "text": claims.words(claim.condition), "holds": claim.holds, "as_of": iso_time(claim.as_of),
+            "until": iso_time(claim.until), "lapsed": lapsed(report, claim), "subject": claim.subject,
+            "for": [x.hex() for x in claim.for_] if claim.for_ is not None else None}
+
+
 def _subject_json(report: Report) -> dict:
     """The record; an instance is shown as a record without a type, its
     status as its state."""
@@ -192,11 +220,12 @@ def _subject_json(report: Report) -> dict:
     if record is None:
         instance = report.instance
         return {"id": instance.id.hex(), "type": "", "state": instance.status or "", "revoked": False,
-                "metadata": None, "supersedes": None, "superseded_by": None}
+                "metadata": None, "supersedes": None, "superseded_by": None, "claim": None}
     return {"id": record.id.hex(), "type": record.type, "state": record.state, "revoked": record.revoked,
             "metadata": json_value(record.metadata) if record.metadata is not None else None,
             "supersedes": record.supersedes.hex() if record.supersedes else None,
-            "superseded_by": record.superseded_by.hex() if record.superseded_by else None}
+            "superseded_by": record.superseded_by.hex() if record.superseded_by else None,
+            "claim": claim_json(report, record.claim) if record.claim is not None else None}
 
 
 def _event_json(report: Report, applied: rules.Applied) -> dict:
@@ -252,6 +281,25 @@ def to_json(report: Report) -> dict:
     }
 
 
+def _claim_text(report: Report, claim: claims.Claim) -> list:
+    source = report.ledger.records[claim.source]
+    status = source_status(report.ledger, claim)
+    lines = [f"  Claim        {claims.words(claim.condition)}",
+             f"               {'HOLDS' if claim.holds else 'DOES NOT HOLD'}, as of {human_time(claim.as_of)} "
+             "(the issuer's word; the source's fields stay sealed)"]
+    if claim.subject is not None:
+        lines.append(f"  About        {claim.subject}")
+    if claim.until is not None:
+        lines.append(f"  Until        {human_time(claim.until)}"
+                     + (" - LAPSED at the checkpoint" if lapsed(report, claim) else ""))
+    if claim.for_ is not None:
+        lines.append(f"  Answers      the access request {claim.for_[1].hex()[:12]} on ledger "
+                     f"{claim.for_[0].hex()[:12]}")
+    words = {"live": "live", "revoked": "REVOKED since", "replaced": "REPLACED by a newer version since"}
+    lines.append(f"  Source       {source.type} (id {source.id.hex()[:12]}), {words[status]}")
+    return lines
+
+
 def to_text(report: Report) -> str:
     ledger, record, checkpoint = report.ledger, report.record, report.checkpoint
     lines = ["CexChain evidence report (independent Python verifier)", ""]
@@ -290,6 +338,8 @@ def to_text(report: Report) -> str:
         if record.superseded_by:
             lines.append(f"  Superseded   by a newer version, id {record.superseded_by.hex()[:12]} "
                          "(verify it to see whether it is the latest)")
+        if record.claim is not None:
+            lines += _claim_text(report, record.claim)
     lines += ["", "  History"]
     for applied in report.events:
         summary, _, _ = _event_text(ledger, record, applied)
@@ -323,5 +373,5 @@ def to_text(report: Report) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["actor_json", "authority_json", "by_whom", "human_time", "iso_time", "presence_json", "provenance_json",
-           "to_json", "to_text", "witnesses_json", "witnesses_text"]
+__all__ = ["actor_json", "authority_json", "by_whom", "claim_json", "human_time", "iso_time", "presence_json",
+           "provenance_json", "source_status", "to_json", "to_text", "witnesses_json", "witnesses_text"]

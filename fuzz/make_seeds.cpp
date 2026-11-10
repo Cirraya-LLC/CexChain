@@ -1252,6 +1252,35 @@ void network_seeds(const Seeds& seeds) {
 
 /// What a time-stamp authority answers, and the certificates a verifier
 /// trusts (timestamp_fuzz: the first byte chooses the reader).
+/// A claim's metadata (spec v0.14): every operator once.
+void claim_seeds(const Seeds& seeds) {
+    using V = cbor::Value;
+    const auto term = [](std::string field, std::string op, std::string type, V value) {
+        return V::array({V::text(std::move(field)), V::text(std::move(op)),
+                         V::text(std::move(type)), std::move(value)});
+    };
+    const auto money = [](std::int64_t amount) {
+        return V::array({V::integer(amount), V::text("HKD"), V::unsigned_integer(2)});
+    };
+    const V claim =
+        V::map({{V::text("source"), V::bytes(Bytes(32, 5))},
+                {V::text("condition"),
+                 V::array({term("salary", ">", "money", money(3000000)),
+                           term("age", ">=", "number", V::integer(18)),
+                           term("score", "<", "number", V::text("9.5")),
+                           term("born", "<=", "date", V::text("2008-11-10")),
+                           term("name", "=", "text", V::text("Chan Tai Man")),
+                           term("team", "!=", "text", V::text("B")),
+                           term("pay", "between", "money", V::array({money(1), money(2)})),
+                           term("grade", "in", "text", V::array({V::text("A"), V::text("B")})),
+                           term("email", "exists", "text", V::null())})},
+                {V::text("holds"), V::boolean(true)},
+                {V::text("as_of"), V::unsigned_integer(1'791'244'800'000)},
+                {V::text("until"), V::unsigned_integer(1'793'836'800'000)},
+                {V::text("subject"), V::text("Chan Tai Man")}});
+    seeds.write("claim_fuzz", "every-operator", must(cbor::encode(claim), "encode"));
+}
+
 /// A published record's file: one disclosed field, then none and untimed
 /// (a request to publish).
 void published_seeds(const Seeds& seeds) {
@@ -1307,6 +1336,7 @@ int main(int argc, char** argv) {
         pending_call_seeds(seeds);
         record_file_seeds(seeds);
         published_seeds(seeds);
+        claim_seeds(seeds);
         form_seeds(seeds);
         calls_seeds(seeds);
         exchange_seeds(seeds);

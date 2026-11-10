@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 """Replaying statements under the ledger rules (spec section 5), with
-records' lifecycles (section 6), proof of presence (section 7), the log key
-in effect (section 8), state histories (section 9), and contracts (section
-15, in contracts.py).
+records' lifecycles and claims (section 6), proof of presence (section 7),
+the log key in effect (section 8), state histories (section 9), and
+contracts (section 15, in contracts.py).
 
 A verifier holds only the statements a bundle includes, so the replayed
 state is partial: rules about objects the bundle does not hold (another
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import contracts, cose, crypto, presence, protocol
+from . import claims, contracts, cose, crypto, presence, protocol
 from .errors import VerifyError
 from .protocol import (ACTOR_REGISTER, ACTOR_REVOKE, ACTOR_ROTATE_KEY, ACTOR_SET_PRESENCE, AGENT,
                        CONTRACT_CALL, CONTRACT_DEPLOY, CONTRACT_RETIRE, DELEGATION_GRANT, DELEGATION_REVOKE,
@@ -37,6 +37,7 @@ MECHANISM_TYPES = {
     "cexchain.access-grant/1": ("granted", set()),
     "cexchain.access-receipt/1": ("received", set()),
     "cexchain.contract-consent/1": ("given", {("given", "withdrawn")}),
+    claims.CLAIM_TYPE: ("confirmed", set()),  # v0.14: withdrawn by revoking it
 }
 
 KIND_NAMES = {ORGANIZATION: "organization", PERSON: "person", AGENT: "agent", protocol.DEVICE: "device"}
@@ -81,6 +82,7 @@ class Record:
     superseded_by: bytes | None = None
     endorsements: set = field(default_factory=set)
     history: list = field(default_factory=list)
+    claim: claims.Claim | None = None  # a cexchain.claim/1 record's metadata (v0.14)
 
 
 @dataclass
@@ -492,15 +494,38 @@ class Ledger(contracts.ContractRules):
                     fail("a record of a mechanism type is not superseded")
                 if old.superseded_by is not None:
                     fail("the record was superseded already")
+        claim = self._check_claim(applied, f) if kind == claims.CLAIM_TYPE else None
         initial = MECHANISM_TYPES[kind][0] if kind in MECHANISM_TYPES else GENERIC_INITIAL
         self.records[applied.id] = Record(
             id=applied.id, type=kind, field_root=f["field_root"], field_count=f["field_count"],
             attachments=f["attachments"], metadata=f["metadata"], supersedes=f["supersedes"],
-            registrant=signer.id, state=initial, history=[applied.index])
+            registrant=signer.id, state=initial, history=[applied.index], claim=claim)
         if old is not None:
             # The registration is a statement about both records (section 9).
             old.superseded_by = applied.id
             old.history.append(applied.index)
+
+    def _check_claim(self, applied: Applied, f: dict) -> claims.Claim:
+        """Section 6, claims (v0.14): the metadata's shape and keys; as_of no
+        later than the registration; the source a record of this ledger, of
+        a generic type, neither revoked nor superseded now. The registration
+        is a statement about the claim only: the source's history does not
+        change. A verifier holds only the records a bundle includes, and a
+        claim's bundle includes its source (section 11), so a source the
+        bundle does not hold cannot be shown to be one."""
+        claim = claims.parse(f["metadata"])
+        if claim.as_of > applied.registered_at:
+            fail("a claim's as_of is later than its registration")
+        source = self.records.get(claim.source)
+        if source is None:
+            fail("a claim's source is not a record the bundle holds")
+        if source.type in MECHANISM_TYPES:
+            fail("a claim's source is a record of a mechanism type")
+        if source.revoked:
+            fail("a claim's source is revoked")
+        if source.superseded_by is not None:
+            fail("a claim's source is superseded")
+        return claim
 
     def _record_endorse(self, applied: Applied, signer: Actor, chain):
         f = applied.statement.fields

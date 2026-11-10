@@ -23,6 +23,7 @@
 
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/merkle.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -301,9 +302,9 @@ TEST_CASE("v0.9 generic core: replay, and the lifecycles' refusals in place",
 
 TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
           "[protocol][vectors][v09]") {
-    // The removed types are no longer built in; only the four mechanism
-    // types are, and only types under the prefix that are not one of them
-    // are reserved.
+    // The removed types are no longer built in; only the mechanism types
+    // are (v0.9's four, and v0.14's claim), and only types under the prefix
+    // that are not one of them are reserved.
     for (const auto& removed : vectors()["removed_types"]) {
         INFO(text(removed));
         CHECK(protocol::find_record_type(text(removed)) == nullptr);
@@ -311,7 +312,8 @@ TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
     }
     // Each mechanism type with its lifecycle, as the independent encoder
     // states it; none takes endorsements.
-    REQUIRE(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size());
+    REQUIRE(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size() + 1);
+    CHECK(protocol::builtin_record_types().back().name == protocol::claim_type);
     for (const auto& mechanism : vectors()["mechanism_types"]) {
         const std::string name = text(mechanism["type"]);
         INFO(name);

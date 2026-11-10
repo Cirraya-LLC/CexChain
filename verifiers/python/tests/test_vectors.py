@@ -18,8 +18,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
-from cexchain_verify import cbor, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
-from cexchain_verify import timestamps, evidence  # noqa: E402
+from cexchain_verify import cbor, claims, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
+from cexchain_verify import timestamps, evidence, report  # noqa: E402
 from cexchain_verify.errors import VerifyError  # noqa: E402
 
 import vector_bundles  # noqa: E402
@@ -288,6 +288,63 @@ class GenericCoreAndVersions(unittest.TestCase):
 
     def test_v10(self):
         self.check("protocol-v0.10.json")
+
+
+class Claims(unittest.TestCase):
+    """v0.14: claim metadata, valid with its words and refused; a whole log
+    with claims replays, every refused statement is refused, and each
+    claim's report facts are the vectors'."""
+
+    def test_metadata(self):
+        d = load("protocol-v0.14.json")["claim_metadata"]
+        for case in d["valid"]:
+            with self.subTest(case["name"]):
+                metadata = cbor.decode(hx(case["metadata"]))
+                claim = claims.parse(metadata)
+                self.assertEqual(claims.words(claim.condition), case["text"])
+                self.assertEqual([[t.field, t.op, t.type, t.value] for t in claim.condition], case["condition"])
+                self.assertEqual(cbor.encode(metadata).hex(), case["metadata"])
+        for case in d["refused"]:
+            with self.subTest(case["name"]), self.assertRaises(VerifyError):
+                claims.parse(cbor.decode(hx(case["metadata"])))
+
+    def test_log(self):
+        for lg in load("protocol-v0.14.json")["ledgers"]:
+            ledger = replay(lg)
+            h = ledger.h
+            leaves = sorted([ledger.leaf(i) for i in list(ledger.actors) + list(ledger.delegations)
+                             + list(ledger.records)], key=lambda leaf: leaf[1])
+            expected = [[x["kind"], hx(x["id"]), x["history"]] for x in lg["state_leaves"]]
+            self.assertEqual(leaves, expected)
+            self.assertEqual(statetree.root_of(h, leaves).hex(), lg["state_root"])
+            self.assertEqual(ledger.commitments[lg["state_commitment"]["index"]].root.hex(), lg["state_root"])
+            checkpoint = protocol.parse_tree_head(hx(lg["checkpoint"]), cose.CHECKPOINT_TYPE, "a checkpoint")
+            self.assertEqual(checkpoint.timestamp, lg["checkpoint_time"])
+            for r in lg["records"]:
+                record = ledger.records[hx(r["id"])]
+                self.assertEqual((record.type, record.state, record.revoked, record.history),
+                                 (r["type"], r["state"], r["revoked"], r["history"]))
+                if r["claim"] is None:
+                    self.assertIsNone(record.claim)
+                    continue
+                c, want = record.claim, r["claim"]
+                self.assertEqual(c.source.hex(), want["source"])
+                self.assertEqual(ledger.records[c.source].type, want["source_type"])
+                self.assertEqual(report.source_status(ledger, c), want["source_status"])
+                self.assertEqual(claims.words(c.condition), want["text"])
+                self.assertEqual((c.holds, c.as_of, c.until, c.subject), (want["holds"], want["as_of"],
+                                                                         want["until"], want["subject"]))
+                self.assertEqual([x.hex() for x in c.for_] if c.for_ else None, want["for"])
+                self.assertEqual(c.until is not None and lg["checkpoint_time"] > c.until, want["lapsed"])
+            self.assertEqual(sorted(r["id"] for r in lg["records"] if r["claim"]), sorted(lg["claims"]))
+            for refused in lg["refused"]:
+                with self.subTest(refused["name"]), self.assertRaises(VerifyError):
+                    state = replay(lg, refused["after"])
+                    signed = hx(refused["encoded"])
+                    s = protocol.parse_statement(signed)
+                    entry = protocol.LogEntry(encoded=b"", id=h(s.sign1.to_be_signed()), registered_at=refused["at"],
+                                              statement=signed, commitment=None)
+                    state.apply(entry, refused["after"])
 
 
 class TimeStampTokens(unittest.TestCase):

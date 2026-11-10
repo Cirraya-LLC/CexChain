@@ -11,11 +11,13 @@ It verifies an evidence bundle (spec section 11), a record's or an instance's, e
 
 - deterministic CBOR and COSE_Sign1;
 - the log, its receipts and checkpoints, under the log key in effect at each size;
-- a replay of the ledger rules: actors, delegations, key rotations, revocations, versions, and
-  contracts (below);
+- a replay of the ledger rules: actors, delegations, key rotations, revocations, versions,
+  claims, and contracts (below);
 - proof of presence, by passkey or hardware key;
 - disclosed fields and attachments;
-- completeness against the state commitment;
+- completeness against the state commitment, a claim's source included;
+- claims: the condition in words, whether it holds, as of when and until when, whether it has
+  lapsed, and whether its source is live, revoked, or replaced (`cexchain_verify/claims.py`);
 - witness cosignatures;
 - RFC 3161 time-stamp tokens and the clock rule;
 - open witness networks (C2SP): their witnesses' cosignatures of a SHA-256 ledger's checkpoint
@@ -140,7 +142,9 @@ both verifiers, each with the options to verify it with, the verdict the specifi
 failure names the section and step that decide it), and facts its JSON report must show.
 `tests/test_conformance.py` runs this verifier's command line on every case.
 
-The verifier's own unit tests run against `testvectors/`: `tests/test_vectors.py` for records,
+The verifier's own unit tests run against `testvectors/`: `tests/test_vectors.py` for records
+and claims (`protocol-v0.14.json`: claim metadata with its words, and refused, and a log with
+claims, every refused statement, and what a report states of each claim),
 `tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
 the note key's signed note, verifier keys, every cosignature's verdict and time, the anchor, in
 bundles too, and signed-note's own example), and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and

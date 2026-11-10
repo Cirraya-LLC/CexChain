@@ -13,6 +13,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
@@ -407,6 +408,20 @@ struct EvidenceReport {
     /// `events`).
     std::optional<Id> supersedes;
     std::optional<Id> superseded_by;
+    /// A claim (v0.14): its terms in words, and its source as the bundle
+    /// proves it (none of the source's fields).
+    struct ClaimReport {
+        Claim claim;
+        std::string text;
+        std::string source_type;
+        /// "live", "revoked", or "replaced".
+        std::string source_status;
+        /// The checkpoint's time is past the claim's `until`.
+        bool lapsed = false;
+
+        friend bool operator==(const ClaimReport&, const ClaimReport&) = default;
+    };
+    std::optional<ClaimReport> claim;
     /// If the bundle is about a contract instance.
     std::optional<InstanceReport> instance;
     /// The record's events, or the instance's calls (for a child, its
@@ -425,11 +440,13 @@ struct EvidenceReport {
 };
 
 /// The objects whose complete history a bundle about `record` must prove:
-/// the record (or instance, and then its contract), and for each of its
-/// events (`events`, the statements in its history; for a child instance,
-/// its ancestors' calls first, see `instance_events`) the signer, an agent
-/// signer's accountable person, and every delegation in the chain with its
-/// grantor. In first-seen order. Never an instance's ancestors (v0.7).
+/// the record (or instance, and then its contract), a claim's source
+/// (v0.14), and for each of its events (`events`, the statements in its
+/// history; for a child instance, its ancestors' calls first, see
+/// `instance_events`; for a claim, its source's after its own) the signer,
+/// an agent signer's accountable person, and every delegation in the chain
+/// with its grantor. In first-seen order. Never an instance's ancestors
+/// (v0.7).
 [[nodiscard]] std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
                                                std::span<const Statement> events);
 

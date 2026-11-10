@@ -2973,13 +2973,19 @@ def generate_protocol_v08() -> None:
 
 # Statement types v0.9 defines; 20 (asset-action, v0.5) is reserved.
 STATEMENT_TYPES_V09 = (1, 2, 3, 4, 5, 6, 7, 8, 16, 17, 18, 19, 21, 22, 23)
+# A claim (v0.14, section 6): a condition on another record's fields.
+CLAIM = "cexchain.claim/1"
 # The mechanism types: initial state and transitions. None defines a role.
+# Revisions v0.9 to v0.13 define the first four, and their vectors keep to
+# them (MECHANISM_TYPES_V09); v0.14 adds claims.
 MECHANISM_TYPES = {
     "cexchain.access-request/1": ("requested", {("requested", "withdrawn")}),
     "cexchain.access-grant/1": ("granted", set()),
     "cexchain.access-receipt/1": ("received", set()),
     CONTRACT_CONSENT: ("given", {("given", "withdrawn")}),
+    CLAIM: ("confirmed", set()),
 }
+MECHANISM_TYPES_V09 = {kind: lifecycle for kind, lifecycle in MECHANISM_TYPES.items() if kind != CLAIM}
 RESERVED_PREFIX = "cexchain."
 # The types earlier revisions built in, which v0.9 removed.
 REMOVED_TYPES = ("cexchain.certificate/1", "cexchain.delivery/1", "cexchain.agreement/1",
@@ -3024,7 +3030,7 @@ def generate_protocol_v09() -> None:
             body, fails = p[7], []
             if p[1] == 16:
                 kind = body[1]
-                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES:
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES_V09:
                     fails.append("reserved type")
                 return fails
             if p[1] not in (17, 18, 19):
@@ -3034,7 +3040,7 @@ def generate_protocol_v09() -> None:
                 return ["no such record"]
             if record["revoked"]:
                 fails.append("revoked")
-            mechanism = MECHANISM_TYPES.get(record["type"])
+            mechanism = MECHANISM_TYPES_V09.get(record["type"])
             if p[1] == 17:
                 if mechanism is not None:
                     fails.append("role")
@@ -3065,7 +3071,7 @@ def generate_protocol_v09() -> None:
             elif p[1] == 5:
                 delegations[statement_id] = [index]
             elif p[1] == 16:
-                initial = MECHANISM_TYPES[body[1]][0] if body[1] in MECHANISM_TYPES else "registered"
+                initial = MECHANISM_TYPES_V09[body[1]][0] if body[1] in MECHANISM_TYPES_V09 else "registered"
                 records[statement_id] = {"type": body[1], "state": initial, "revoked": False, "endorsements": [],
                                          "history": [index], "registrant": p[3]}
             elif p[1] in (17, 18, 19):
@@ -3241,7 +3247,7 @@ def generate_protocol_v09() -> None:
         "t0": t0,
         "statement_types": list(STATEMENT_TYPES_V09),
         "mechanism_types": [{"type": kind, "initial": initial, "transitions": sorted([list(t) for t in transitions])}
-                            for kind, (initial, transitions) in MECHANISM_TYPES.items()],
+                            for kind, (initial, transitions) in MECHANISM_TYPES_V09.items()],
         "generic_lifecycle": {"initial": "registered", "transitions": [], "roles": "any"},
         "reserved_prefix": RESERVED_PREFIX,
         "removed_types": list(REMOVED_TYPES),
@@ -3301,16 +3307,16 @@ def generate_protocol_v10() -> None:
             body, fails = p[7], []
             if p[1] == 16:
                 kind = body[1]
-                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES:
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES_V09:
                     fails.append("reserved type")
                 if 6 in body:
-                    if kind in MECHANISM_TYPES:
+                    if kind in MECHANISM_TYPES_V09:
                         fails.append("mechanism")
                     old = records.get(body[6])
                     if old is None:
                         fails.append("no such record")
                     else:
-                        if old["type"] in MECHANISM_TYPES:
+                        if old["type"] in MECHANISM_TYPES_V09:
                             fails.append("mechanism")
                         if old["superseded_by"] is not None:
                             fails.append("superseded")
@@ -3345,7 +3351,7 @@ def generate_protocol_v10() -> None:
                 delegations[statement_id] = [index]
                 scopes[statement_id] = body[2]
             elif p[1] == 16:
-                initial = MECHANISM_TYPES[body[1]][0] if body[1] in MECHANISM_TYPES else "registered"
+                initial = MECHANISM_TYPES_V09[body[1]][0] if body[1] in MECHANISM_TYPES_V09 else "registered"
                 records[statement_id] = {"type": body[1], "state": initial, "revoked": False, "endorsements": [],
                                          "history": [index], "registrant": p[3], "supersedes": body.get(6),
                                          "superseded_by": None}
@@ -3684,6 +3690,674 @@ def generate_protocol_v13() -> None:
     }
     (OUT / "protocol-v0.13.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")
     print(f"wrote {len(cases)} network cosignatures to testvectors/protocol-v0.13.json")
+
+
+# ---------------------------------------------------------------------------
+# Protocol v0.14: claims (spec sections 5, 6, and 11): a cexchain.claim/1
+# record says that, in another record of the ledger (its source), a condition
+# on fields holds or does not, without disclosing them
+# ---------------------------------------------------------------------------
+
+CLAIM_REQUIRED = ("source", "condition", "holds", "as_of")
+CLAIM_OPTIONAL = ("until", "subject", "for")
+CLAIM_ORDERED = (">", ">=", "<", "<=")
+CLAIM_OPS = CLAIM_ORDERED + ("=", "!=", "between", "in", "exists")
+CLAIM_VALUE_TYPES = ("number", "money", "date", "text")
+# The operators' English words (section 11, "A claim in words"); between,
+# in, and exists have words of their own.
+CLAIM_WORDS = {">": "is above", ">=": "is at least", "<": "is below", "<=": "is at most", "=": "is",
+               "!=": "is not"}
+CLAIM_DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+CLAIM_CURRENCY = re.compile(r"[A-Z]{3}")
+CLAIM_DATE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})")
+EMPLOYMENT = "example.org.employment/1"
+
+
+def _cbor_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and -2**64 <= v < 2**64
+
+
+def claim_value_ok(kind: str, v) -> bool:
+    """One value of a claim term's type (section 6)."""
+    if kind == "number":
+        return _cbor_int(v) or (isinstance(v, str) and len(v) <= 40 and CLAIM_DECIMAL.fullmatch(v) is not None)
+    if kind == "money":
+        return (isinstance(v, list) and len(v) == 3 and _cbor_int(v[0]) and isinstance(v[1], str)
+                and CLAIM_CURRENCY.fullmatch(v[1]) is not None and _cbor_int(v[2]) and 0 <= v[2] <= 4)
+    if kind == "date":
+        match = CLAIM_DATE.fullmatch(v) if isinstance(v, str) else None
+        if match is None:
+            return False
+        year, month, day = (int(x) for x in match.groups())
+        leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+        return 1 <= month <= 12 and 1 <= day <= (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30,
+                                                  31)[month - 1]
+    return isinstance(v, str) and 1 <= len(v.encode()) <= 256
+
+
+def claim_magnitude(kind: str, v):
+    """What a value of the type is, to order and compare: a number exactly,
+    money with its currency, a date as its text (YYYY-MM-DD orders so)."""
+    import fractions
+    if kind == "number":
+        return fractions.Fraction(v)
+    if kind == "money":
+        return v[1], fractions.Fraction(v[0], 10 ** v[2])
+    return v
+
+
+def claim_term_problem(term) -> str | None:
+    if not (isinstance(term, list) and len(term) == 4):
+        return "term"
+    field, op, kind, value = term
+    if not (isinstance(field, str) and 1 <= len(field.encode()) <= 64):
+        return "field"
+    if not (isinstance(op, str) and op in CLAIM_OPS):
+        return "operator"
+    if not (isinstance(kind, str) and kind in CLAIM_VALUE_TYPES):
+        return "type"
+    # The order operators take numbers, money, and dates; exists takes text.
+    if (op in CLAIM_ORDERED + ("between",) and kind == "text") or (op == "exists" and kind != "text"):
+        return "operator and type"
+    if op == "exists":
+        return None if value is None else "value"
+    if op == "between":
+        if not (isinstance(value, list) and len(value) == 2):
+            return "value"
+        values = value
+    elif op == "in":
+        if not (isinstance(value, list) and 1 <= len(value) <= 64):
+            return "value"
+        values = value
+    else:
+        if value is None:
+            return "value"
+        values = [value]
+    if not all(claim_value_ok(kind, v) for v in values):
+        return kind
+    if op == "between":
+        low, high = (claim_magnitude(kind, v) for v in values)
+        if kind == "money" and low[0] != high[0]:
+            return "order"
+        if low > high:
+            return "order"
+    if op == "in":
+        magnitudes = [claim_magnitude(kind, v) for v in values]
+        if len(set(magnitudes)) != len(magnitudes):
+            return "distinct"
+    return None
+
+
+def claim_problem(metadata) -> str | None:
+    """Why a claim's metadata (record key 5) is not a `claim` of the CDDL with
+    the prose's limits (section 6), or None. The ledger refuses other keys."""
+    if not isinstance(metadata, dict):
+        return "no metadata"
+    keys = set(metadata)
+    if keys - set(CLAIM_REQUIRED) - set(CLAIM_OPTIONAL):
+        return "unknown key"
+    if set(CLAIM_REQUIRED) - keys:
+        return "missing key"
+    m = metadata
+    if not (isinstance(m["source"], bytes) and len(m["source"]) == 32):
+        return "source"
+    if not (isinstance(m["condition"], list) and 1 <= len(m["condition"]) <= 16):
+        return "condition"
+    for term in m["condition"]:
+        problem = claim_term_problem(term)
+        if problem is not None:
+            return problem
+    if not isinstance(m["holds"], bool):
+        return "holds"
+    if not (_cbor_int(m["as_of"]) and m["as_of"] >= 0):
+        return "as_of"
+    if "until" in m and not (_cbor_int(m["until"]) and m["until"] > m["as_of"]):
+        return "until"
+    if "subject" in m and not (isinstance(m["subject"], str) and 1 <= len(m["subject"].encode()) <= 256):
+        return "subject"
+    if "for" in m and not (isinstance(m["for"], list) and len(m["for"]) == 2
+                           and all(isinstance(x, bytes) and len(x) == 32 for x in m["for"])):
+        return "for"
+    return None
+
+
+def claim_value_words(kind: str, v) -> str:
+    """A value as a report writes it (section 11, "A claim in words")."""
+    if kind == "number":
+        return str(v)  # an integer in decimal digits, a decimal text as is
+    if kind == "money":
+        amount, currency, scale = v
+        whole, part = divmod(abs(amount), 10 ** scale)
+        words = f"{currency} {'-' if amount < 0 else ''}{whole:,}"
+        return words + (f".{part:0{scale}d}" if scale else "")
+    if kind == "date":
+        return v
+    return f'"{v}"'
+
+
+def claim_words(condition: list) -> str:
+    """A claim's condition as one line of English (section 11)."""
+    terms = []
+    for field, op, kind, value in condition:
+        if op == "exists":
+            terms.append(f"{field} is given")
+        elif op == "between":
+            terms.append(f"{field} is between {claim_value_words(kind, value[0])} and "
+                         f"{claim_value_words(kind, value[1])}")
+        elif op == "in":
+            terms.append(f"{field} is one of " + ", ".join(claim_value_words(kind, v) for v in value))
+        else:
+            terms.append(f"{field} {CLAIM_WORDS[op]} {claim_value_words(kind, value)}")
+    return " and ".join(terms)
+
+
+SPEC_CLAIM_EXAMPLE = [["monthly_salary", ">", "money", [3000000, "HKD", 2]],
+                      ["status", "in", "text", ["staff", "contractor"]]]
+SPEC_CLAIM_WORDS = 'monthly_salary is above HKD 30,000.00 and status is one of "staff", "contractor"'
+
+
+def claim_metadata_cases(t0: int) -> tuple[list, list]:
+    """Claim metadata on its own: (valid cases, refused cases)."""
+    source = hashlib.sha256(b"CexChain claim source").digest()
+    request = [hashlib.sha256(b"Peer ledger").digest(), hashlib.sha256(b"an access request").digest()]
+    day = 86_400_000
+
+    def meta(condition, **extra):
+        out = {"source": source, "condition": condition, "holds": True, "as_of": t0}
+        out.update(extra)
+        return out
+
+    valid, refused = [], []
+
+    def ok(name, metadata, words=None):
+        assert claim_problem(metadata) is None, (name, claim_problem(metadata))
+        text = claim_words(metadata["condition"])
+        assert words is None or text == words, (name, text, words)
+        valid.append({"name": name, "metadata": dcbor(metadata).hex(), "condition": metadata["condition"],
+                      "text": text})
+
+    def bad(name, metadata, why):
+        assert claim_problem(metadata) == why, (name, claim_problem(metadata), why)
+        refused.append({"name": name, "metadata": dcbor(metadata).hex(), "why": why})
+
+    ok("the specification's example, with until and subject",
+       meta(SPEC_CLAIM_EXAMPLE, until=t0 + 30 * day, subject="Chan Tai Man"), SPEC_CLAIM_WORDS)
+    ok("each order operator on numbers, integers and decimal texts",
+       meta([["age", ">=", "number", 18], ["score", "<", "number", "99.5"], ["balance", "<=", "number", -250],
+             ["rate", ">", "number", "-0.75"], ["code", "<", "number", "007.50"]]),
+       "age is at least 18 and score is below 99.5 and balance is at most -250 and rate is above -0.75 and "
+       "code is below 007.50")
+    ok("equality on every type",
+       meta([["grade", "=", "text", "A"], ["band", "!=", "number", 3], ["deposit", "=", "money", [0, "USD", 2]],
+             ["joined", "!=", "date", "2024-02-29"]]),
+       'grade is "A" and band is not 3 and deposit is USD 0.00 and joined is not 2024-02-29')
+    ok("between, both bounds included, of numbers, dates, and money",
+       meta([["floor", "between", "number", [5, 5]], ["height", "between", "number", [1, "1.5"]],
+             ["start", "between", "date", ["2000-02-29", "2026-12-31"]],
+             ["salary", "between", "money", [[2000000, "HKD", 2], [4000000, "HKD", 2]]]]),
+       "floor is between 5 and 5 and height is between 1 and 1.5 and start is between 2000-02-29 and 2026-12-31 "
+       "and salary is between HKD 20,000.00 and HKD 40,000.00")
+    ok("in, of every type",
+       meta([["status", "in", "text", ["staff"]], ["level", "in", "number", [1, 2, "3.5"]],
+             ["fee", "in", "money", [[100, "EUR", 0], [250, "EUR", 0]]],
+             ["review", "in", "date", ["2026-03-31", "2026-09-30"]]]),
+       'status is one of "staff" and level is one of 1, 2, 3.5 and fee is one of EUR 100, EUR 250 and review is '
+       'one of 2026-03-31, 2026-09-30')
+    ok("exists, a claim that does not hold, answering an access request",
+       meta([["licence_number", "exists", "text", None]], holds=False, **{"for": request}),
+       "licence_number is given")
+    ok("money: groups of three, signs, and scales 0 to 4",
+       meta([["a", ">", "money", [123456789012, "JPY", 0]], ["b", "<", "money", [-5, "USD", 2]],
+             ["c", ">=", "money", [5, "CHF", 4]], ["d", "<=", "money", [-100000, "GBP", 0]],
+             ["e", "=", "money", [1000, "HKD", 3]], ["f", "!=", "money", [-123456, "CNY", 1]],
+             ["g", ">", "money", [999, "SGD", 0]]]),
+       "a is above JPY 123,456,789,012 and b is below USD -0.05 and c is at least CHF 0.0005 and d is at most "
+       "GBP -100,000 and e is HKD 1.000 and f is not CNY -12,345.6 and g is above SGD 999")
+    ok("the largest and smallest integers",
+       meta([["n", "<=", "number", 2**64 - 1], ["m", ">=", "number", -2**64],
+             ["big", "<", "money", [2**64 - 1, "HKD", 2]]]),
+       "n is at most 18446744073709551615 and m is at least -18446744073709551616 and big is below "
+       "HKD 184,467,440,737,095,516.15")
+    ok("text as it is, between double quotes, and names in any script",
+       meta([["name", "=", "text", 'Chan "Tai Man"'], ["名字", "!=", "text", "陳大文"]],
+            subject="陳大文 (Chan Tai Man)"),
+       'name is "Chan "Tai Man"" and 名字 is not "陳大文"')
+    sixteen = [[f"field_{i:02d}", ">", "number", i] for i in range(16)]
+    ok("sixteen terms", meta(sixteen))
+    limits = [["f" * 64, "=", "text", "t" * 256], ["d", "=", "number", "-" + "9" * 19 + "." + "9" * 19],
+              ["v", "in", "number", list(range(64))]]
+    assert len(limits[1][3]) == 40
+    ok("sizes at their limits: a 64-byte field, a 256-byte text, a 40-character decimal, 64 values in, and a "
+       "256-byte subject", meta(limits, subject="s" * 256))
+    ok("until one millisecond after as_of", meta([["x", "=", "number", 0]], until=t0 + 1))
+
+    base = meta([["x", "=", "number", 1]])
+
+    def but(**changes):
+        out = dict(base)
+        for k, v in changes.items():
+            if v is None:
+                del out[k]
+            else:
+                out[k] = v
+        return out
+
+    def term(t):
+        return but(condition=[t])
+
+    bad("an unknown key", but(note="hello"), "unknown key")
+    bad("a misspelt optional key", but(unti=t0 + day), "unknown key")
+    for key in CLAIM_REQUIRED:
+        bad(f"no {key}", but(**{key: None}), "missing key")
+    bad("a source of 31 bytes", but(source=source[:31]), "source")
+    bad("a source as text", but(source=source.hex()), "source")
+    bad("no terms", but(condition=[]), "condition")
+    bad("seventeen terms", but(condition=sixteen + [["x", "=", "number", 1]]), "condition")
+    bad("a condition that is one term, not a list of terms", but(condition=["x", "=", "number", 1]), "term")
+    bad("a term of three elements", term(["x", "=", "number"]), "term")
+    bad("a term of five elements", term(["x", "=", "number", 1, 2]), "term")
+    bad("an empty field name", term(["", "=", "number", 1]), "field")
+    bad("a field name of 65 bytes", term(["f" * 65, "=", "number", 1]), "field")
+    bad("a field name as bytes", term([b"x", "=", "number", 1]), "field")
+    for op in ("==", "≥", "BETWEEN", "contains", ""):
+        bad(f"the operator {op!r}", term(["x", op, "number", 1]), "operator")
+    for kind in ("percent", "integer", "Text", "string"):
+        bad(f"the type {kind!r}", term(["x", "=", kind, 1]), "type")
+    for op in CLAIM_ORDERED:
+        bad(f"{op} on text", term(["x", op, "text", "b"]), "operator and type")
+    bad("exists on a number", term(["x", "exists", "number", None]), "operator and type")
+    bad("exists on a date", term(["x", "exists", "date", None]), "operator and type")
+    bad("exists with a value", term(["x", "exists", "text", "yes"]), "value")
+    bad("= with null", term(["x", "=", "number", None]), "value")
+    bad("> with null", term(["x", ">", "date", None]), "value")
+    bad("between with one value", term(["x", "between", "number", 5]), "value")
+    bad("between with three values", term(["x", "between", "number", [1, 2, 3]]), "value")
+    bad("in with no values", term(["x", "in", "number", []]), "value")
+    bad("in with 65 values", term(["x", "in", "number", list(range(65))]), "value")
+    bad("in with one value, not a list", term(["x", "in", "text", "staff"]), "value")
+    for v in ("1e5", "1.", ".5", "+1", "1,000", "１", " 1", "1 ", "1.2.3", "-", "", "0x10"):
+        bad(f"the number {v!r}", term(["x", "=", "number", v]), "number")
+    bad("a decimal text of 41 characters", term(["x", "=", "number", "1" * 20 + "." + "1" * 20]), "number")
+    bad("a number that is true", term(["x", "=", "number", True]), "number")
+    bad("a number as bytes", term(["x", "=", "number", b"\x01"]), "number")
+    bad("a number as money", term(["x", "=", "number", [100, "HKD", 2]]), "number")
+    for v, what in (([100, "hkd", 2], "a lower-case currency"), ([100, "HKDD", 2], "a four-letter currency"),
+                    ([100, "HK", 2], "a two-letter currency"), ([100, "HKD", 5], "a scale of 5"),
+                    ([100, "HKD", -1], "a scale of -1"), (["100", "HKD", 2], "an amount as text"),
+                    ([100, "HKD"], "no scale"), ([100, "HKD", 2, 0], "four elements"),
+                    (100, "an integer"), ([100, "ＨＫＤ", 2], "a currency in full-width letters"),
+                    ([True, "HKD", 2], "an amount that is true")):
+        bad(f"money: {what}", term(["x", "=", "money", v]), "money")
+    for v in ("2026-02-30", "2025-02-29", "1900-02-29", "2026-13-01", "2026-00-10", "2026-01-00", "2026-04-31",
+              "2026-1-01", "20260101", "2026-01-01T00:00:00Z", "2026/01/01", "２０２６-01-01"):
+        bad(f"the date {v!r}", term(["x", "=", "date", v]), "date")
+    bad("a date as an integer", term(["x", "=", "date", 20260101]), "date")
+    bad("an empty text", term(["x", "=", "text", ""]), "text")
+    bad("a text of 257 bytes", term(["x", "=", "text", "t" * 257]), "text")
+    bad("a text as bytes", term(["x", "=", "text", b"staff"]), "text")
+    bad("a text that is a number", term(["x", "=", "text", 5]), "text")
+    bad("one of the in values is not text", term(["x", "in", "text", ["staff", 5]]), "text")
+    bad("between numbers, low above high", term(["x", "between", "number", [10, 5]]), "order")
+    bad("between a decimal and an integer, low above high", term(["x", "between", "number", ["1.5", 1]]),
+        "order")
+    bad("between dates, low above high", term(["x", "between", "date", ["2026-12-31", "2026-01-01"]]), "order")
+    bad("between money of one currency, low above high (4.00 and 3)",
+        term(["x", "between", "money", [[400, "HKD", 2], [3, "HKD", 0]]]), "order")
+    bad("in with a text twice", term(["x", "in", "text", ["staff", "contractor", "staff"]]), "distinct")
+    bad("in with a date twice", term(["x", "in", "date", ["2026-01-01", "2026-01-01"]]), "distinct")
+    bad("in with an integer twice", term(["x", "in", "number", [1, 2, 1]]), "distinct")
+    bad("holds as an integer", but(holds=1), "holds")
+    bad("holds as text", but(holds="true"), "holds")
+    bad("a negative as_of", but(as_of=-1), "as_of")
+    bad("as_of as text", but(as_of="2026-11-10"), "as_of")
+    bad("until equal to as_of", but(until=t0), "until")
+    bad("until before as_of", but(until=t0 - 1), "until")
+    bad("until as text", but(until="2026-12-10"), "until")
+    bad("an empty subject", but(subject=""), "subject")
+    bad("a subject of 257 bytes", but(subject="s" * 257), "subject")
+    bad("a subject as bytes", but(subject=b"Chan"), "subject")
+    bad("for with one id", but(**{"for": request[:1]}), "for")
+    bad("for with three ids", but(**{"for": request + [source]}), "for")
+    bad("for with an id of 16 bytes", but(**{"for": [request[0], request[1][:16]]}), "for")
+    bad("for as a map", but(**{"for": {"ledger": request[0], "record": request[1]}}), "for")
+    return valid, refused
+
+
+def generate_protocol_v14() -> None:
+    names = ("org_root", "log", "clerk")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    t0 = 1_794_268_800_000  # 2026-11-10T00:00:00Z
+    minute, second, day = 60_000, 1_000, 86_400_000
+    peer = hashlib.sha256(b"Peer ledger").digest()
+    valid_metadata, refused_metadata = claim_metadata_cases(t0)
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements, refused = [], []
+        actors, delegations, records = {}, {}, {}
+        clock = [t0 + 1000]
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 5: clock[0] - 500, 6: n.to_bytes(16, "big"), 7: body}
+            if signer_actor is not None:  # absent only in genesis
+                out[2] = ledger_id
+                out[3] = signer_actor
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def rules(p):
+            """Every rule of section 5 that refuses these record statements:
+            the generic lifecycle's, the mechanism types', the version rules
+            of v0.10, and the claim rules of v0.14 (section 6). The signers
+            are always authorized."""
+            body, fails = p[7], []
+            if p[1] == 16:
+                kind = body[1]
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES:
+                    fails.append("reserved type")
+                if 6 in body:
+                    if kind in MECHANISM_TYPES:
+                        fails.append("mechanism")
+                    old = records.get(body[6])
+                    if old is None:
+                        fails.append("no such record")
+                    else:
+                        if old["type"] in MECHANISM_TYPES:
+                            fails.append("mechanism")
+                        if old["superseded_by"] is not None:
+                            fails.append("superseded")
+                if kind == CLAIM:
+                    problem = claim_problem(body.get(5))
+                    if problem is not None:
+                        fails.append(problem)
+                    else:
+                        claim = body[5]
+                        if claim["as_of"] > clock[0]:
+                            fails.append("as_of after registration")
+                        source = records.get(claim["source"])
+                        if source is None:
+                            fails.append("no such source")
+                        else:
+                            if source["type"] in MECHANISM_TYPES:
+                                fails.append("source of a mechanism type")
+                            if source["revoked"]:
+                                fails.append("source revoked")
+                            if source["superseded_by"] is not None:
+                                fails.append("source superseded")
+                return fails
+            if p[1] not in (17, 18, 19):
+                return fails
+            record = records.get(body[1])
+            if record is None:
+                return ["no such record"]
+            if record["revoked"]:
+                fails.append("revoked")
+            mechanism = MECHANISM_TYPES.get(record["type"])
+            if p[1] == 17:
+                if mechanism is not None:
+                    fails.append("role")
+                if any(actor == p[3] and role == body[2] for actor, role, _ in record["endorsements"]):
+                    fails.append("repeated")
+            elif p[1] == 18:
+                if record["state"] != body[2]:
+                    fails.append("state")
+                if mechanism is None or (body[2], body[3]) not in mechanism[1]:
+                    fails.append("transition")
+            return fails
+
+        def add(name, signer, p):
+            """Registers the statement now, under the rules; the clock then
+            moves a minute on."""
+            assert rules(p) == [], (name, rules(p))
+            if p[1] == 5:  # the CDDL's scope: statement and record types strictly ascending
+                scope = p[7][2]
+                assert scope[1] == sorted(set(scope[1])) and scope.get(2, []) == sorted(set(scope.get(2, [])),
+                                                                                        key=str.encode), scope
+            encoded, statement_id = lg.statement(keys[signer], p)
+            index = len(statements)
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                               "statement_id": statement_id.hex(), "registered_at": clock[0]})
+            clock[0] += minute
+            body = p[7]
+            if p[1] in (1, 2):
+                actors[statement_id] = [index]
+            elif p[1] == 5:
+                delegations[statement_id] = [index]
+            elif p[1] == 16:
+                kind = body[1]
+                initial = MECHANISM_TYPES[kind][0] if kind in MECHANISM_TYPES else "registered"
+                records[statement_id] = {"type": kind, "state": initial, "revoked": False, "endorsements": [],
+                                         "history": [index], "registrant": p[3], "supersedes": body.get(6),
+                                         "superseded_by": None, "claim": body[5] if kind == CLAIM else None}
+                if 6 in body:
+                    # A statement about both records (v0.10). A claim's
+                    # registration is about the claim only.
+                    old = records[body[6]]
+                    old["superseded_by"] = statement_id
+                    old["history"].append(index)
+            elif p[1] in (17, 18, 19):
+                record = records[body[1]]
+                record["history"].append(index)
+                if p[1] == 17:
+                    record["endorsements"].append((p[3], body[2], index))
+                elif p[1] == 18:
+                    record["state"] = body[3]
+                else:
+                    record["revoked"] = True
+            return statement_id
+
+        def refuse(name, signer, p, why):
+            """The rules refuse it after the statements so far, at `at`, for
+            the one rule `why` names. (Every refused statement here parses:
+            a claim's metadata is checked by the ledger rules.)"""
+            assert rules(p) == [why], (name, rules(p))
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "at": clock[0], "why": why})
+
+        def fields(*values):
+            leaves = [dcbor([name, bytes([0xD0 + i]) * 16, value])
+                      for i, (name, value) in enumerate(sorted(values, key=lambda f: f[0].encode()))]
+            return lg.merkle().mth(leaves), len(leaves)
+
+        def employee(signer_actor, delegation, name, salary, status, supersedes=None):
+            root, count = fields(("name", name), ("monthly_salary", salary), ("status", status),
+                                 ("start_date", "2024-03-01"))
+            body = {1: EMPLOYMENT, 2: root, 3: count, 5: {"department": "Accounts"}}
+            if supersedes is not None:
+                body[6] = supersedes
+            return payload(signer_actor, 16, body, delegation)
+
+        def claim(signer_actor, delegation, metadata, supersedes=None):
+            root, count = fields(("basis", "the payroll of 2026-10"),)
+            body = {1: CLAIM, 2: root, 3: count}
+            if metadata is not None:
+                body[5] = metadata
+            if supersedes is not None:
+                body[6] = supersedes
+            return payload(signer_actor, 16, body, delegation)
+
+        def condition_on(source, condition, **extra):
+            """A claim's metadata, evaluated half a minute before now."""
+            out = {"source": source, "condition": condition, "holds": True, "as_of": clock[0] - 30 * second}
+            out.update(extra)
+            return out
+
+        ledger_id = None
+        ledger_id = add("genesis", "org_root", payload(None, 1, {
+            1: hash_id, 2: "Example Employer", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}))
+        org = ledger_id
+        clerk = add("register the clerk", "org_root", payload(org, 2, {
+            1: 1, 2: "HR Clerk", 3: ed_public(keys["clerk"])}))
+        clerks = add("delegate employment records and claims to the clerk", "org_root", payload(org, 5, {
+            1: clerk, 2: {1: [16, 17, 18, 19], 2: [CLAIM, EMPLOYMENT]}}))
+
+        # A claim on a live record of a generic type, in the specification's
+        # words.
+        s1 = add("register an employment record", "clerk",
+                 employee(clerk, clerks, "Chan Tai Man", [3500000, "HKD", 2], "staff"))
+        c1 = add("the clerk claims the specification's example of it", "clerk", claim(clerk, clerks, condition_on(
+            s1, SPEC_CLAIM_EXAMPLE, until=t0 + 30 * day, subject="Chan Tai Man")))
+        # A claim's lifecycle: confirmed, no transitions, no endorsements.
+        refuse("endorse the claim", "clerk", payload(clerk, 17, {1: c1, 2: "reviewer"}, clerks), "role")
+        refuse("move the claim to withdrawn", "clerk", payload(clerk, 18, {1: c1, 2: "confirmed", 3: "withdrawn"},
+                                                                 clerks), "transition")
+        # The claim rules.
+        refuse("a claim on a record that does not exist", "clerk", claim(clerk, clerks, condition_on(
+            lg.h(b"no such record"), SPEC_CLAIM_EXAMPLE)), "no such source")
+        refuse("a claim on a mechanism record, the first claim", "clerk", claim(clerk, clerks, condition_on(
+            c1, [["source", "exists", "text", None]])), "source of a mechanism type")
+        refuse("a claim evaluated after its registration", "clerk", claim(clerk, clerks, {
+            **condition_on(s1, SPEC_CLAIM_EXAMPLE), "as_of": clock[0] + 1}), "as_of after registration")
+        refuse("a claim whose metadata has an unknown key", "clerk", claim(clerk, clerks, {
+            **condition_on(s1, SPEC_CLAIM_EXAMPLE), "note": "informal"}), "unknown key")
+        refuse("a claim without metadata", "clerk", claim(clerk, clerks, None), "no metadata")
+        refuse("a claim whose condition is malformed (exists on a number)", "clerk", claim(clerk, clerks,
+               condition_on(s1, [["monthly_salary", "exists", "number", None]])), "operator and type")
+        refuse("a claim that supersedes a record", "clerk", claim(clerk, clerks, condition_on(
+            s1, SPEC_CLAIM_EXAMPLE), supersedes=s1), "mechanism")
+        refuse("a record that supersedes the claim", "clerk",
+               employee(clerk, clerks, "Chan Tai Man", [3600000, "HKD", 2], "staff", supersedes=c1), "mechanism")
+        # The organization's claim, with no end, that does not hold, and that
+        # answers an access request.
+        c2 = add("the organization claims a condition that does not hold", "org_root", claim(org, None, condition_on(
+            s1, [["start_date", "<=", "date", "2024-01-31"], ["grade", "exists", "text", None]], holds=False,
+            **{"for": [peer, hashlib.sha256(b"their request").digest()]})))
+
+        # A superseded record is no source; its newer version is.
+        s2 = add("register a second employee's record", "clerk",
+                 employee(clerk, clerks, "Lee Siu Ming", [2800000, "HKD", 2], "contractor"))
+        s3 = add("a new version supersedes it", "clerk",
+                 employee(clerk, clerks, "Lee Siu Ming", [3100000, "HKD", 2], "staff", supersedes=s2))
+        refuse("a claim on the superseded version", "clerk", claim(clerk, clerks, condition_on(
+            s2, [["status", "=", "text", "contractor"]])), "source superseded")
+        c3 = add("a claim on the new version, until two minutes later", "clerk", claim(clerk, clerks, {
+            **condition_on(s3, [["monthly_salary", "between", "money", [[2000000, "HKD", 2], [4000000, "HKD", 2]]],
+                                ["start_date", ">=", "date", "2024-01-01"]]), "until": clock[0] + 2 * minute}))
+
+        # A revoked record is no source.
+        s4 = add("register a third employee's record", "clerk",
+                 employee(clerk, clerks, "Wong Mei Ling", [4200000, "HKD", 2], "staff"))
+        add("the organization revokes it", "org_root", payload(org, 19, {1: s4, 2: "entered twice"}))
+        refuse("a claim on the revoked record", "clerk", claim(clerk, clerks, condition_on(
+            s4, [["status", "=", "text", "staff"]])), "source revoked")
+
+        # Later: the new version is replaced, the first claim withdrawn, and
+        # the first record revoked. The claims stay; their sources' status
+        # changes.
+        s5 = add("the organization's version supersedes the second record's", "org_root",
+                 employee(org, None, "Lee Siu Ming", [3300000, "HKD", 2], "staff", supersedes=s3))
+        add("the clerk withdraws the first claim by revoking it", "clerk", payload(clerk, 19, {
+            1: c1, 2: "issued for the wrong month"}, clerks))
+        refuse("revoke the first claim again", "clerk", payload(clerk, 19, {1: c1}, clerks), "revoked")
+        add("the organization revokes the first record", "org_root", payload(org, 19, {1: s1, 2: "left"}))
+        c4 = add("a claim on the latest version", "clerk", claim(clerk, clerks, condition_on(
+            s5, [["status", "!=", "text", "contractor"], ["monthly_salary", "in", "money",
+                                                           [[3300000, "HKD", 2], [3400000, "HKD", 2]]]],
+            subject="Lee Siu Ming")))
+        refuse("a claim on the first record, revoked since", "clerk", claim(clerk, clerks, condition_on(
+            s1, SPEC_CLAIM_EXAMPLE)), "source revoked")
+
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), st["registered_at"], bytes.fromhex(st["encoded"]))
+                   for st in statements]
+        leaves = [[1, a, h] for a, h in actors.items()] + [[2, d, h] for d, h in delegations.items()] + \
+                 [[3, r, v["history"]] for r, v in records.items()]
+        sorted_leaves = sorted(leaves, key=lambda leaf: leaf[1])
+        commitment_index = len(entries)
+        commitment_time = clock[0]
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves, commitment_time)
+        checkpoint_time = commitment_time + 1000
+        checkpoint, _ = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, checkpoint_time)
+
+        def claim_json(c):
+            source = records[c["source"]]
+            status = "revoked" if source["revoked"] else "replaced" if source["superseded_by"] else "live"
+            return {"source": c["source"].hex(), "source_type": source["type"], "source_status": status,
+                    "condition": c["condition"], "text": claim_words(c["condition"]), "holds": c["holds"],
+                    "as_of": c["as_of"], "until": c.get("until"),
+                    "lapsed": "until" in c and checkpoint_time > c["until"], "subject": c.get("subject"),
+                    "for": [x.hex() for x in c["for"]] if "for" in c else None}
+
+        statuses = {claim_json(records[c]["claim"])["source_status"] for c in (c1, c2, c3, c4)}
+        assert statuses == {"live", "revoked", "replaced"}, statuses
+        assert claim_json(records[c3]["claim"])["lapsed"] and not claim_json(records[c4]["claim"])["lapsed"]
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "refused": refused,
+            "claims": [c.hex() for c in (c1, c2, c3, c4)],
+            "records": [{"id": r.hex(), "type": v["type"], "state": v["state"], "revoked": v["revoked"],
+                         "registrant": v["registrant"].hex(), "history": v["history"],
+                         "supersedes": v["supersedes"].hex() if v["supersedes"] else None,
+                         "superseded_by": v["superseded_by"].hex() if v["superseded_by"] else None,
+                         "claim": claim_json(v["claim"]) if v["claim"] is not None else None}
+                        for r, v in records.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "checkpoint_time": checkpoint_time,
+        })
+
+    document = {
+        "description": "CexChain protocol objects of specification revision v0.14 (claims), built by an "
+                       "independent Python encoder from spec/README.md and spec/cexchain.cddl. `claim_type` is the "
+                       "fifth mechanism type's lifecycle (initial state \"confirmed\", no transitions, no roles; "
+                       "withdrawn by revoking it). `claim_metadata` holds claim metadata (record key 5) on its "
+                       "own: `valid` cases, each its deterministic CBOR (`metadata`), its condition as JSON, and "
+                       "the condition in words (`text`, section 11, \"A claim in words\"), the specification's "
+                       "own example first; `refused` cases, each breaking one rule of the `claim` CDDL or its "
+                       "limits in section 6, which `why` names: \"unknown key\", \"missing key\", \"source\" "
+                       "(not a 32-byte id), \"condition\" (not 1 to 16 terms), \"term\" (not [field, op, type, "
+                       "value]), \"field\" (not 1 to 64 bytes of text), \"operator\", \"type\", \"operator and "
+                       "type\" (an order operator on text, exists on another type), \"value\" (not the shape the "
+                       "operator takes: one value, [low, high], 1 to 64 values, or null for exists), \"number\", "
+                       "\"money\", \"date\", \"text\" (a value that is not one of the type), \"order\" (between "
+                       "with low above high), \"distinct\" (in with a value twice), \"holds\", \"as_of\", "
+                       "\"until\" (not after as_of), \"subject\", \"for\". `ledgers` holds an employer's ledger "
+                       "for each hash: the organization delegates employment records "
+                       "(example.org.employment/1) and claims to a clerk, who registers records and claims on "
+                       "them. Each statement registers at its `registered_at` (the log entries carry it). "
+                       "`refused` statements are validated against the state after the first `after` statements, "
+                       "at `at`, and break exactly one rule, which `why` names: \"role\" and \"transition\" (a "
+                       "claim takes neither), \"no such source\", \"source of a mechanism type\" (here another "
+                       "claim), \"source revoked\", \"source superseded\", \"as_of after registration\", "
+                       "\"mechanism\" (a claim neither supersedes nor is superseded), \"revoked\" (a revoked "
+                       "claim takes nothing more), \"no metadata\", and the metadata rules above (\"unknown "
+                       "key\", \"operator and type\"); every refused statement parses, since a claim's metadata "
+                       "is checked by the ledger rules. A claim's registration is a statement about the claim "
+                       "only: its source's history does not list it. `claims` lists the accepted claims, and "
+                       "`records` gives each record's type, state, revocation, registrant, history, versions, "
+                       "and, for a claim, what a report states of it (section 11) at the checkpoint: its source, "
+                       "the source's type and status (\"live\", \"revoked\", or \"replaced\" by a newer "
+                       "version), the condition and its words, holds, as_of and until (ms), whether "
+                       "`checkpoint_time` is past until (`lapsed`), the subject, and the access request it "
+                       "answers (`for`). `log_entries` holds the whole log, ending with the state commitment "
+                       "over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers it. Signatures are "
+                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "<name>\").",
+        "t0": t0,
+        "claim_type": {"type": CLAIM, "initial": MECHANISM_TYPES[CLAIM][0], "transitions": [], "roles": []},
+        "mechanism_types": [{"type": kind, "initial": initial, "transitions": sorted([list(t) for t in transitions])}
+                            for kind, (initial, transitions) in MECHANISM_TYPES.items()],
+        "claim_words": {**{op: f"{words} V" for op, words in CLAIM_WORDS.items()}, "between": "is between L and H",
+                        "in": "is one of V1, V2", "exists": "is given", "joined_by": " and "},
+        "claim_metadata": {"valid": valid_metadata, "refused": refused_metadata},
+        "seeds": seeds,
+        "ledgers": ledgers,
+    }
+    (OUT / "protocol-v0.14.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")
+    first = ledgers[0]
+    reasons = sorted({r["why"] for r in first["refused"]})
+    print(f"wrote protocol vectors for {len(ledgers)} ledgers to testvectors/protocol-v0.14.json: "
+          f"{len(valid_metadata)} claim metadata, {len(refused_metadata)} refused; {len(first['statements'])} "
+          f"statements, {len(first['refused'])} refused ({', '.join(reasons)}), {len(first['records'])} records")
 
 
 # ---------------------------------------------------------------------------
@@ -4147,6 +4821,7 @@ def main() -> None:
     generate_protocol_v10()
     generate_protocol_v11(args.openssl)
     generate_protocol_v13()
+    generate_protocol_v14()
     generate_vm_v1()
     import evidence_suite
     evidence_suite.generate(args.openssl)

@@ -139,6 +139,9 @@ std::vector<Id> involved_objects(const LedgerState& state, const Id& record,
     if (const InstanceState* instance = state.instance(record)) {
         add(instance->contract);
     }
+    if (const auto source = claim_source(events)) {
+        add(*source);
+    }
     for (const Statement& statement : events) {
         if (!statement.actor_id) {
             continue;
@@ -975,6 +978,22 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         });
     }
 
+    // A claim (v0.14): its terms, and its source as the bundle shows it.
+    if (record != nullptr && record->record_type == claim_type && report.metadata) {
+        auto claim = decode_claim(*report.metadata);
+        const RecordState* source = claim ? state->record(claim->source) : nullptr;
+        if (source == nullptr) {
+            return verification_failure("a claim's source is not in its evidence");
+        }
+        EvidenceReport::ClaimReport c;
+        c.text = claim_text(*claim);
+        c.source_type = source->record_type;
+        c.source_status = source->revoked ? "revoked" : source->superseded_by ? "replaced" : "live";
+        c.lapsed = claim->until && checkpoint.checkpoint.timestamp > *claim->until;
+        c.claim = std::move(*claim);
+        report.claim = std::move(c);
+    }
+
     // Completeness: every involved object's history, as replayed from the
     // bundle, must be exactly the history the checkpoint's state root commits
     // to. A left-out statement (a later revocation, say) shows as a mismatch.
@@ -989,6 +1008,13 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         std::vector<Statement> events;
         for (const std::uint64_t index : history) {
             events.push_back(included_at(index)->statement.statement);
+        }
+        // A claim's source (v0.14): its statements count as events too
+        // (each one included: the replayed state knows no other).
+        if (const auto source = claim_source(events); source && state->record(*source)) {
+            for (const std::uint64_t index : state->record(*source)->history.to_vector()) {
+                events.push_back(included_at(index)->statement.statement);
+            }
         }
         std::map<IdKey, const StateProof*> proven;
         for (const StateProof& proof : bundle.state_proofs) {

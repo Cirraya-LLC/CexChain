@@ -11,8 +11,8 @@
 /// chooses, with the one generic lifecycle: initial state "registered", no
 /// transitions, endorsements in any role (once per actor and role), and
 /// revocable. The protocol's own mechanisms (access, consents to contract
-/// calls) have four types of their own, each with its lifecycle; no other
-/// type may begin with the reserved prefix "cexchain." (spec v0.9).
+/// calls, claims) have five types of their own, each with its lifecycle; no
+/// other type may begin with the reserved prefix "cexchain." (spec v0.9).
 namespace cexchain::protocol {
 
 struct Transition {
@@ -35,7 +35,7 @@ struct RecordType {
 /// The mechanism type `name`, or nullptr for a type of the generic lifecycle.
 [[nodiscard]] const RecordType* find_record_type(std::string_view name) noexcept;
 
-/// The four mechanism types.
+/// The five mechanism types.
 [[nodiscard]] std::span<const RecordType> builtin_record_types() noexcept;
 
 inline constexpr std::string_view generic_initial_state = "registered";

@@ -545,6 +545,37 @@ def cases():
         f.add(7, "root", f.ledger_id, {1: person, 2: []}, touches=[person])
         return f.bundle(f.record("person", person, delegation))
     case("a person's credentials cleared (an empty list)", True, clear_credentials)
+
+    # Section 6: claims (v0.14). The open ones are where the text leaves the
+    # outcome to the reader.
+    def claim_probe(condition, extra=None, signer="root", scope=None, source=None):
+        def build():
+            f = Forge()
+            target = f.record("root", f.ledger_id, fields={"note": "probe", "x": 1})
+            actor, delegation = f.ledger_id, None
+            if scope is not None:
+                actor, delegation = _person_with_delegation(f, scope)
+            meta = {"source": target if source is None else source, "condition": condition, "holds": True,
+                    "as_of": f.time - 1000}
+            meta.update(extra(f) if extra is not None else {})
+            return f.bundle(f.record(signer, actor, delegation, kind="cexchain.claim/1", extra={5: meta}))
+        return build
+    x_above_0 = [["x", ">", "number", 0]]
+    case("a claim on a live record", True, claim_probe(x_above_0))
+    case("a claim on a record the ledger never had", False,
+         claim_probe(x_above_0, source=hashlib.sha256(b"no such record").digest()))
+    case("a claim whose metadata has a key the CDDL does not list", False,
+         claim_probe(x_above_0, extra=lambda f: {"note": "hello"}))
+    case("a claim by a delegate whose scope lists claims, not the source's type", None,
+         claim_probe(x_above_0, signer="person", scope={1: [16], 2: ["cexchain.claim/1"]}))
+    case("a claim whose until is after its as_of and before its registration", None,
+         claim_probe(x_above_0, extra=lambda f: {"until": f.time - 500}))
+    case("a claim: between two texts", None, claim_probe([["x", "between", "text", ["a", "b"]]]))
+    case("a claim: in with 1 and \"1.0\", one number encoded two ways", None,
+         claim_probe([["x", "in", "number", [1, "1.0"]]]))
+    case("a claim: between amounts of two currencies", None,
+         claim_probe([["x", "between", "money", [[100, "HKD", 2], [200, "USD", 2]]]]))
+    case("a claim: the date 0000-01-01", None, claim_probe([["x", "=", "date", "0000-01-01"]]))
     return out
 
 

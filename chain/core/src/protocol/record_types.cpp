@@ -28,6 +28,8 @@ constexpr std::array types{
     RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
     RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
     RecordType{"cexchain.contract-consent/1", "given", consent_transitions, no_roles},
+    // A claim (spec v0.14): withdrawn by revoking it.
+    RecordType{"cexchain.claim/1", "confirmed", no_transitions, no_roles},
 };
 
 } // namespace
