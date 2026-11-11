@@ -8,7 +8,7 @@ insurer. Five organizations, five ledgers on one computer (the carrier's on the 
 SM3 algorithms); consents travel as files. At delivery the contract asks for a notice to the
 clinic's system, which an executor of the shipper's sends and answers on the ledger.
 
-CexChain knows nothing about shipments, carriers, or temperatures. The parties, the fields, the
+Kanhe knows nothing about shipments, carriers, or temperatures. The parties, the fields, the
 states, and the actions are the contract's own words, in
 [`shipment.bo`](shipment.bo), written with Bo's core words only. Its heart is a handover the
 driver signs in person:
@@ -118,11 +118,11 @@ Traditional Chinese:
    again, in person each time, with the warehouse's consent. The warehouse and the consignee
    both consent to a delivery straight from the warehouse, and the contract refuses it
    (`bo:requires deliver 2`): only the carrier delivers what it holds.
-8. **QR verification at delivery.** `cexchain qr` draws the code on the cartons
+8. **QR verification at delivery.** `kanhe qr` draws the code on the cartons
    (`label-qr.svg`): it opens the packing list's evidence in the browser verifier,
-   `cexchain-verify.html`, which checks it on the phone itself. The shipper discloses the
+   `kanhe-verify.html`, which checks it on the phone itself. The shipper discloses the
    product and the cartons; the batch stays sealed. The consignee checks the same evidence on
-   the command line (`cexchain verify`), then the chain of custody (`contract verify`: every
+   the command line (`kanhe verify`), then the chain of custody (`contract verify`: every
    call run again, every consent checked on its own ledger, the contract rebuilt from its
    source), and consents to receive the goods. The contract counts the whole days late, `(now -
    due) / 1 day`, two, and charges HKD 2,000 for each: HKD 4,000. The delivery makes a
@@ -152,10 +152,10 @@ and `keeper due --at` ask what would happen at another time, recording nothing.)
 ```sh
 bo test examples/shipment/shipment.bo                           # its ten tests
 bo explain examples/shipment/shipment.bo --language zh-Hant-HK   # the contract text
-examples/shipment/shipment.sh [CEXCHAIN] [DIR] [PKCS11_MODULE]           # CTest: demo_shipment
+examples/shipment/shipment.sh [KANHE] [DIR] [PKCS11_MODULE]           # CTest: demo_shipment
 ```
 
-The script needs a `cexchain` built with the Bo compiler (GCC 16; the release build and the
+The script needs a `kanhe` built with the Bo compiler (GCC 16; the release build and the
 Docker image have it) and SoftHSM (`brew install softhsm`, or `apt install softhsm2`), found
 where Homebrew and Linux distributions install it, or given as `PKCS11_MODULE`. Give a `DIR` to
 keep the ledgers and look around afterwards.
@@ -187,7 +187,7 @@ What this example could not say with today's Bo and CLI, each a candidate for a 
 - **Readings from another party's device.** The data logger is the shipper's, the home's. A
   sensor of the carrier's would need the carrier's consent to each reading, or evidence from
   another ledger as an input, which Bo does not read yet.
-- **QR codes for instances.** `cexchain qr` draws codes for records only, so the code opens the
+- **QR codes for instances.** `kanhe qr` draws codes for records only, so the code opens the
   packing list. The browser verifier already checks an instance that a link names
   (`#l=LEDGER&r=INSTANCE&b=URL`), which the script prints; no command draws it.
 
@@ -198,7 +198,7 @@ a tenth of a degree (or a hundredth), and tests expect the fields' values.
 ## Executors
 
 The delivery notice is the example's one request. Others fit the same pattern, each a few lines
-of Bo and a connector configured by the organization that runs it, not built into CexChain:
+of Bo and a connector configured by the organization that runs it, not built into Kanhe:
 
 - **Notices along the way:** a `notify` request when the goods are picked up, or when the keeper
   marks the shipment late.
@@ -206,7 +206,7 @@ of Bo and a connector configured by the organization that runs it, not built int
   to the carrier's transport management system or the warehouse's system (a `webhook`), and a
   rule reacts if it fails.
 - **The claim:** a request to the insurer's claims system when the consignee claims, answered
-  by the insurer's staff by hand (`cexchain request answer`) until a connector exists.
+  by the insurer's staff by hand (`kanhe request answer`) until a connector exists.
 
 The services vocabulary pack's own requests (a VPS suspended when overdue, a renewal's
 invoice) come next.

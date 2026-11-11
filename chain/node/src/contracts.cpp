@@ -8,30 +8,30 @@
 #include <system_error>
 #include <utility>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/contracts.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/contracts.hpp>
 
 #include "files.hpp"
 
 // Error propagation, as the protocol decoders do it (core/src/protocol/reader.hpp).
-#define CEXCHAIN_CONCAT_INNER(a, b) a##b
-#define CEXCHAIN_CONCAT(a, b) CEXCHAIN_CONCAT_INNER(a, b)
-#define CEXCHAIN_TRY(decl, expr)                                                                   \
-    auto CEXCHAIN_CONCAT(cexchain_try_, __LINE__) = (expr);                                        \
-    if (!CEXCHAIN_CONCAT(cexchain_try_, __LINE__)) {                                               \
-        return std::unexpected(CEXCHAIN_CONCAT(cexchain_try_, __LINE__).error());                  \
+#define KANHE_CONCAT_INNER(a, b) a##b
+#define KANHE_CONCAT(a, b) KANHE_CONCAT_INNER(a, b)
+#define KANHE_TRY(decl, expr)                                                                      \
+    auto KANHE_CONCAT(kanhe_try_, __LINE__) = (expr);                                              \
+    if (!KANHE_CONCAT(kanhe_try_, __LINE__)) {                                                     \
+        return std::unexpected(KANHE_CONCAT(kanhe_try_, __LINE__).error());                        \
     }                                                                                              \
-    decl = std::move(*CEXCHAIN_CONCAT(cexchain_try_, __LINE__))
-#define CEXCHAIN_CHECK(expr)                                                                       \
-    if (auto CEXCHAIN_CONCAT(cexchain_check_, __LINE__) = (expr);                                  \
-        !CEXCHAIN_CONCAT(cexchain_check_, __LINE__)) {                                             \
-        return std::unexpected(CEXCHAIN_CONCAT(cexchain_check_, __LINE__).error());                \
+    decl = std::move(*KANHE_CONCAT(kanhe_try_, __LINE__))
+#define KANHE_CHECK(expr)                                                                          \
+    if (auto KANHE_CONCAT(kanhe_check_, __LINE__) = (expr);                                        \
+        !KANHE_CONCAT(kanhe_check_, __LINE__)) {                                                   \
+        return std::unexpected(KANHE_CONCAT(kanhe_check_, __LINE__).error());                      \
     }
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -73,7 +73,7 @@ Status check_call(const PendingCall& c, bool proposal) {
     if (c.reference && !text_within(*c.reference, 1, protocol::max_contract_reference)) {
         return fail(Errc::malformed, "a call's reference is 1 to 1024 bytes");
     }
-    CEXCHAIN_TRY(Bytes arguments, cbor::encode(c.arguments));
+    KANHE_TRY(Bytes arguments, cbor::encode(c.arguments));
     if (arguments.size() > protocol::max_contract_value) {
         return fail(Errc::malformed, "a call's arguments are at most 65,536 bytes");
     }
@@ -107,7 +107,7 @@ Status check_call(const PendingCall& c, bool proposal) {
 }
 
 Result<Bytes> encode_call(const PendingCall& c, bool proposal) {
-    CEXCHAIN_CHECK(check_call(c, proposal));
+    KANHE_CHECK(check_call(c, proposal));
     cbor::Map map{{cbor::Value::integer(1), cbor::Value::bytes(c.instance.bytes())},
                   {cbor::Value::integer(2), cbor::Value::unsigned_integer(c.head)},
                   {cbor::Value::integer(3), cbor::Value::text(c.function)},
@@ -219,7 +219,7 @@ Result<PendingCall> decode_call(ByteView encoded, bool proposal) {
             c.consents.emplace_back(*ledger, *(*parts)[1].as_bytes());
         }
     }
-    CEXCHAIN_CHECK(check_call(c, proposal));
+    KANHE_CHECK(check_call(c, proposal));
     return c;
 }
 
@@ -269,10 +269,10 @@ citation(const crypto::Provider& provider, const protocol::LedgerState& state,
     if (report->events.empty()) {
         return fail(Errc::verification_failed, "the consent's evidence shows no registration");
     }
-    CEXCHAIN_TRY(crypto::Digest digest, provider.digest(state.hash(), bundle));
+    KANHE_TRY(crypto::Digest digest, provider.digest(state.hash(), bundle));
     const protocol::ContractConsentRef ref{party, report->record, digest,
                                            protocol::registration_signer(report->events.front())};
-    CEXCHAIN_CHECK(protocol::check_verified_contract_consent(
+    KANHE_CHECK(protocol::check_verified_contract_consent(
         provider, ref, bundle, std::move(*report), call, state.ledger_id(), state.hash(), now));
     return ref;
 }
@@ -613,7 +613,7 @@ protocol::ContractCallBody call_body(const PendingCall& call) {
 Result<protocol::Id> pending_call_id(const crypto::Provider& provider, const protocol::Id& instance,
                                      std::uint64_t head, std::string_view function,
                                      const protocol::Id& arguments) {
-    CEXCHAIN_TRY(
+    KANHE_TRY(
         Bytes encoded,
         cbor::encode(cbor::Value::array(
             {cbor::Value::bytes(instance.bytes()), cbor::Value::unsigned_integer(head),
@@ -623,8 +623,8 @@ Result<protocol::Id> pending_call_id(const crypto::Provider& provider, const pro
 
 Result<protocol::Id> pending_call_id(const crypto::Provider& provider, crypto::HashAlg hash,
                                      const PendingCall& call) {
-    CEXCHAIN_TRY(protocol::Id arguments,
-                 protocol::contract_arguments_digest(provider, hash, call.arguments));
+    KANHE_TRY(protocol::Id arguments,
+              protocol::contract_arguments_digest(provider, hash, call.arguments));
     return pending_call_id(provider, call.instance, call.head, call.function, arguments);
 }
 
@@ -728,7 +728,7 @@ Status apply_pending_changes(const std::filesystem::path& ledger_directory,
             if (ec) {
                 return fail(Errc::unavailable, "cannot create the pending calls' directory");
             }
-            CEXCHAIN_CHECK(detail::write_file(directory / c.name, *c.file, true, false));
+            KANHE_CHECK(detail::write_file(directory / c.name, *c.file, true, false));
             written = true;
         } else {
             std::filesystem::remove(directory / c.name, ec);
@@ -827,7 +827,7 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
         return fail(Errc::invalid_argument, "the contract has no such function on instances");
     }
     CallProgress progress;
-    CEXCHAIN_TRY(progress.id, pending_call_id(provider, state.hash(), proposal));
+    KANHE_TRY(progress.id, pending_call_id(provider, state.hash(), proposal));
     if (auto held = held_at(directory_, {proposal.instance, proposal.head, progress.id});
         held && held->call.until >= now) {
         if (held->call.reference != proposal.reference) {
@@ -847,13 +847,13 @@ Result<CallProgress> CallRegistrar::propose(const crypto::Provider& provider,
     proposal.missing.clear();
     proposal.consents.clear();
     progress.call = std::move(proposal);
-    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy, {}));
+    KANHE_TRY(progress, run(provider, state, std::move(progress), now, entropy, {}));
     if (progress.verdict == CallProgress::Verdict::accepted) {
         return fail(Errc::rejected,
                     "the contract takes this call without consents: the home signs it itself");
     }
     if (progress.verdict == CallProgress::Verdict::waiting) {
-        CEXCHAIN_TRY(Bytes file, encode_pending_call(progress.call));
+        KANHE_TRY(Bytes file, encode_pending_call(progress.call));
         progress.changes.push_back(
             {pending_call_name({progress.call.instance, progress.call.head, progress.id}),
              std::move(file)});
@@ -876,7 +876,7 @@ Result<VerifiedConsent> verify_consent(const crypto::Provider& provider, const p
 Result<PreparedConsent> CallRegistrar::prepare(const crypto::Provider& provider,
                                                const protocol::Id& party, ByteView bundle) const {
     PreparedConsent out;
-    CEXCHAIN_TRY(out.consent, verify_consent(provider, party, bundle));
+    KANHE_TRY(out.consent, verify_consent(provider, party, bundle));
     const protocol::EvidenceReport& report = out.consent.report;
     if (report.record_type != protocol::contract_consent_type || !report.metadata) {
         return out; // `consent` says why
@@ -915,8 +915,7 @@ Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
     if (report.record_type != protocol::contract_consent_type || !report.metadata) {
         return fail(Errc::invalid_argument, "the evidence is not of a contract consent");
     }
-    CEXCHAIN_TRY(protocol::ContractConsent terms,
-                 protocol::decode_contract_consent(*report.metadata));
+    KANHE_TRY(protocol::ContractConsent terms, protocol::decode_contract_consent(*report.metadata));
     if (terms.ledger != state.ledger_id()) {
         return fail(Errc::invalid_argument, "the consent is to a call on another ledger");
     }
@@ -931,8 +930,8 @@ Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
 
     // The pending call it is to.
     CallProgress progress;
-    CEXCHAIN_TRY(progress.id, pending_call_id(provider, terms.instance, terms.head, terms.function,
-                                              terms.arguments));
+    KANHE_TRY(progress.id, pending_call_id(provider, terms.instance, terms.head, terms.function,
+                                           terms.arguments));
     auto held = held_at(directory_, {terms.instance, terms.head, progress.id});
     if (!held) {
         return fail(Errc::not_found, "no call with these terms is pending: propose it first");
@@ -950,12 +949,12 @@ Result<CallProgress> CallRegistrar::consent(const crypto::Provider& provider,
     verified.reserve(1 + prepared.held.size());
     verified.push_back(prepared.consent);
     verified.insert(verified.end(), prepared.held.begin(), prepared.held.end());
-    CEXCHAIN_CHECK(citation(provider, state, call_body(held->call), party, bundle, now, verified));
+    KANHE_CHECK(citation(provider, state, call_body(held->call), party, bundle, now, verified));
     progress.call = std::move(held->call);
     hold(progress.call.consents, party, bundle);
-    CEXCHAIN_TRY(progress, run(provider, state, std::move(progress), now, entropy, verified));
+    KANHE_TRY(progress, run(provider, state, std::move(progress), now, entropy, verified));
     if (progress.verdict == CallProgress::Verdict::waiting) {
-        CEXCHAIN_TRY(Bytes file, encode_pending_call(progress.call));
+        KANHE_TRY(Bytes file, encode_pending_call(progress.call));
         progress.changes.push_back(
             {pending_call_name({progress.call.instance, progress.call.head, progress.id}),
              std::move(file)});
@@ -1061,4 +1060,4 @@ Result<CallProgress> CallRegistrar::run(const crypto::Provider& provider,
     return progress;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

@@ -16,14 +16,14 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 // A time-stamp authority for tests (RFC 3161): a root and a time-stamping
 // certificate it issued, valid from 2020 to 2040, on P-256 keys, answering
 // requests with OpenSSL's own responder at a time the test chooses.
-namespace cexchain::test {
+namespace kanhe::test {
 
 class TimestampAuthority {
 public:
@@ -164,4 +164,4 @@ private:
     std::unique_ptr<X509, CertificateFree> certificate_;
 };
 
-} // namespace cexchain::test
+} // namespace kanhe::test

@@ -40,8 +40,8 @@ code, bundle, interface, and bounds, rebuilds every earlier deploy to the code
 it deployed (with the codegen it names), replays each run, and compiles each
 source that must not build to the same errors.
 
-Usage (from CexChain/, after a GCC build):
-    python3 tools/testvectors/bo_vectors.py [--tests build/gcc-debug/tests/cexchain_bo_tests]
+Usage (from Kanhe/, after a GCC build):
+    python3 tools/testvectors/bo_vectors.py [--tests build/gcc-debug/tests/kanhe_bo_tests]
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ OUT = ROOT / "testvectors" / "bo-v1.json"
 PACKS = ROOT / "bo" / "packs"
 VOCAB = ROOT / "bo" / "vocab"
 PACK_DIGESTS = ROOT / "tests" / "bo" / "golden" / "pack-digests.txt"
-# The oldest codegen the compiler carries (bo/include/cexchain/bo/wasm.hpp).
+# The oldest codegen the compiler carries (bo/include/kanhe/bo/wasm.hpp).
 OLDEST_CODEGEN = 4
 
 
@@ -298,14 +298,14 @@ def result(outcome: str, output: bytes, reason: bytes) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--tests", default=str(ROOT / "build" / "gcc-debug" / "tests" /
-                                              "cexchain_bo_tests"),
-                        help="the GCC build's cexchain_bo_tests")
+                                              "kanhe_bo_tests"),
+                        help="the GCC build's kanhe_bo_tests")
     parser.add_argument("--out", default=str(OUT))
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as tmp:
         path = pathlib.Path(tmp) / "runs.json"
-        env = dict(os.environ, CEXCHAIN_BO_CODEGEN_REFERENCE=str(path))
+        env = dict(os.environ, KANHE_BO_CODEGEN_REFERENCE=str(path))
         subprocess.run([args.tests, "[.codegen-reference]"], env=env, check=True,
                        stdout=subprocess.DEVNULL)
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -414,7 +414,7 @@ def main() -> int:
                        "digests), the bundles its deploys recorded with earlier releases of "
                        "the official packs or earlier codegens, oldest first (each rebuilds, "
                        "with the codegen it names, to the code it deployed), and the code "
-                       "cexchain-bo builds and its "
+                       "kanhe-bo builds and its "
                        "functions' fuel and output bounds (informative); calls with their "
                        "outcomes (normative; fuel is this code's); and sources that must not "
                        "build, with their errors' codes and lines (normative). Inputs are "

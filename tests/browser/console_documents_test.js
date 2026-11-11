@@ -5,10 +5,10 @@
 // story. One person sets up, defines a kind (Photo: place, taken, a file),
 // registers a photo with its file, checked in the browser before the tap;
 // opens the thing's page; shares proof with one field disclosed and the
-// file; and the proof verifies with `cexchain verify`, in the console's
+// file; and the proof verifies with `kanhe verify`, in the console's
 // Verify screen, and in the standalone verifier page, while a forged photo
 // is caught.
-// Usage: node console_documents_test.js CEXCHAIN [VERIFIER_PAGE]
+// Usage: node console_documents_test.js KANHE [VERIFIER_PAGE]
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -18,16 +18,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const verifierPage = process.argv[3] ?? process.env.CEXCHAIN_VERIFY_PAGE;
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-documents-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const verifierPage = process.argv[3] ?? process.env.KANHE_VERIFY_PAGE;
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-documents-"));
 const ledger = path.join(work, "ledger");
-const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
 const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
 
 function freePort() {
@@ -42,7 +42,7 @@ function freePort() {
 
 async function waitRunning() {
   for (let i = 0; i < 300; i++) {
-    if (JSON.parse(run("cexchain-console", "status", "--json")).running) return;
+    if (JSON.parse(run("kanhe-console", "status", "--json")).running) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("the console did not start");
@@ -52,7 +52,7 @@ async function waitRunning() {
   const photo = path.join(work, "photo.jpg");
   fs.writeFileSync(photo, Buffer.from("not really a photo, but its bytes count\n"));
   const port = await freePort();
-  const consoleProcess = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const consoleProcess = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                                { cwd: work, env });
   let browser;
   const violations = [];
@@ -98,7 +98,7 @@ async function waitRunning() {
     await page.getByLabel("Files", { exact: true }).selectOption("required");
     await page.getByRole("button", { name: "Save the kind" }).click();
     await page.getByRole("heading", { name: "Photo", level: 2 }).waitFor();
-    const kinds = JSON.parse(run("cexchain-console", "kind", "list", "--json"));
+    const kinds = JSON.parse(run("kanhe-console", "kind", "list", "--json"));
     assert.equal(kinds[0].type, "example.org.photo/1");
     assert.deepEqual(kinds[0].fields.map((f) => [f.name, f.type, f.required]),
                      [["place", "text", true], ["taken", "date", false]]);
@@ -291,7 +291,7 @@ async function waitRunning() {
     await (await reporting).saveAs(reportFile);
     // The claim made above is a record too.
     assert.equal(fs.readFileSync(reportFile, "utf8"),
-                 "type,state,count\r\nexample.org.photo/1,registered,2\r\ncexchain.claim/1,confirmed,1\r\n");
+                 "type,state,count\r\nexample.org.photo/1,registered,2\r\nkanhe.claim/1,confirmed,1\r\n");
     // Its proof now says so, here and on the standalone page.
     await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
     await page.getByRole("button", { name: "Share proof" }).click();
@@ -325,7 +325,7 @@ async function waitRunning() {
   } finally {
     if (browser) await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

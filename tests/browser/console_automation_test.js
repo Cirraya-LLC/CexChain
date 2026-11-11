@@ -10,7 +10,7 @@
 // code) to the room's "check" action and invites Bob, who registers a
 // passkey on his phone; she approves him. On the phone, Bob opens the link
 // and checks the room with a tap; the page fits the phone's screen.
-// Usage: node console_automation_test.js CEXCHAIN
+// Usage: node console_automation_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -20,13 +20,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-automation-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-automation-"));
 
 const visits = `contract Visits
 parties owner
@@ -78,9 +78,9 @@ async function tap(page, what) {
 (async () => {
   const port = await freePort();
   const ledger = path.join(work, "ledger");
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
-  const console_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
+  const console_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
   for (let i = 0; i < 300 && !fs.existsSync(path.join(ledger, "console", "setup-link")); i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -146,7 +146,7 @@ async function tap(page, what) {
     await a.getByRole("button", { name: "Save notifier.key" }).click();
     const keyFile = path.join(work, "notifier.key");
     await (await saving).saveAs(keyFile);
-    assert.match(await a.getByLabel("Its API token (notifier):").inputValue(), /^cxt_/);
+    assert.match(await a.getByLabel("Its API token (notifier):").inputValue(), /^kht_/);
     const config = JSON.parse(await a.getByLabel("Its config for executor run:").inputValue());
     fs.writeFileSync(path.join(work, "pass.txt"), "notifier passphrase\n");
     const shown = JSON.parse(run("key", "show", keyFile, "--passphrase-file", path.join(work, "pass.txt"), "--json"));
@@ -167,7 +167,7 @@ async function tap(page, what) {
     await a.getByLabel("Passphrase for its key").fill("helper passphrase");
     await a.getByRole("button", { name: "Get its key and token" }).click();
     const mcp = JSON.parse(await a.getByLabel("For an MCP client:").inputValue());
-    assert.equal(mcp.mcpServers.cexchain.args[0], "mcp");
+    assert.equal(mcp.mcpServers.kanhe.args[0], "mcp");
     await a.getByRole("button", { name: "Automation" }).click();
     await a.getByRole("cell", { name: "AI agent" }).waitFor();
     await a.getByRole("cell", { name: "Alice" }).first().waitFor();
@@ -233,7 +233,7 @@ async function tap(page, what) {
   } finally {
     await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

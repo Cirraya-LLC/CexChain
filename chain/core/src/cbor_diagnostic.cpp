@@ -11,9 +11,9 @@
 #include <string_view>
 #include <utility>
 
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/core/cbor.hpp>
 
-namespace cexchain::cbor {
+namespace kanhe::cbor {
 
 namespace {
 
@@ -492,4 +492,4 @@ Result<Value> parse_diagnostic(std::string_view text) {
     return decode(*encoded, options);
 }
 
-} // namespace cexchain::cbor
+} // namespace kanhe::cbor

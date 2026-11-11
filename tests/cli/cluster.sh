@@ -9,11 +9,11 @@
 # answered through a follower (spec v0.8). Every member runs a keeper
 # (serve --keeper-key): only the leader's acts, expiring overdue requests,
 # and a new leader's carries on.
-# Usage: cluster.sh CEXCHAIN
+# Usage: cluster.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
@@ -30,15 +30,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="cluster test"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="cluster test"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
@@ -131,7 +131,7 @@ PY
 }
 start_member() {
     local n="$1"
-    "$CEXCHAIN" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
+    "$KANHE" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
         --log-key log.key --checkpoint-interval 0 --keeper-key keeper.key --keeper-interval 1 \
         --expiry-grace 0 --json > "node$n.json" 2> "node$n.log" &
     PIDS[$n]=$!
@@ -168,10 +168,10 @@ run cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${A
 [ "$(ls -l node1/cluster/secret | cut -c1-10)" = "-rw-------" ] || fail "the secret must be owner-only"
 expect_exit 1 serve --ledger node1 --cluster --threads 0
 start_member 1
-eventually 60 sh -c "[ \"\$(\"$CEXCHAIN\" cluster status --server ${API[1]} --token-file ops.token --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"leads\"])')\" = True ]"
+eventually 60 sh -c "[ \"\$(\"$KANHE\" cluster status --server ${API[1]} --token-file ops.token --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"leads\"])')\" = True ]"
 
 # --- Joining -----------------------------------------------------------------------
-export CEXCHAIN_TOKEN="$(cat ops.token)"
+export KANHE_TOKEN="$(cat ops.token)"
 for n in 2 3; do
     run cluster join --ledger "node$n" --from "${API[1]}" --ledger-id "$LEDGER_ID" --id "$n" \
         --raft "127.0.0.1:${RPORT[$n]}" --api "${API[$n]}" --secret-file node1/cluster/secret \
@@ -180,7 +180,7 @@ for n in 2 3; do
     start_member "$n"
     run cluster add --server "${API[1]}" --id "$n" --raft "127.0.0.1:${RPORT[$n]}" --api "${API[$n]}" \
         | contains 'being added'
-    eventually 60 sh -c "[ \"\$(\"$CEXCHAIN\" cluster status --server ${API[1]} --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)[\"members\"]))')\" = $n ]"
+    eventually 60 sh -c "[ \"\$(\"$KANHE\" cluster status --server ${API[1]} --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)[\"members\"]))')\" = $n ]"
 done
 run cluster status --server "${API[1]}" | contains 'leader'
 # A member's files are its own while it runs: the command line goes through the API.

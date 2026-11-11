@@ -5,11 +5,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/crypto.hpp>
+#include <kanhe/core/crypto.hpp>
 
-namespace crypto = cexchain::crypto;
-using cexchain::Bytes;
-using cexchain::Errc;
+namespace crypto = kanhe::crypto;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 TEST_CASE("COSE identifiers map to algorithms and back", "[core][crypto]") {
     for (const auto alg : crypto::all_hash_algs) {
@@ -21,8 +21,8 @@ TEST_CASE("COSE identifiers map to algorithms and back", "[core][crypto]") {
         CHECK(crypto::public_key_size(alg) > 0);
         CHECK(crypto::signature_size(alg) > 0);
     }
-    CHECK_FALSE(crypto::sig_alg_from_cose(-7)); // ES256 is deprecated; CexChain uses ESP256.
-    CHECK_FALSE(crypto::sig_alg_from_cose(-8)); // Polymorphic EdDSA; CexChain uses Ed25519.
+    CHECK_FALSE(crypto::sig_alg_from_cose(-7)); // ES256 is deprecated; Kanhe uses ESP256.
+    CHECK_FALSE(crypto::sig_alg_from_cose(-8)); // Polymorphic EdDSA; Kanhe uses Ed25519.
     CHECK_FALSE(crypto::hash_alg_from_cose(0));
 }
 
@@ -58,9 +58,9 @@ TEST_CASE("Digest holds 1 to 64 bytes", "[core][crypto]") {
 TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
     // n/2 and n for P-256, big-endian (see tools/crypto/derive_constants.py).
     const auto half =
-        *cexchain::from_hex("7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8");
+        *kanhe::from_hex("7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8");
     const auto order =
-        *cexchain::from_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+        *kanhe::from_hex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
 
     // r || s, each 32 bytes, written in place (GCC 16.2 reports a false
     // -Warray-bounds on growing a vector here, in release builds).
@@ -98,7 +98,7 @@ TEST_CASE("ESP256 low-S boundary and canonicalization", "[core][crypto]") {
 
 TEST_CASE("Ed25519 signature scalar must be reduced", "[core][crypto]") {
     const auto order =
-        *cexchain::from_hex("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
+        *kanhe::from_hex("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010");
     Bytes signature(64, 0x33);
     std::ranges::copy(order, signature.begin() + 32); // S = L
     CHECK_FALSE(crypto::is_canonical_signature(crypto::SigAlg::ed25519, signature));
@@ -119,16 +119,16 @@ TEST_CASE("weak Ed25519 public keys are recognized", "[core][crypto]") {
              "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
          }) {
         INFO(weak);
-        CHECK(crypto::is_weak_public_key(crypto::SigAlg::ed25519, *cexchain::from_hex(weak)));
+        CHECK(crypto::is_weak_public_key(crypto::SigAlg::ed25519, *kanhe::from_hex(weak)));
     }
     // The RFC 8032 test 1 key and the largest canonical y (p - 1 with high bits
     // varied) are fine.
     CHECK_FALSE(crypto::is_weak_public_key(
         crypto::SigAlg::ed25519,
-        *cexchain::from_hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")));
+        *kanhe::from_hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")));
     CHECK_FALSE(crypto::is_weak_public_key(
         crypto::SigAlg::ed25519,
-        *cexchain::from_hex("ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")));
+        *kanhe::from_hex("ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")));
     // Only Ed25519 has this notion.
     CHECK_FALSE(crypto::is_weak_public_key(crypto::SigAlg::esp256, Bytes(65, 0)));
 }

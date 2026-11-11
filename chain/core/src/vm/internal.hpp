@@ -7,8 +7,8 @@
 #include <optional>
 #include <vector>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/vm.hpp>
 
 /// The loaded form of a module. Validation also translates each function body
 /// into a flat array of the interpreter's own instructions: branch targets and
@@ -16,7 +16,7 @@
 /// moved to the instruction that follows them), frequent sequences fused into
 /// one instruction, and the fuel of each straight-line run of instructions
 /// charged once, by its first instruction.
-namespace cexchain::vm::detail {
+namespace kanhe::vm::detail {
 
 inline constexpr std::uint8_t type_i32 = 0x7F;
 inline constexpr std::uint8_t type_i64 = 0x7E;
@@ -35,7 +35,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
 /// Binary operations that cannot trap, comparisons and arithmetic: Y(X, name,
 /// opcode) for each, so that lists of fused instructions can be made from
 /// them.
-#define CEXCHAIN_VM_I32_COMPARE_LIST(X, Y)                                                         \
+#define KANHE_VM_I32_COMPARE_LIST(X, Y)                                                            \
     Y(X, i32_eq, 0x46)                                                                             \
     Y(X, i32_ne, 0x47)                                                                             \
     Y(X, i32_lt_s, 0x48)                                                                           \
@@ -46,7 +46,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     Y(X, i32_le_u, 0x4D)                                                                           \
     Y(X, i32_ge_s, 0x4E)                                                                           \
     Y(X, i32_ge_u, 0x4F)
-#define CEXCHAIN_VM_I32_ARITHMETIC_LIST(X, Y)                                                      \
+#define KANHE_VM_I32_ARITHMETIC_LIST(X, Y)                                                         \
     Y(X, i32_add, 0x6A)                                                                            \
     Y(X, i32_sub, 0x6B)                                                                            \
     Y(X, i32_mul, 0x6C)                                                                            \
@@ -58,7 +58,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     Y(X, i32_shr_u, 0x76)                                                                          \
     Y(X, i32_rotl, 0x77)                                                                           \
     Y(X, i32_rotr, 0x78)
-#define CEXCHAIN_VM_I64_COMPARE_LIST(X, Y)                                                         \
+#define KANHE_VM_I64_COMPARE_LIST(X, Y)                                                            \
     Y(X, i64_eq, 0x51)                                                                             \
     Y(X, i64_ne, 0x52)                                                                             \
     Y(X, i64_lt_s, 0x53)                                                                           \
@@ -69,7 +69,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     Y(X, i64_le_u, 0x58)                                                                           \
     Y(X, i64_ge_s, 0x59)                                                                           \
     Y(X, i64_ge_u, 0x5A)
-#define CEXCHAIN_VM_I64_ARITHMETIC_LIST(X, Y)                                                      \
+#define KANHE_VM_I64_ARITHMETIC_LIST(X, Y)                                                         \
     Y(X, i64_add, 0x7C)                                                                            \
     Y(X, i64_sub, 0x7D)                                                                            \
     Y(X, i64_mul, 0x7E)                                                                            \
@@ -81,19 +81,18 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     Y(X, i64_shr_u, 0x88)                                                                          \
     Y(X, i64_rotl, 0x89)                                                                           \
     Y(X, i64_rotr, 0x8A)
-#define CEXCHAIN_VM_COMPARE_LIST(X, Y)                                                             \
-    CEXCHAIN_VM_I32_COMPARE_LIST(X, Y) CEXCHAIN_VM_I64_COMPARE_LIST(X, Y)
-#define CEXCHAIN_VM_BINARY_LIST(X, Y)                                                              \
-    CEXCHAIN_VM_I32_COMPARE_LIST(X, Y)                                                             \
-    CEXCHAIN_VM_I32_ARITHMETIC_LIST(X, Y)                                                          \
-    CEXCHAIN_VM_I64_COMPARE_LIST(X, Y)                                                             \
-    CEXCHAIN_VM_I64_ARITHMETIC_LIST(X, Y)
-#define CEXCHAIN_VM_AS_IS(X, name, ...) X(name, __VA_ARGS__)
-#define CEXCHAIN_VM_BINARY(X) CEXCHAIN_VM_BINARY_LIST(X, CEXCHAIN_VM_AS_IS)
+#define KANHE_VM_COMPARE_LIST(X, Y) KANHE_VM_I32_COMPARE_LIST(X, Y) KANHE_VM_I64_COMPARE_LIST(X, Y)
+#define KANHE_VM_BINARY_LIST(X, Y)                                                                 \
+    KANHE_VM_I32_COMPARE_LIST(X, Y)                                                                \
+    KANHE_VM_I32_ARITHMETIC_LIST(X, Y)                                                             \
+    KANHE_VM_I64_COMPARE_LIST(X, Y)                                                                \
+    KANHE_VM_I64_ARITHMETIC_LIST(X, Y)
+#define KANHE_VM_AS_IS(X, name, ...) X(name, __VA_ARGS__)
+#define KANHE_VM_BINARY(X) KANHE_VM_BINARY_LIST(X, KANHE_VM_AS_IS)
 
 /// Division and remainder, which trap on a zero divisor (and div_s on
 /// overflow): X(name, opcode).
-#define CEXCHAIN_VM_DIVISION(X)                                                                    \
+#define KANHE_VM_DIVISION(X)                                                                       \
     X(i32_div_s, 0x6D)                                                                             \
     X(i32_div_u, 0x6E)                                                                             \
     X(i32_rem_s, 0x6F)                                                                             \
@@ -104,7 +103,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     X(i64_rem_u, 0x82)
 
 /// Operations on one value: X(name, opcode).
-#define CEXCHAIN_VM_UNARY(X)                                                                       \
+#define KANHE_VM_UNARY(X)                                                                          \
     X(i32_eqz, 0x45)                                                                               \
     X(i64_eqz, 0x50)                                                                               \
     X(i32_clz, 0x67)                                                                               \
@@ -123,7 +122,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     X(i64_extend32_s, 0xC4)
 
 /// Loads: X(name, opcode, bytes accessed).
-#define CEXCHAIN_VM_LOADS(X)                                                                       \
+#define KANHE_VM_LOADS(X)                                                                          \
     X(i32_load, 0x28, 4)                                                                           \
     X(i64_load, 0x29, 8)                                                                           \
     X(i32_load8_s, 0x2C, 1)                                                                        \
@@ -138,7 +137,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     X(i64_load32_u, 0x35, 4)
 
 /// Stores: X(name, opcode, bytes accessed).
-#define CEXCHAIN_VM_STORES(X)                                                                      \
+#define KANHE_VM_STORES(X)                                                                         \
     X(i32_store, 0x36, 4)                                                                          \
     X(i64_store, 0x37, 8)                                                                          \
     X(i32_store8, 0x3A, 1)                                                                         \
@@ -155,38 +154,38 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
 /// A binary operation on the value below and an operand of its own: X(fused,
 /// operation). `_c`: const b, then the operation; `_l`: local.get a, then the
 /// operation.
-#define CEXCHAIN_VM_WITH_C(X, name, ...) X(name##_c, name)
-#define CEXCHAIN_VM_WITH_L(X, name, ...) X(name##_l, name)
+#define KANHE_VM_WITH_C(X, name, ...) X(name##_c, name)
+#define KANHE_VM_WITH_L(X, name, ...) X(name##_l, name)
 /// A binary operation on two operands of its own, pushing its result:
 /// `_lc`: local.get a, const b, then the operation; `_ll`: local.get a,
 /// local.get b, then the operation.
-#define CEXCHAIN_VM_WITH_LC(X, name, ...) X(name##_lc, name)
-#define CEXCHAIN_VM_WITH_LL(X, name, ...) X(name##_ll, name)
+#define KANHE_VM_WITH_LC(X, name, ...) X(name##_lc, name)
+#define KANHE_VM_WITH_LL(X, name, ...) X(name##_ll, name)
 /// A comparison, then a branch on its result to `a`: `_if` an if (taken when
 /// false), `_jump_if` a br_if with nothing to move. The comparison's operands
 /// are the two values below, or (`_c_`) the value below and const b, or
 /// (`_ll_`) local.gets of b's low and high 32 bits.
-#define CEXCHAIN_VM_WITH_IF(X, name, ...) X(name##_if, name)
-#define CEXCHAIN_VM_WITH_JUMP_IF(X, name, ...) X(name##_jump_if, name)
-#define CEXCHAIN_VM_WITH_C_IF(X, name, ...) X(name##_c_if, name)
-#define CEXCHAIN_VM_WITH_C_JUMP_IF(X, name, ...) X(name##_c_jump_if, name)
-#define CEXCHAIN_VM_WITH_LL_IF(X, name, ...) X(name##_ll_if, name)
-#define CEXCHAIN_VM_WITH_LL_JUMP_IF(X, name, ...) X(name##_ll_jump_if, name)
-#define CEXCHAIN_VM_FUSED_BINARY(X)                                                                \
-    CEXCHAIN_VM_BINARY_LIST(X, CEXCHAIN_VM_WITH_C)                                                 \
-    CEXCHAIN_VM_BINARY_LIST(X, CEXCHAIN_VM_WITH_L)                                                 \
-    CEXCHAIN_VM_BINARY_LIST(X, CEXCHAIN_VM_WITH_LC)                                                \
-    CEXCHAIN_VM_BINARY_LIST(X, CEXCHAIN_VM_WITH_LL)                                                \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_IF)                                               \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_JUMP_IF)                                          \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_C_IF)                                             \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_C_JUMP_IF)                                        \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_LL_IF)                                            \
-    CEXCHAIN_VM_COMPARE_LIST(X, CEXCHAIN_VM_WITH_LL_JUMP_IF)
+#define KANHE_VM_WITH_IF(X, name, ...) X(name##_if, name)
+#define KANHE_VM_WITH_JUMP_IF(X, name, ...) X(name##_jump_if, name)
+#define KANHE_VM_WITH_C_IF(X, name, ...) X(name##_c_if, name)
+#define KANHE_VM_WITH_C_JUMP_IF(X, name, ...) X(name##_c_jump_if, name)
+#define KANHE_VM_WITH_LL_IF(X, name, ...) X(name##_ll_if, name)
+#define KANHE_VM_WITH_LL_JUMP_IF(X, name, ...) X(name##_ll_jump_if, name)
+#define KANHE_VM_FUSED_BINARY(X)                                                                   \
+    KANHE_VM_BINARY_LIST(X, KANHE_VM_WITH_C)                                                       \
+    KANHE_VM_BINARY_LIST(X, KANHE_VM_WITH_L)                                                       \
+    KANHE_VM_BINARY_LIST(X, KANHE_VM_WITH_LC)                                                      \
+    KANHE_VM_BINARY_LIST(X, KANHE_VM_WITH_LL)                                                      \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_IF)                                                     \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_JUMP_IF)                                                \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_C_IF)                                                   \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_C_JUMP_IF)                                              \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_LL_IF)                                                  \
+    KANHE_VM_COMPARE_LIST(X, KANHE_VM_WITH_LL_JUMP_IF)
 
 /// A load from a local's address: local.get a, then the load (offset b):
 /// X(fused, load, bytes accessed).
-#define CEXCHAIN_VM_FUSED_LOADS(X)                                                                 \
+#define KANHE_VM_FUSED_LOADS(X)                                                                    \
     X(i32_load_l, i32_load, 4)                                                                     \
     X(i64_load_l, i64_load, 8)                                                                     \
     X(i32_load8_s_l, i32_load8_s, 1)                                                               \
@@ -208,7 +207,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
 ///   - call_l: local.get b, call a; call_c: const b, call a;
 ///   - return_l: local.get a, return of one value;
 ///   - const2: const a (a value below 2^32), const b.
-#define CEXCHAIN_VM_FUSED_OTHER(X)                                                                 \
+#define KANHE_VM_FUSED_OTHER(X)                                                                    \
     X(set_get)                                                                                     \
     X(set_jump)                                                                                    \
     X(tee_jump_if)                                                                                 \
@@ -238,7 +237,7 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
 ///   - memory.init, data.drop: `a` is the data segment.
 /// Targets are offsets from the branch's own instruction. Loads and stores
 /// keep their offset in `b`.
-#define CEXCHAIN_VM_BASIC(X)                                                                       \
+#define KANHE_VM_BASIC(X)                                                                          \
     X(unreachable)                                                                                 \
     X(nop)                                                                                         \
     X(if)                                                                                          \
@@ -267,16 +266,16 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
     X(memory_fill)
 
 /// Every operation, in the order of Op.
-#define CEXCHAIN_VM_OPS(X)                                                                         \
-    CEXCHAIN_VM_BASIC(X)                                                                           \
-    CEXCHAIN_VM_LOADS(X)                                                                           \
-    CEXCHAIN_VM_STORES(X)                                                                          \
-    CEXCHAIN_VM_UNARY(X)                                                                           \
-    CEXCHAIN_VM_DIVISION(X)                                                                        \
-    CEXCHAIN_VM_BINARY(X)                                                                          \
-    CEXCHAIN_VM_FUSED_BINARY(X)                                                                    \
-    CEXCHAIN_VM_FUSED_LOADS(X)                                                                     \
-    CEXCHAIN_VM_FUSED_OTHER(X)
+#define KANHE_VM_OPS(X)                                                                            \
+    KANHE_VM_BASIC(X)                                                                              \
+    KANHE_VM_LOADS(X)                                                                              \
+    KANHE_VM_STORES(X)                                                                             \
+    KANHE_VM_UNARY(X)                                                                              \
+    KANHE_VM_DIVISION(X)                                                                           \
+    KANHE_VM_BINARY(X)                                                                             \
+    KANHE_VM_FUSED_BINARY(X)                                                                       \
+    KANHE_VM_FUSED_LOADS(X)                                                                        \
+    KANHE_VM_FUSED_OTHER(X)
 
 /// The interpreter's operations. Each translated instruction stands for one
 /// WebAssembly instruction or several (the fused ones). Its fuel is not the
@@ -284,9 +283,9 @@ enum class Host : std::uint8_t { none, input_size, input_read, output_write, has
 /// operation serves instructions of different costs: `jump` is `br` (1) and
 /// `else` (0), `return` is also the function's final `end` (0).
 enum Op : std::uint16_t {
-#define CEXCHAIN_VM_ENUM(name, ...) op_##name,
-    CEXCHAIN_VM_OPS(CEXCHAIN_VM_ENUM)
-#undef CEXCHAIN_VM_ENUM
+#define KANHE_VM_ENUM(name, ...) op_##name,
+    KANHE_VM_OPS(KANHE_VM_ENUM)
+#undef KANHE_VM_ENUM
         op_count
 };
 
@@ -402,4 +401,4 @@ enum class Dispatch : std::uint8_t { threaded, table };
                                   const crypto::Provider& provider, crypto::HashAlg hash,
                                   std::uint64_t fuel);
 
-} // namespace cexchain::vm::detail
+} // namespace kanhe::vm::detail

@@ -1,5 +1,5 @@
 {
-  "description": "Proposal and consent files (exchange-file in spec/cexchain.cddl, .cexchain), encoded independently with cbor2: files a reader takes, with what it reads, and files it refuses, with why.",
+  "description": "Proposal and consent files (exchange-file in spec/kanhe.cddl, .kanhe), encoded independently with cbor2: files a reader takes, with what it reads, and files it refuses, with why.",
   "accepted": [
     {
       "name": "a proposal with a note",

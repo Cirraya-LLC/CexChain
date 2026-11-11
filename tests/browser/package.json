@@ -1,5 +1,5 @@
 {
-  "name": "cexchain-browser-tests",
+  "name": "kanhe-browser-tests",
   "private": true,
   "license": "Apache-2.0",
   "description": "Browser tests: the verifier page and passkey presence",

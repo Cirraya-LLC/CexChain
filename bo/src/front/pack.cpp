@@ -15,13 +15,13 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/core/cbor.hpp>
 
 #include "internal.hpp"
 #include "shape.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -736,4 +736,4 @@ Result<crypto::Digest> digest(const Pack& pack, const crypto::Provider& provider
     return provider.digest(alg, pack.canonical);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

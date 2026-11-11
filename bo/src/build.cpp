@@ -11,23 +11,23 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/vm.hpp>
 
-#if !defined(CEXCHAIN_BO_RELEASE)
-#error "CEXCHAIN_BO_RELEASE names the release (bo/CMakeLists.txt sets it)"
+#if !defined(KANHE_BO_RELEASE)
+#error "KANHE_BO_RELEASE names the release (bo/CMakeLists.txt sets it)"
 #endif
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -54,7 +54,7 @@ std::string interface_text(const std::map<std::string, protocol::FunctionKind>& 
 } // namespace
 
 const CompilerId& this_compiler() noexcept {
-    static const CompilerId id{CEXCHAIN_BO_RELEASE, wasm::codegen_version, edition};
+    static const CompilerId id{KANHE_BO_RELEASE, wasm::codegen_version, edition};
     return id;
 }
 
@@ -195,13 +195,12 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
     // reproduce it.
     const auto other = [&](const std::string& what) {
         const std::string by =
-            r.deployed
-                ? std::format("built with {}; this compiler is {}, and {}: rebuild with "
-                              "cexchain-bo {}",
-                              deploy.compiler, compiler_string(), what, r.deployed->release)
-                : std::format("built with \"{}\", which is not cexchain-bo, and {}: the code "
-                              "cannot be checked against its source here",
-                              deploy.compiler, what);
+            r.deployed ? std::format("built with {}; this compiler is {}, and {}: rebuild with "
+                                     "kanhe-bo {}",
+                                     deploy.compiler, compiler_string(), what, r.deployed->release)
+                       : std::format("built with \"{}\", which is not kanhe-bo, and {}: the code "
+                                     "cannot be checked against its source here",
+                                     deploy.compiler, what);
         return result(RebuildStatus::other_compiler, by);
     };
 
@@ -295,4 +294,4 @@ Rebuild rebuild(const protocol::ContractDeployBody& deploy, const crypto::Provid
     return other(difference);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

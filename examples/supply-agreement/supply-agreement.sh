@@ -13,22 +13,22 @@
 # bank's ledger hashes with SM3 and signs with SM2. Three ledgers talk over
 # HTTP.
 #
-# The contract is supply-agreement.bo, next to this script: Bo, CexChain's
+# The contract is supply-agreement.bo, next to this script: Bo, Kanhe's
 # contract language. The deploy records its source, so
 # whoever verifies an agreement can read the terms the code enforces and
-# check that the code is built from them. It needs a cexchain built with the
+# check that the code is built from them. It needs a kanhe built with the
 # Bo compiler (GCC 16; the release build and the Docker image have it).
 #
-# Usage: supply-agreement.sh [CEXCHAIN] [DIR]
-#   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
+# Usage: supply-agreement.sh [KANHE] [DIR]
+#   KANHE  the command-line tool (default: kanhe on the PATH)
 #   DIR       where to keep the ledgers (default: a temporary directory,
 #             removed at the end; give one to look around afterwards)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
+KANHE="${1:-kanhe}"
 # A path relative to where the script starts works too.
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
@@ -47,17 +47,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
@@ -90,8 +90,8 @@ run peer add bank --ledger-id "$BANK_ID" --ledger "$SUP" > /dev/null
 run peer add supplier --ledger-id "$SUP_ID" --ledger "$BANK" > /dev/null
 
 step "2. The core enterprise builds the contract and deploys it on its ledger, the agreement's home"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This demo needs a kanhe built with the Bo compiler (GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/supply-agreement.bo" .
@@ -145,7 +145,7 @@ for p in supplier bank; do
 done
 run token create staff --scope read,submit --out staff.token --ledger "$CORE" > /dev/null
 # Started directly (not through a shell function), so $! is the server itself.
-"$CEXCHAIN" serve --ledger "$CORE" --log-key core-log.key --registrar-key registrar.key \
+"$KANHE" serve --ledger "$CORE" --log-key core-log.key --registrar-key registrar.key \
     --listen 127.0.0.1:0 --json --quiet > core.json 2> core.log &
 SERVER=$!
 for _ in $(seq 1 300); do
@@ -169,7 +169,7 @@ run key generate --out manager.key > /dev/null
 MANAGER="$(run actor add --as supplier-root.key --kind person --name "Sales Manager" --key manager.key \
     --ledger "$SUP" --json | field '["actor"]["id"]')"
 run delegation grant --as supplier-root.key --to "$MANAGER" --allow record-register \
-    --record-types cexchain.contract-consent/1 --ledger "$SUP" > /dev/null
+    --record-types kanhe.contract-consent/1 --ledger "$SUP" > /dev/null
 run key generate --alg sm2-sm3 --out officer.key > /dev/null
 run key generate --alg sm2-sm3 --out credit-agent.key > /dev/null
 OFFICER="$(run actor add --as bank-root.key --kind person --name "Credit Officer" --key officer.key \
@@ -178,7 +178,7 @@ AGENT="$(run actor add --as bank-root.key --kind agent --name "Credit Agent" --k
     --responsible "$OFFICER" --model credit-review-1 --model-version 2026-10 --ledger "$BANK" \
     --json | field '["actor"]["id"]')"
 run delegation grant --as bank-root.key --to "$AGENT" --allow record-register \
-    --record-types cexchain.contract-consent/1 --days 30 --ledger "$BANK" > /dev/null
+    --record-types kanhe.contract-consent/1 --days 30 --ledger "$BANK" > /dev/null
 say "Supplier: \"Sales Manager\", a person, may consent to contract calls."
 say "Bank A:   \"Credit Agent\", an AI agent with its own key, may consent for 30 days;"
 say "          the credit officer is accountable for it."
@@ -195,7 +195,7 @@ say "(In practice the manager adds --presence and confirms with a passkey or a U
 say " the report then shows that a person was present.)"
 
 step "7. The bank's AI agent consents through MCP, on the bank's SM3 ledger"
-# The bank runs `cexchain mcp` for its agent: an MCP client (here, this
+# The bank runs `kanhe mcp` for its agent: an MCP client (here, this
 # script) sends JSON-RPC requests on its standard input. Every action is
 # signed with the agent's key, checked against its delegation, and recorded
 # with provenance: its model and the tool it used. The agent first checks
@@ -203,10 +203,10 @@ step "7. The bank's AI agent consents through MCP, on the bank's SM3 ledger"
 META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}'
 tool() { printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{%s,"name":"%s","arguments":%s}}\n' "$1" "$META" "$2" "$3"; }
 {
-    tool 1 cexchain_whoami '{}'
-    tool 2 cexchain_list_pending_calls '{"home":"core"}'
-    tool 3 cexchain_fetch_instance "{\"home\":\"core\",\"instance\":\"$AGREEMENT\"}"
-    tool 4 cexchain_consent_contract_call "{\"home\":\"core\",\"call\":\"$CALL\",\"reference\":\"Credit approval CA-2026-311\",\"inputs\":\"credit memo CM-311: facility limit CNY 2,000,000\"}"
+    tool 1 kanhe_whoami '{}'
+    tool 2 kanhe_list_pending_calls '{"home":"core"}'
+    tool 3 kanhe_fetch_instance "{\"home\":\"core\",\"instance\":\"$AGREEMENT\"}"
+    tool 4 kanhe_consent_contract_call "{\"home\":\"core\",\"call\":\"$CALL\",\"reference\":\"Credit approval CA-2026-311\",\"inputs\":\"credit memo CM-311: facility limit CNY 2,000,000\"}"
 } > agent-requests.jsonl
 run mcp --ledger "$BANK" --as credit-agent.key --log-key bank-log.key < agent-requests.jsonl \
     > agent-responses.jsonl 2> /dev/null
@@ -235,7 +235,7 @@ step "8. Anyone verifies the agreement offline"
 # The supplier fetches the instance's evidence from its home and checks it:
 # every call is run again, every consent is checked on the ledger that gave
 # it, and the contract's code is rebuilt from the source its deploy carries.
-# The same file opens in the browser verifier (cexchain-verify.html).
+# The same file opens in the browser verifier (kanhe-verify.html).
 run contract fetch --peer core --instance "$AGREEMENT" --out agreement.cbor --ledger "$SUP" > /dev/null
 run contract verify agreement.cbor --ledger-id "$CORE_ID" | indent
 

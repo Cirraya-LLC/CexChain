@@ -5,11 +5,11 @@
 #include <array>
 #include <string>
 
-#include <cexchain/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/claims.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -358,12 +358,12 @@ Result<Claim> decode_claim(const cbor::Value& metadata) {
     if (source == nullptr || source->as_bytes() == nullptr) {
         return fail(Errc::malformed, "a claim names its source");
     }
-    CEXCHAIN_TRY(c.source, to_id(*source->as_bytes()));
+    KANHE_TRY(c.source, to_id(*source->as_bytes()));
     const cbor::Value* condition = get("condition");
     if (condition == nullptr) {
         return fail(Errc::malformed, "a claim's condition has 1 to 16 terms");
     }
-    CEXCHAIN_TRY(c.condition, decode_claim_condition(*condition));
+    KANHE_TRY(c.condition, decode_claim_condition(*condition));
     const cbor::Value* holds = get("holds");
     const cbor::Value* as_of = get("as_of");
     if (holds == nullptr || !holds->as_bool() || as_of == nullptr || !as_of->as_uint64()) {
@@ -392,8 +392,8 @@ Result<Claim> decode_claim(const cbor::Value& metadata) {
         }
         Id ledger;
         Id record;
-        CEXCHAIN_TRY(ledger, to_id(*(*pair)[0].as_bytes()));
-        CEXCHAIN_TRY(record, to_id(*(*pair)[1].as_bytes()));
+        KANHE_TRY(ledger, to_id(*(*pair)[0].as_bytes()));
+        KANHE_TRY(record, to_id(*(*pair)[1].as_bytes()));
         c.answers = std::pair{ledger, record};
     }
     return c;
@@ -448,4 +448,4 @@ std::optional<Id> claim_source(std::span<const Statement> events) {
     return std::nullopt;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

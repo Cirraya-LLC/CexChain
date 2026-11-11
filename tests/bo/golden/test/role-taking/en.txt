@@ -4,7 +4,7 @@ Test "a pledge to the bank needs its consent": passed
   Step 2 (line 31) passed: supplier pledge to bank -> consent of bank
     Result: the call waits for the consent of the bank.
   Step 3 (line 32) passed: supplier pledge to bank -> pledged
-    Result: accepted with the consent of the supplier and the bank, and the instance is pledged.
+    Result: accepted with the consent of the bank and the supplier, and the instance is pledged.
   Step 4 (line 33) passed: bank enforce -> active
     Result: accepted with the consent of the bank, and the instance is active.
 
@@ -14,7 +14,7 @@ Test "a transfer to the bank needs its consent": passed
   Step 2 (line 37) passed: supplier transfer to bank -> consent of bank
     Result: the call waits for the consent of the bank.
   Step 3 (line 38) passed: supplier transfer to bank -> active
-    Result: accepted with the consent of the supplier and the bank, and the instance is active.
+    Result: accepted with the consent of the bank and the supplier, and the instance is active.
   Step 4 (line 39) passed: bank transfer to bank -> refused "bo:requires transfer 1"
     Result: refused, since requirement 1 of transfer is not met (bo:requires transfer 1).
     The contract text, 4.2.5: Requirement 1: the bank is not the holder.
@@ -25,7 +25,7 @@ Test "the factor, bound by its first sale, consents to each pledge": passed
   Step 2 (line 43) passed: supplier sell to factor -> consent of factor
     Result: the call waits for the consent of factor.
   Step 3 (line 44) passed: supplier sell to factor -> active
-    Result: accepted with the consent of the supplier and factor, and the instance is active.
+    Result: accepted with the consent of factor and the supplier, and the instance is active.
   Step 4 (line 45) passed: factor transfer to bank -> active
     Result: accepted with the consent of factor and the bank, and the instance is active.
   Step 5 (line 46) passed: bank lodge to factor -> consent of factor

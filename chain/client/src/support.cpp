@@ -12,13 +12,13 @@
 #include <iterator>
 #include <unistd.h>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/storage.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 Bytes read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -170,10 +170,10 @@ crypto::PublicKey load_public_key(const std::filesystem::path& path) {
     if (crypto::openssl::is_encrypted_pkcs8(content) ||
         crypto::openssl::KeyPair::from_pkcs8(content)) {
         throw ActionError{path.string() +
-                          " is a private key; share only its public half (cexchain key public " +
+                          " is a private key; share only its public half (kanhe key public " +
                           path.string() + " --out FILE)"};
     }
-    throw ActionError{path.string() + " is not a CexChain public key file"};
+    throw ActionError{path.string() + " is not a Kanhe public key file"};
 }
 
 const crypto::openssl::Provider& shared_provider() {
@@ -308,4 +308,4 @@ void create_ledger(const std::filesystem::path& directory, const crypto::Signer&
                              "creating the ledger"));
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

@@ -17,12 +17,12 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/names.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/names.hpp>
 
 #include "reflection.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -183,4 +183,4 @@ cbor::Value to_cbor(const ast::File& file) {
          {entry_key("implicit_vocabulary"), cbor::Value::boolean(file.implicit_vocabulary)}});
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

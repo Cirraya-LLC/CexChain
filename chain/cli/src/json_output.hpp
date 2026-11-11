@@ -6,10 +6,10 @@
 #include <nlohmann/json.hpp>
 
 /// Every program's machine-readable output (--json).
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 using Json = nlohmann::ordered_json;
 
 void print_json(const Json& value);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -16,17 +16,17 @@
 #include <string_view>
 #include <unistd.h>
 
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/search/index.hpp>
-#include <cexchain/search/query.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/search/index.hpp>
+#include <kanhe/search/query.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 void require(bool condition) {
     if (!condition) {
@@ -42,7 +42,7 @@ struct World {
     std::optional<ledger::Ledger> ledger;
     std::unique_ptr<search::Index> index;
     std::filesystem::path file = std::filesystem::temp_directory_path() /
-                                 ("cexchain-search-fuzz-" + std::to_string(::getpid()) + ".sqlite");
+                                 ("kanhe-search-fuzz-" + std::to_string(::getpid()) + ".sqlite");
 
     World() {
         const Bytes seed(32, 7);

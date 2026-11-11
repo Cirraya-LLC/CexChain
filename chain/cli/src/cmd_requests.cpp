@@ -19,17 +19,17 @@
 #include <set>
 #include <variant>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/executor.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/executor.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
 #include "requests.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -380,7 +380,7 @@ int cmd_request_cancel(const Args& args) {
 int cmd_request_wait(const Args& args) {
     const auto url = server_option(args);
     if (!url) {
-        throw UsageError{"request wait asks a server: give --server URL (or $CEXCHAIN_SERVER)"};
+        throw UsageError{"request wait asks a server: give --server URL (or $KANHE_SERVER)"};
     }
     const std::uint64_t wait =
         args.has("timeout") ? parse_number(*args.get("timeout"), "--timeout") : 25;
@@ -724,4 +724,4 @@ int cmd_executor_revoke(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

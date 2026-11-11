@@ -15,13 +15,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/core/bytes.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 nlohmann::json Console::key_state() const {
     if (services_.keys == nullptr || !services_.keys->initialized()) {
@@ -118,4 +118,4 @@ void Console::ready_now() const {
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

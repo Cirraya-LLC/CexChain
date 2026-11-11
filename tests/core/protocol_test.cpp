@@ -7,26 +7,26 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace cbor = cexchain::cbor;
-namespace crypto = cexchain::crypto;
-namespace protocol = cexchain::protocol;
+namespace cbor = kanhe::cbor;
+namespace crypto = kanhe::crypto;
+namespace protocol = kanhe::protocol;
 using cbor::Value;
-using cexchain::Bytes;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::hex_field;
-using cexchain::test::load_vectors;
 using crypto::openssl::KeyPair;
+using kanhe::Bytes;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::hex_field;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -168,7 +168,7 @@ TEST_CASE("log entries, tree, checkpoint, and cosignature match the vectors",
         const crypto::HashAlg hash = ledger_hash(ledger);
         INFO(crypto::name(hash));
 
-        cexchain::merkle::Tree tree(provider(), hash);
+        kanhe::merkle::Tree tree(provider(), hash);
         for (const auto& entry_hex : ledger["log_entries"]) {
             const Bytes entry = hex(entry_hex.get<std::string>());
             const auto decoded = protocol::decode_log_entry(entry);

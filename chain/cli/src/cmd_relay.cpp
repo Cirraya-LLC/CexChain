@@ -10,15 +10,15 @@
 #include <filesystem>
 #include <print>
 
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/relay_client.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/relay_client.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 int cmd_relay_key_init(const Args& args) {
     const std::filesystem::path out = args.need("out");
@@ -41,7 +41,7 @@ int cmd_relay_key_init(const Args& args) {
     }
     std::println("relay key written to {}{}", out.string(),
                  encrypt ? " (encrypted)" : " (NOT encrypted)");
-    std::println("Use it with: cexchain relay use URL --relay-key {}", out.string());
+    std::println("Use it with: kanhe relay use URL --relay-key {}", out.string());
     return exit_ok;
 }
 
@@ -131,4 +131,4 @@ int cmd_relay_stop(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

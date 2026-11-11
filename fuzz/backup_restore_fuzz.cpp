@@ -10,17 +10,17 @@
 #include <sstream>
 #include <string>
 
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/backup.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/backup.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
+    static const kanhe::crypto::openssl::Provider provider;
     std::istringstream in(std::string(reinterpret_cast<const char*>(data), size));
-    cexchain::ledger::MemoryFileSystem fs;
-    cexchain::ledger::ManualClock clock(1'791'244'800'000);
+    kanhe::ledger::MemoryFileSystem fs;
+    kanhe::ledger::ManualClock clock(1'791'244'800'000);
     bool handed_over = false;
-    const auto restored = cexchain::ledger::restore_backup(
-        in, fs, clock, provider, [&](const cexchain::ledger::BackupFile&) -> cexchain::Status {
+    const auto restored = kanhe::ledger::restore_backup(
+        in, fs, clock, provider, [&](const kanhe::ledger::BackupFile&) -> kanhe::Status {
             handed_over = true;
             return {};
         });

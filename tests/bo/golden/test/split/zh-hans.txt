@@ -2,7 +2,7 @@
   第 1 步（第 24 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
     结果：调用被接受，实例现为正常。
   第 2 步（第 25 行）通过：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
-    结果：经供应商、maker2 和 maker1 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 maker1、maker2 和供应商同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 3 步（第 26 行）通过：maker1 split with parts = (HKD 100, HKD 500), recipients = (smith1, maker1) -> divided
     处理部分 1。
     结果：经 maker1 和 smith1 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
@@ -11,7 +11,7 @@
     结果：经 smith1 和 bank1 同意，调用被接受，实例现为已质押。
   第 5 步（第 28 行）通过：maker1 transfer to factor1 -> active
     处理部分 1.2。
-    结果：经 factor1 和 maker1 同意，调用被接受，实例现为正常。
+    结果：经 maker1 和 factor1 同意，调用被接受，实例现为正常。
   第 6 步（第 29 行）通过：supplier pledge to bank1 -> refused
     结果：账本拒绝调用：实例已处于最终状态，不再接受调用。
   第 7 步（第 30 行）通过：issuer pay smith1 at 2027-06-30 -> paid
@@ -39,11 +39,11 @@
   第 2 步（第 39 行）通过：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of maker2
     结果：调用正在等待 maker2 同意。
   第 3 步（第 40 行）通过：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of (maker1, maker2)
-    结果：调用正在等待 maker2 和 maker1 同意。
+    结果：调用正在等待 maker1 和 maker2 同意。
   第 4 步（第 41 行）通过：maker1 split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> consent of supplier
     结果：调用正在等待供应商同意。
   第 5 步（第 42 行）通过：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
-    结果：经供应商、maker2 和 maker1 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 maker1、maker2 和供应商同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
 
 测试 “the parts add up, each at least a cent, one for each recipient”：通过
   第 1 步（第 45 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
@@ -58,7 +58,7 @@
     结果：调用被拒绝，因为拆分 的第 1 项要求未满足（bo:requires split 1）。
     合约条款 4.1.4：要求 1：各接收方的项目数量为各部分的项目数量。
   第 5 步（第 49 行）通过：supplier split with parts = HKD 1_000, recipients = maker1 -> divided
-    结果：经供应商和 maker1 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 maker1 和供应商同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
 
 测试 “at most 15 recipients besides the holder”：通过
   第 1 步（第 52 行）通过：issuer issue with amount = HKD 16, due = 2027-06-30, tier = 1
@@ -67,13 +67,13 @@
     结果：调用被拒绝，因为拆分 的第 2 项要求未满足（bo:requires split 2）。
     合约条款 4.1.5：要求 2：各接收方的项目数量不超过 15 或持有人属于各接收方之一。
   第 3 步（第 54 行）通过：supplier split with parts = (HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1, HKD 1), recipients = (r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, supplier) -> divided
-    结果：经 r11、r7、供应商、r5、r2、r4、r15、r13、r9、r3、r14、r6、r1、r10、r8 和 r12 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 r6、r7、r3、r12、r8、r1、r10、r2、r4、r9、r15、r14、r5、供应商、r13 和 r11 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 4 步（第 55 行）通过：r15 pledge to bank1 -> pledged
     处理部分 15。
     结果：经 r15 和 bank1 同意，调用被接受，实例现为已质押。
   第 5 步（第 56 行）通过：supplier transfer to r1 -> active
     处理部分 16。
-    结果：经供应商和 r1 同意，调用被接受，实例现为正常。
+    结果：经 r1 和供应商同意，调用被接受，实例现为正常。
 
 测试 “not while pledged”：通过
   第 1 步（第 59 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1
@@ -86,7 +86,7 @@
   第 4 步（第 62 行）通过：bank1 release -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
   第 5 步（第 63 行）通过：supplier split with parts = (HKD 600, HKD 400), recipients = (maker1, maker2) -> divided
-    结果：经供应商、maker2 和 maker1 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 maker1、maker2 和供应商同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
 
 测试 “eight levels down, and no further”：通过
   第 1 步（第 66 行）通过：issuer issue with amount = HKD 1_000, due = 2027-06-30, tier = 1

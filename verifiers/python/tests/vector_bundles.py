@@ -31,7 +31,7 @@ sys.path.insert(0, str(HERE.parent))
 
 from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: E402
 
-from cexchain_verify import cbor, crypto, merkle, statetree  # noqa: E402
+from kanhe_verify import cbor, crypto, merkle, statetree  # noqa: E402
 
 VECTORS = HERE.parents[2] / "testvectors"
 VDS = {crypto.SHA256: 1, crypto.SM3: -65537}

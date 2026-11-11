@@ -12,9 +12,9 @@
 #include <cstdint>
 #include <string_view>
 
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::test::bo_runtime {
+namespace kanhe::test::bo_runtime {
 
 /// Reads the input with `read_input` and writes it back item by item through
 /// the `out_*` routines (head by head, strings with `out_raw`), checking
@@ -87,4 +87,4 @@ inline constexpr Harness harnesses[] = {
     {"typical-output", typical_output_module},
 };
 
-} // namespace cexchain::test::bo_runtime
+} // namespace kanhe::test::bo_runtime

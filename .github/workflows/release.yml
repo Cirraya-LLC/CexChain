@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 
-# The packages: on Linux cexchain (the chain) and cexchain-console (the
+# The packages: on Linux kanhe (the chain) and kanhe-console (the
 # console and the bo compiler), each a tarball, a .deb, and an .rpm; on macOS
 # a .pkg with all four programs, and a tarball. Built on a version tag (then
 # kept in a draft release with their SHA-256 sums, for a person to publish) or

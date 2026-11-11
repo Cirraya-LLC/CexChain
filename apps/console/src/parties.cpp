@@ -21,23 +21,23 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/contracts.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/contracts.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -378,7 +378,7 @@ http::Response Console::inbox_open_route(const http::Request& request) const {
         return error(502, "unavailable", "the home's call does not make a proposal");
     }
     const std::string upload =
-        store_upload(signer.user, "online-" + call_id.substr(0, 12) + ".cexchain", *encoded);
+        store_upload(signer.user, "online-" + call_id.substr(0, 12) + ".kanhe", *encoded);
     auto shown = read_exchange(signer, file, language_of(body.value("language", "")));
     if (auto* refused = std::get_if<http::Response>(&shown)) {
         return std::move(*refused);
@@ -457,4 +457,4 @@ void Console::exchange_send_route(const http::Request& request, Respond respond)
     });
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

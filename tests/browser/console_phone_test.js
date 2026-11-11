@@ -7,7 +7,7 @@
 // scrolling), the bar above them stays short, folded into a menu button,
 // and the menu reaches each one. With CONSOLE_TEST_SHOTS=DIR,
 // each screen is also saved there as a picture.
-// Usage: node console_phone_test.js CEXCHAIN
+// Usage: node console_phone_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -17,14 +17,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
+const kanhe = path.resolve(process.argv[2]);
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-phone-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-phone-"));
 const ledger = path.join(work, "ledger");
-const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
 const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
 const shots = process.env.CONSOLE_TEST_SHOTS;
 
@@ -40,7 +40,7 @@ function freePort() {
 
 async function waitRunning() {
   for (let i = 0; i < 300; i++) {
-    if (JSON.parse(run("cexchain-console", "status", "--json")).running) return;
+    if (JSON.parse(run("kanhe-console", "status", "--json")).running) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("the console did not start");
@@ -107,7 +107,7 @@ async function open(page, hash) {
 (async () => {
   if (shots) fs.mkdirSync(shots, { recursive: true });
   const port = await freePort();
-  const consoleProcess = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const consoleProcess = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                                { cwd: work, env });
   let browser;
   try {
@@ -137,7 +137,7 @@ async function open(page, hash) {
     fs.writeFileSync(sheet, JSON.stringify({
       sheet: 1, kind: "document", type: "example.org.letter/1", name: "Letter",
       fields: [{ name: "subject", required: true }, { name: "sent", type: "date" }] }));
-    run("cexchain-console", "kind", "add", sheet);
+    run("kanhe-console", "kind", "add", sheet);
     await page.evaluate(() => { location.hash = "#/new"; });
     await page.getByLabel("subject (required)").fill("A long subject to see how the form wraps on a phone");
     await page.getByLabel("sent").fill("2026-11-10");
@@ -166,7 +166,7 @@ async function open(page, hash) {
     console.log("console on a phone: passed");
   } finally {
     if (browser) await browser.close();
-    try { run("cexchain-console", "stop"); } catch { consoleProcess.kill(); }
+    try { run("kanhe-console", "stop"); } catch { consoleProcess.kill(); }
     fs.rmSync(work, { recursive: true, force: true });
   }
 })().catch((e) => {

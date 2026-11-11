@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/client/requests.hpp>
+#include <kanhe/client/requests.hpp>
 
 #include "contracts.hpp"
 #include "output.hpp"
@@ -15,7 +15,7 @@
 
 /// Requests and answers for people, and the keys and validity of the
 /// devices that answer them, from options.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// A request for people, as request_json shows it to programs.
 void print_request(const client::Session& session, const protocol::RequestState& request,
@@ -40,4 +40,4 @@ struct NewActorKey {
 /// A delegation's end from --days N or --until DATE, if either is given.
 [[nodiscard]] std::optional<protocol::Timestamp> validity_end(const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

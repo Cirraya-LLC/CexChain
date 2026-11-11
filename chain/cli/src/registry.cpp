@@ -16,7 +16,7 @@
 #include "commands.hpp"
 #include "registry_options.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -141,7 +141,7 @@ std::string completion_script(std::string_view shell) {
         }
         option_cases += std::format("        \"{}\") opts=\"{}\" ;;\n", command, list);
     }
-    // One function per program: cexchain-index completes as _cexchain_index.
+    // One function per program: kanhe-index completes as _kanhe_index.
     std::string function = "_" + std::string(program().name);
     std::ranges::replace(function, '-', '_');
     std::string script = std::format(R"(# {0} completion
@@ -288,4 +288,4 @@ int dispatch(int argc, const char* const* argv) {
     return spec->run(Args(*spec, std::move(positional), std::move(options)));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

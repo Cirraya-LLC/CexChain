@@ -9,22 +9,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace crypto = cexchain::crypto;
-namespace merkle = cexchain::merkle;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace crypto = kanhe::crypto;
+namespace merkle = kanhe::merkle;
 using crypto::Digest;
 using crypto::HashAlg;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -151,8 +151,7 @@ TEST_CASE("every proof in trees up to 70 entries verifies", "[core][merkle][prop
 TEST_CASE("proofs sharing a memo lead where each leads alone, damaged ones too",
           "[core][merkle][property]") {
     const auto tree = build_tree(HashAlg::sha256, 70);
-    const auto same = [](const cexchain::Result<Digest>& alone,
-                         const cexchain::Result<Digest>& shared) {
+    const auto same = [](const kanhe::Result<Digest>& alone, const kanhe::Result<Digest>& shared) {
         REQUIRE(alone.has_value() == shared.has_value());
         if (alone) {
             CHECK(*alone == *shared);
@@ -333,7 +332,7 @@ TEST_CASE("edge cases for empty and equal trees", "[core][merkle]") {
 
 TEST_CASE("leaf hashes appended in bulk give the tree appended one by one", "[core][merkle]") {
     // Ranges of three, run last first, as a pool might.
-    const cexchain::ForRanges backwards = [](std::size_t count, const auto& work) {
+    const kanhe::ForRanges backwards = [](std::size_t count, const auto& work) {
         for (std::size_t end = count; end > 0;) {
             const std::size_t begin = end >= 3 ? end - 3 : 0;
             work(begin, end);

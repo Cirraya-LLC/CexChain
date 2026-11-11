@@ -5,7 +5,7 @@
 
 #include <cstdlib>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 Args::Args(const CommandSpec& spec, std::vector<std::string> positional,
            std::multimap<std::string, std::string, std::less<>> options)
@@ -44,17 +44,17 @@ std::filesystem::path Args::ledger() const {
     if (auto value = get("ledger"); value && !value->empty()) {
         return *value;
     }
-    if (const char* env = std::getenv("CEXCHAIN_LEDGER"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_LEDGER"); env != nullptr && *env != '\0') {
         return env;
     }
-    throw UsageError{"no ledger given: pass --ledger DIR or set CEXCHAIN_LEDGER"};
+    throw UsageError{"no ledger given: pass --ledger DIR or set KANHE_LEDGER"};
 }
 
 std::filesystem::path Args::console_ledger() const {
     if (auto value = get("ledger"); value && !value->empty()) {
         return *value;
     }
-    if (const char* env = std::getenv("CEXCHAIN_LEDGER"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_LEDGER"); env != nullptr && *env != '\0') {
         return env;
     }
     return default_ledger_directory();
@@ -66,14 +66,14 @@ std::filesystem::path default_ledger_directory() {
         throw UsageError{"no ledger given and no home folder: pass --ledger DIR"};
     }
 #if defined(__APPLE__)
-    return std::filesystem::path(home) / "Library" / "Application Support" / "CexChain" / "ledger";
+    return std::filesystem::path(home) / "Library" / "Application Support" / "Kanhe" / "ledger";
 #else
     if (const char* data = std::getenv("XDG_DATA_HOME");
         data != nullptr && std::filesystem::path(data).is_absolute()) {
-        return std::filesystem::path(data) / "cexchain" / "ledger";
+        return std::filesystem::path(data) / "kanhe" / "ledger";
     }
-    return std::filesystem::path(home) / ".local" / "share" / "cexchain" / "ledger";
+    return std::filesystem::path(home) / ".local" / "share" / "kanhe" / "ledger";
 #endif
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

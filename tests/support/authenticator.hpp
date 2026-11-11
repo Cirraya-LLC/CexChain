@@ -8,15 +8,15 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
 // A software stand-in for a passkey authenticator, for tests: it registers
 // (navigator.credentials.create) and signs in (navigator.credentials.get)
 // as a browser on `origin` would report it.
-namespace cexchain::test {
+namespace kanhe::test {
 
 struct SoftPasskey {
     std::shared_ptr<const crypto::Signer> key;
@@ -104,4 +104,4 @@ private:
     }
 };
 
-} // namespace cexchain::test
+} // namespace kanhe::test

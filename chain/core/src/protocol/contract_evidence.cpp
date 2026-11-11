@@ -5,12 +5,12 @@
 #include <map>
 #include <utility>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
 
 #include "evidence_detail.hpp"
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -60,16 +60,16 @@ Result<ContractEvidence> decode_contract_evidence(ByteView encoded) {
     }
     cbor::DecodeOptions options;
     options.max_items = max_consent_bundles + 16;
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded, options));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
-    CEXCHAIN_TRY(std::uint64_t version, reader.need_uint(0));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded, options));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(std::uint64_t version, reader.need_uint(0));
     if (version != contract_evidence_version) {
         return fail(Errc::unsupported, "unsupported contract evidence version");
     }
     ContractEvidence e;
-    CEXCHAIN_TRY(e.instance_bundle, reader.need_bytes(1));
+    KANHE_TRY(e.instance_bundle, reader.need_bytes(1));
     if (const cbor::Value* list = reader.get(2)) {
-        CEXCHAIN_TRY(const cbor::Array* bundles, detail::as_array(*list));
+        KANHE_TRY(const cbor::Array* bundles, detail::as_array(*list));
         if (bundles->empty()) {
             return fail(Errc::non_canonical, "an empty list of consent bundles must be omitted");
         }
@@ -78,11 +78,11 @@ Result<ContractEvidence> decode_contract_evidence(ByteView encoded) {
                         "contract evidence holds at most 4096 consent bundles");
         }
         for (const cbor::Value& item : *bundles) {
-            CEXCHAIN_TRY(Bytes bundle, detail::as_bytes_value(item));
+            KANHE_TRY(Bytes bundle, detail::as_bytes_value(item));
             e.consent_bundles.push_back(std::move(bundle));
         }
     }
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_CHECK(reader.finish());
     return e;
 }
 
@@ -111,7 +111,7 @@ Result<ContractConsentCheck> check_consent_report(const crypto::Provider& provid
     if (!consent) {
         return verification_failure("the consent record's terms are malformed");
     }
-    CEXCHAIN_TRY(Id arguments, contract_arguments_digest(provider, home_hash, call.arguments));
+    KANHE_TRY(Id arguments, contract_arguments_digest(provider, home_hash, call.arguments));
     if (!consent_matches(*consent, home, call, arguments)) {
         return verification_failure("the consent is to other terms than the call's");
     }
@@ -132,7 +132,7 @@ Result<ContractConsentCheck> check_contract_consent(const crypto::Provider& prov
                                                     const ContractCallBody& call, const Id& home,
                                                     crypto::HashAlg home_hash, Timestamp at,
                                                     const VerifyOptions& trusted) {
-    CEXCHAIN_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
+    KANHE_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
     if (digest != ref.bundle) {
         return verification_failure("the consent bundle is not the one the call cites");
     }
@@ -153,7 +153,7 @@ check_verified_contract_consent(const crypto::Provider& provider, const Contract
                                 ByteView bundle, EvidenceReport report,
                                 const ContractCallBody& call, const Id& home,
                                 crypto::HashAlg home_hash, Timestamp at) {
-    CEXCHAIN_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
+    KANHE_TRY(crypto::Digest digest, provider.digest(home_hash, bundle));
     if (digest != ref.bundle) {
         return verification_failure("the consent bundle is not the one the call cites");
     }
@@ -165,10 +165,10 @@ namespace {
 Result<ContractReport> verify_contract_evidence_as_given(const crypto::Provider& provider,
                                                          ByteView encoded,
                                                          const VerifyOptions& options) {
-    CEXCHAIN_TRY(ContractEvidence evidence, decode_contract_evidence(encoded));
+    KANHE_TRY(ContractEvidence evidence, decode_contract_evidence(encoded));
     ContractReport out;
-    CEXCHAIN_TRY(out.instance,
-                 detail::verify_bundle_as_given(provider, evidence.instance_bundle, options));
+    KANHE_TRY(out.instance,
+              detail::verify_bundle_as_given(provider, evidence.instance_bundle, options));
     if (!out.instance.instance) {
         return verification_failure("the evidence is not about a contract instance");
     }
@@ -180,7 +180,7 @@ Result<ContractReport> verify_contract_evidence_as_given(const crypto::Provider&
     // The bundles by the hash (the home's) that calls cite them by.
     std::map<Bytes, std::pair<const Bytes*, bool>> bundles;
     for (const Bytes& bundle : evidence.consent_bundles) {
-        CEXCHAIN_TRY(crypto::Digest digest, provider.digest(out.instance.hash, bundle));
+        KANHE_TRY(crypto::Digest digest, provider.digest(out.instance.hash, bundle));
         const Bytes key(digest.bytes().begin(), digest.bytes().end());
         if (!bundles.emplace(key, std::pair(&bundle, false)).second) {
             return verification_failure("a consent bundle is repeated");
@@ -199,10 +199,10 @@ Result<ContractReport> verify_contract_evidence_as_given(const crypto::Provider&
                 return verification_failure("a consent a call cites is missing its evidence");
             }
             found->second.second = true;
-            CEXCHAIN_TRY(ContractConsentCheck check,
-                         check_contract_consent(provider, ref, *found->second.first,
-                                                *event.contract_call, out.instance.ledger_id,
-                                                out.instance.hash, event.registered_at, options));
+            KANHE_TRY(ContractConsentCheck check,
+                      check_contract_consent(provider, ref, *found->second.first,
+                                             *event.contract_call, out.instance.ledger_id,
+                                             out.instance.hash, event.registered_at, options));
             step.consents.push_back(std::move(check));
         }
         out.steps.push_back(std::move(step));
@@ -228,4 +228,4 @@ Result<ContractReport> verify_contract_evidence(const crypto::Provider& provider
     return verify_contract_evidence_as_given(checked, encoded, options);
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

@@ -20,17 +20,17 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -262,4 +262,4 @@ Console::register_draft(const nlohmann::json& intent, const std::string& user) c
     return std::pair(std::move(body), std::move(draft));
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

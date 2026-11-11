@@ -9,8 +9,8 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/error.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/error.hpp>
 
 struct sqlite3;
 struct sqlite3_stmt;
@@ -35,7 +35,7 @@ struct sqlite3_stmt;
 
 /// Just enough of SQLite: a connection, statements with bound values, and
 /// errors as the project's.
-namespace cexchain::search::sql {
+namespace kanhe::search::sql {
 
 class Statement {
 public:
@@ -93,4 +93,4 @@ private:
     sqlite3* db_ = nullptr;
 };
 
-} // namespace cexchain::search::sql
+} // namespace kanhe::search::sql

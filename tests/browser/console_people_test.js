@@ -11,7 +11,7 @@
 // registers one with his own tap, and manages no one. The owner withdraws
 // what he may do, and his next registration is refused. Then an API token,
 // shown once, and the console's activity log.
-// Usage: node console_people_test.js CEXCHAIN
+// Usage: node console_people_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -22,13 +22,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-people-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-people-"));
 const host = "ledger.example.test";
 
 function freePort() {
@@ -79,9 +79,9 @@ async function tap(page, what) {
     .update(new crypto.X509Certificate(fs.readFileSync(cert)).publicKey.export({ type: "spki", format: "der" }))
     .digest("base64");
   const ledger = path.join(work, "ledger");
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
-  const console_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--public-url", origin,
+  const console_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--public-url", origin,
                                     "--tls-cert", cert, "--tls-key", key, "--quiet"]), { cwd: work, env });
   for (let i = 0; i < 300 && !fs.existsSync(path.join(ledger, "console", "setup-link")); i++) {
     await new Promise((r) => setTimeout(r, 100));
@@ -106,13 +106,13 @@ async function tap(page, what) {
     await a.getByRole("button", { name: "Continue" }).click();
     await a.getByRole("button", { name: "Not now" }).click();
     await a.getByRole("heading", { name: "Home" }).waitFor();
-    const owner = JSON.parse(run("cexchain-console", "user", "show", "Alice", "--json"));
+    const owner = JSON.parse(run("kanhe-console", "user", "show", "Alice", "--json"));
     assert.ok(JSON.stringify(owner.passkeys).includes(host), "the owner's passkey is for the host name");
     const sheet = path.join(work, "photo-kind.json");
     fs.writeFileSync(sheet, JSON.stringify({
       sheet: 1, kind: "document", type: "example.org.photo/1", name: "Photo",
       fields: [{ name: "place", required: true }], files: "optional" }));
-    run("cexchain-console", "kind", "add", sheet);
+    run("kanhe-console", "kind", "add", sheet);
 
     // Bob is invited, and registers his passkey for the host name in his own browser.
     await a.getByRole("link", { name: "People" }).click();
@@ -120,7 +120,7 @@ async function tap(page, what) {
     await a.getByLabel("Name", { exact: true }).fill("Bob");
     await a.getByRole("button", { name: "Make an invitation link" }).click();
     const link = await a.getByLabel("The invitation for Bob:").inputValue();
-    assert.ok(link.startsWith(`${origin}/console/#/enroll/cxi_`));
+    assert.ok(link.startsWith(`${origin}/console/#/enroll/khi_`));
     const bob = await personIn(browser, "Bob");
     people.push(bob);
     current = bob;
@@ -187,7 +187,7 @@ async function tap(page, what) {
     await a.getByRole("heading", { name: "API tokens" }).waitFor();
     await a.getByLabel("Name", { exact: true }).fill("robot");
     await a.getByRole("button", { name: "Make a token" }).click();
-    assert.match(await a.getByLabel("The token robot:").inputValue(), /^cxt_/);
+    assert.match(await a.getByLabel("The token robot:").inputValue(), /^kht_/);
     for (const what of ["invited someone", "registered a person", "registered passkeys",
                         "granted what someone may do", "withdrew what someone may do"]) {
       await a.getByRole("cell", { name: what, exact: true }).first().waitFor();
@@ -208,7 +208,7 @@ async function tap(page, what) {
   } finally {
     await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

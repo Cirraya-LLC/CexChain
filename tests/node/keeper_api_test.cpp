@@ -21,13 +21,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/keeper.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/keeper.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "request_query.hpp"
 #include "support/ledger_world.hpp"
@@ -35,9 +35,9 @@
 
 namespace {
 
-using namespace cexchain::test;
-namespace node = cexchain::node;
-using cexchain::Bytes;
+using namespace kanhe::test;
+namespace node = kanhe::node;
+using kanhe::Bytes;
 using json = nlohmann::json;
 
 constexpr protocol::Timestamp hour = 3'600'000;
@@ -47,7 +47,7 @@ std::filesystem::path fresh_directory() {
     static int counter = 0;
     const auto dir =
         std::filesystem::temp_directory_path() /
-        ("cexchain-keeper-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+        ("kanhe-keeper-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -301,7 +301,7 @@ json get_json(const node::Client& c, const std::string& path, int status = 200) 
 }
 
 std::string hex_id(const protocol::Id& id) {
-    return cexchain::to_hex(id.bytes());
+    return kanhe::to_hex(id.bytes());
 }
 
 } // namespace
@@ -401,7 +401,7 @@ TEST_CASE("time rules are due once their contract accepts them, within a keeper'
     o = {};
     o.now = suspend_at;
     o.keeper = home.request;
-    CHECK(node::find_due(provider(), state, o).error().code == cexchain::Errc::not_found);
+    CHECK(node::find_due(provider(), state, o).error().code == kanhe::Errc::not_found);
     o.keeper.reset();
     o.max_runs = 0;
     CHECK_FALSE(node::find_due(provider(), state, o));
@@ -718,7 +718,7 @@ struct Fleet {
             return registered->statement_id;
         };
         auto submit_all = [&](const std::vector<Bytes>& statements) {
-            std::vector<cexchain::ByteView> views(statements.begin(), statements.end());
+            std::vector<kanhe::ByteView> views(statements.begin(), statements.end());
             std::vector<protocol::Id> out;
             for (auto& r : ledger->submit_batch(views)) {
                 REQUIRE(r);

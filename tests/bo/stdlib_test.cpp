@@ -8,7 +8,7 @@
 // a problem; their contract text has goldens in three languages
 // (tests/bo/golden/explain/stdlib/); and `bo stdlib` finds an action by any
 // of its words and writes its terms in any language.
-// Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the goldens.
+// Set KANHE_UPDATE_GOLDENS=1 to rewrite the goldens.
 
 #include <algorithm>
 #include <cstddef>
@@ -25,21 +25,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/vocab.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
 std::string read_text(const std::filesystem::path& path) {
@@ -245,7 +245,7 @@ TEST_CASE("the standard terms are placed in the contract, not in the library", "
 }
 
 TEST_CASE("the standard library's contract text, in three languages", "[bo][stdlib]") {
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     const std::filesystem::path dir = golden_dir / "explain" / "stdlib";
     for (const auto& [id, file] : languages) {
         INFO(id);

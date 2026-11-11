@@ -22,18 +22,18 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/cbor.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 /// A source that uses the pack and writes each of its actions.
 std::string source_using(const bo::VocabularyPack& pack, const bo::PackSet& set) {
@@ -131,17 +131,17 @@ void check(const bo::VocabularyRead& read) {
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     // Read once before timing anything: the official packs and the
     // standard library.
-    static const bool ready = !cexchain::bo::official_packs().empty() &&
-                              !cexchain::bo::standard_library().templates.empty();
+    static const bool ready =
+        !kanhe::bo::official_packs().empty() && !kanhe::bo::standard_library().templates.empty();
     if (!ready) {
         std::abort();
     }
     const std::string_view text(reinterpret_cast<const char*>(data), size);
-    check(cexchain::bo::read_vocabulary_pack(text));
-    cexchain::cbor::DecodeOptions options;
-    options.max_depth = cexchain::cbor::max_nesting_depth;
-    if (const auto value = cexchain::cbor::decode(cexchain::ByteView(data, size), options)) {
-        check(cexchain::bo::read_vocabulary_pack(*value));
+    check(kanhe::bo::read_vocabulary_pack(text));
+    kanhe::cbor::DecodeOptions options;
+    options.max_depth = kanhe::cbor::max_nesting_depth;
+    if (const auto value = kanhe::cbor::decode(kanhe::ByteView(data, size), options)) {
+        check(kanhe::bo::read_vocabulary_pack(*value));
     }
     return 0;
 }

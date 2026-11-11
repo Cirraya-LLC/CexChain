@@ -26,7 +26,7 @@ import unittest
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from cexchain_verify import cli  # noqa: E402
+from kanhe_verify import cli  # noqa: E402
 
 SUITE = HERE.parents[2] / "testvectors" / "evidence-v1.json"
 OPTIONS = {"ledger_id", "witnesses", "min_witnesses", "tsa_roots", "min_timestamps", "attachments",

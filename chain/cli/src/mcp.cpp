@@ -23,13 +23,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/http.hpp>
-#include <cexchain/node/peers.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/http.hpp>
+#include <kanhe/node/peers.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
@@ -38,7 +38,7 @@
 #include "requests.hpp"
 #include "support.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -57,7 +57,7 @@ constexpr int invalid_params = -32602;
 constexpr int unsupported_protocol_version = -32022;
 
 json server_info() {
-    return {{"name", "cexchain"}, {"version", CEXCHAIN_VERSION}};
+    return {{"name", "kanhe"}, {"version", KANHE_VERSION}};
 }
 
 json supported_versions() {
@@ -223,21 +223,21 @@ public:
             responsible = session.state().actor(*me.responsible)->display_name;
         }
         instructions_ =
-            "You act on the CexChain ledger of " + session.state().organization() + " as \"" +
+            "You act on the Kanhe ledger of " + session.state().organization() + " as \"" +
             me.display_name + "\" (" + kind_label(me.kind) +
             "). Every action you take is signed with your own key, recorded as performed by "
             "you, and attributed to " +
             responsible +
             ", who is accountable for you. You can only do what your delegations allow "
-            "(cexchain_whoami lists them); if the ledger refuses an action, do not try to work "
+            "(kanhe_whoami lists them); if the ledger refuses an action, do not try to work "
             "around it, report it. Before acting on a document from someone else, verify its "
-            "evidence with cexchain_verify_evidence. When issuing or changing records, pass "
+            "evidence with kanhe_verify_evidence. When issuing or changing records, pass "
             "'inputs' describing what you based the action on: only its hash is recorded. "
-            "Contracts with other organizations: cexchain_list_pending_calls shows the calls a "
-            "home holds for your consent; check the instance with cexchain_fetch_instance before "
-            "consenting with cexchain_consent_contract_call. Requests: contracts ask for work "
-            "outside the ledger (cexchain_list_requests); answer one your delegations let you "
-            "with cexchain_answer_request, once the work is done or has failed, and never claim "
+            "Contracts with other organizations: kanhe_list_pending_calls shows the calls a "
+            "home holds for your consent; check the instance with kanhe_fetch_instance before "
+            "consenting with kanhe_consent_contract_call. Requests: contracts ask for work "
+            "outside the ledger (kanhe_list_requests); answer one your delegations let you "
+            "with kanhe_answer_request, once the work is done or has failed, and never claim "
             "work you did not do.";
     }
 
@@ -402,7 +402,7 @@ private:
                 session.state(), me.id, protocol::StatementType::record_register,
                 std::string(protocol::contract_consent_type), ledger::SystemClock{}.now())) {
             throw ToolError{"no valid delegation lets you consent to contract calls "
-                            "(cexchain.contract-consent/1 records), so you may not propose them "
+                            "(kanhe.contract-consent/1 records), so you may not propose them "
                             "for your organization either"};
         }
     }
@@ -442,7 +442,7 @@ private:
             {"type", "string"},
             {"description", "What you based this action on (only its hash is recorded)."}};
 
-        add("cexchain_whoami",
+        add("kanhe_whoami",
             "Your identity on the ledger: name, kind, accountable person, and the delegations "
             "that define what you may do.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
@@ -471,7 +471,7 @@ private:
                 return out;
             });
 
-        add("cexchain_ledger_status",
+        add("kanhe_ledger_status",
             "The ledger's identity, size, and latest checkpoint, and its peers: other "
             "organizations' ledgers, by the names the contract tools take as 'home'.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
@@ -496,13 +496,13 @@ private:
                 return out;
             });
 
-        add("cexchain_record_types",
+        add("kanhe_record_types",
             "Record types. A record is a document of any kind, and its type is a name the "
             "registrant chooses (e.g. example.org.photo/1), with the generic lifecycle "
             "(registered, no transitions, endorsed in any role, revocable). Lists the "
             "protocol's own types (access requests, grants, and receipts; contract consents) "
             "with what each is for, its initial state, transitions, and endorsement roles; "
-            "other names beginning with \"cexchain.\" are reserved.",
+            "other names beginning with \"kanhe.\" are reserved.",
             json::object(), json::array(), read_only, [](const Tool&, const json&) {
                 json types = json::array();
                 for (const protocol::RecordType& t : protocol::builtin_record_types()) {
@@ -538,12 +538,12 @@ private:
              "Pages: limit (1 to 1000), cursor (the answer's next), order (new or old). Reports: "
              "by (comma-separated: type, state, registrant, contract, day, week, month), "
              "utc_offset (+08:00), sum (a number field, things only)."}};
-        // The search index is not the chain's: a server with it (cexchain-index
+        // The search index is not the chain's: a server with it (kanhe-index
         // serve, or the console) answers, through client mode.
         auto search_on_server = [](Session& session, std::string path, const json& arguments) {
             if (!session.remote()) {
                 throw ToolError{"searches and reports come from a server with the search index "
-                                "(cexchain-index serve, or the console): run cexchain mcp with "
+                                "(kanhe-index serve, or the console): run kanhe mcp with "
                                 "--server"};
             }
             char separator = '?';
@@ -564,7 +564,7 @@ private:
             return json::parse(std::string(body.begin(), body.end()));
         };
 
-        add("cexchain_search_records",
+        add("kanhe_search_records",
             "Find records by what the ledger holds in the clear: type, state, who registered "
             "them, when, whether a newer version superseded them, and their public metadata "
             "(never private field values). Newest first, a page at a time. The search index is "
@@ -576,7 +576,7 @@ private:
                 return search_on_server(session, "/v1/records", arguments);
             });
 
-        add("cexchain_search_instances",
+        add("kanhe_search_instances",
             "Find things under contracts (contract instances) by contract or its name, state, a "
             "party's ledger, when they were created or last called, the creating call's "
             "reference, and the fields of their state, exactly or as a number range. Needs a "
@@ -587,7 +587,7 @@ private:
                 return search_on_server(session, "/v1/instances", arguments);
             });
 
-        add("cexchain_report",
+        add("kanhe_report",
             "Count records or things under contracts, grouped (by type, state, registrant, "
             "contract, day, week, or month), with the same filters as the searches; for things, "
             "also the total, least, and greatest of a number field (sum). Needs a server with "
@@ -607,7 +607,7 @@ private:
                 return search_on_server(session, "/v1/reports/" + of, arguments);
             });
 
-        add("cexchain_get_record",
+        add("kanhe_get_record",
             "A record's type, state, endorsements, next possible states, and versions: the "
             "record it supersedes, the newer one that superseded it, and the latest.",
             {{"record",
@@ -644,7 +644,7 @@ private:
                     {"latest_version", hex_id(versions.back())}};
             });
 
-        add("cexchain_issue_record",
+        add("kanhe_issue_record",
             "Issue a record: a document of any kind, of a type your organization names (a "
             "report, a photo, a statement). Field values stay private until disclosed; only "
             "commitments are recorded.",
@@ -652,7 +652,7 @@ private:
               {{"type", "string"},
                {"description",
                 "A type name of your own, e.g. example.org.photo/1 (names beginning with "
-                "\"cexchain.\" are the protocol's)."}}},
+                "\"kanhe.\" are the protocol's)."}}},
              {"fields",
               {{"type", "object"},
                {"additionalProperties", {{"type", "string"}}},
@@ -693,7 +693,7 @@ private:
                             {"state", session.state().record(id)->state}};
             });
 
-        add("cexchain_endorse_record",
+        add("kanhe_endorse_record",
             "Endorse a record in a role (any role name, e.g. author, reviewer, approver).",
             {{"record", {{"type", "string"}}},
              {"role", {{"type", "string"}}},
@@ -710,7 +710,7 @@ private:
                             {"role", body.role}};
             });
 
-        add("cexchain_transition_record", "Move a record to its next state.",
+        add("kanhe_transition_record", "Move a record to its next state.",
             {{"record", {{"type", "string"}}},
              {"to_state", {{"type", "string"}}},
              {"inputs", inputs_property}},
@@ -725,7 +725,7 @@ private:
                 return json{{"record_id", hex_id(record)}, {"from", from}, {"to", body.to_state}};
             });
 
-        add("cexchain_list_contracts",
+        add("kanhe_list_contracts",
             "This ledger's contracts: their functions (create makes an instance, call acts on "
             "one), language, whether retired, and how many instances each governs.",
             json::object(), json::array(), read_only, [this](const Tool&, const json&) {
@@ -737,7 +737,7 @@ private:
                 return json{{"contracts", contracts}};
             });
 
-        add("cexchain_get_instance",
+        add("kanhe_get_instance",
             "A contract instance (one thing the contract's rules govern): its status, parties, "
             "state, head (which calls and consents must name), whether final, and every call "
             "with its arguments and consents. A call may create parts of an instance (such as "
@@ -755,7 +755,7 @@ private:
                 return json::parse(instance_json(session, *session.state().instance(id)).dump());
             });
 
-        add("cexchain_verify_contract_evidence",
+        add("kanhe_verify_contract_evidence",
             "Verify a contract instance's evidence offline (every call, run again, and every "
             "party's consent on its own ledger) before relying on the instance.",
             {{"evidence_path", {{"type", "string"}}},
@@ -793,7 +793,7 @@ private:
         const json home_property = {{"type", "string"},
                                     {"description",
                                      "The instance's home: a peer of this ledger, by name "
-                                     "(cexchain_ledger_status lists them)."}};
+                                     "(kanhe_ledger_status lists them)."}};
         const json arguments_property = {
             {"description",
              "The call's arguments in CBOR diagnostic notation (RFC 8949, section 8): JSON "
@@ -805,7 +805,7 @@ private:
             {"description", "A reference of your organization's, such as a file or approval "
                             "number; recorded in the clear."}};
 
-        add("cexchain_call_contract",
+        add("kanhe_call_contract",
             "Act on a contract whose home is your organization's ledger: create an instance (give "
             "'contract' and a function that creates) or call a function on one (give "
             "'instance'). Signed with your key under your delegation, which may cover only some "
@@ -879,7 +879,7 @@ private:
                 return out;
             });
 
-        add("cexchain_list_pending_calls",
+        add("kanhe_list_pending_calls",
             "Calls an instance's home holds until the parties consent (its registrar), as far as "
             "they concern your ledger: the instance and its head, the function, the arguments, "
             "which ledgers the contract still waits for, and when each call lapses. Review a "
@@ -905,7 +905,7 @@ private:
                 return json{{"home", home.name}, {"calls", std::move(calls)}};
             });
 
-        add("cexchain_fetch_instance",
+        add("kanhe_fetch_instance",
             "A contract instance whose home is another organization's ledger (a peer), fetched "
             "and verified: every call run again and every consent checked on its own ledger. "
             "Shows its status, parties, state, head, and calls; for a part, its parent and its "
@@ -926,11 +926,11 @@ private:
                 return out;
             });
 
-        add("cexchain_propose_contract_call",
+        add("kanhe_propose_contract_call",
             "Propose a call on a contract instance whose home is another organization's ledger "
             "(a peer) to that home's registrar, as one of the instance's parties. The registrar "
             "runs the contract and holds the call until every party it names has consented on "
-            "its own ledger (cexchain_consent_contract_call); nothing is recorded before that. A "
+            "its own ledger (kanhe_consent_contract_call); nothing is recorded before that. A "
             "call the contract would take without consents, or rejects, is refused. Proposals "
             "go out under your organization's peer token, so you need a delegation to consent to "
             "contract calls.",
@@ -978,10 +978,10 @@ private:
                 return out;
             });
 
-        add("cexchain_consent_contract_call",
+        add("kanhe_consent_contract_call",
             "Consent, on your organization's ledger, to a call another organization's registrar "
-            "holds (find it with cexchain_list_pending_calls, and check the instance with "
-            "cexchain_fetch_instance, first). Records a cexchain.contract-consent/1 record signed "
+            "holds (find it with kanhe_list_pending_calls, and check the instance with "
+            "kanhe_fetch_instance, first). Records a kanhe.contract-consent/1 record signed "
             "with your key and naming the call's exact terms: the instance and its head, the "
             "function, and a digest of the arguments. Its evidence goes to the home, which "
             "records the call once the contract has every consent it asks for. A consent applies "
@@ -1040,7 +1040,7 @@ private:
                         out["home_answer"] = {{"status", "refused"}, {"error", e.message}};
                         out["note"] = "Your consent is recorded on your ledger, but the home did "
                                       "not take it. Unused, it lapses; you may also withdraw it "
-                                      "(cexchain_transition_record to \"withdrawn\") if your "
+                                      "(kanhe_transition_record to \"withdrawn\") if your "
                                       "delegation allows.";
                     }
                 }
@@ -1051,7 +1051,7 @@ private:
         // outside the ledger, and the answers that close them.
         const json request_property = {
             {"type", "string"}, {"description", "The request's id or a unique prefix (8+ hex)."}};
-        add("cexchain_list_requests",
+        add("kanhe_list_requests",
             "Requests that contract calls on this ledger made: work outside the ledger (send a "
             "notice, call a system), each with a kind, params, a deadline, and the function an "
             "answer calls (its reply). A request stays open until one answer closes it: done, "
@@ -1107,7 +1107,7 @@ private:
                 return json{{"requests", std::move(requests)}};
             });
 
-        add("cexchain_get_request",
+        add("kanhe_get_request",
             "One request: what was asked (kind, params), by which call, its deadline and reply, "
             "whether it is open or overdue, and its answer if it has one.",
             {{"request", request_property}}, json::array({"request"}), read_only,
@@ -1118,7 +1118,7 @@ private:
                 return plain(request_json(session, r, ledger::SystemClock{}.now()));
             });
 
-        add("cexchain_answer_request",
+        add("kanhe_answer_request",
             "Answer a request, as its executor: say what became of the work it asked for. done: "
             "it was done; failed: it was not (give a reason code); expired: nobody did it in "
             "time (valid once its deadline has come). The answer is a call of the request's "
@@ -1185,7 +1185,7 @@ private:
                 return out;
             });
 
-        add("cexchain_verify_evidence",
+        add("kanhe_verify_evidence",
             "Verify an evidence bundle offline before acting on a document from someone else.",
             {{"bundle_path", {{"type", "string"}}},
              {"expected_ledger_id",
@@ -1264,8 +1264,8 @@ int cmd_mcp(const Args& args) {
         static_cast<void>(load_signer(*log_key, args));
     }
     Server server(args, load_signer(args.need("as"), args));
-    std::println(stderr, "cexchain MCP server ready (stdio)");
+    std::println(stderr, "kanhe MCP server ready (stdio)");
     return server.run();
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

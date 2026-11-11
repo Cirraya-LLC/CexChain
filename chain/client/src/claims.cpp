@@ -7,12 +7,12 @@
 #include <tuple>
 #include <vector>
 
-#include <cexchain/client/claims.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/client/claims.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/verifier/report.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -344,4 +344,4 @@ std::string claim_status(const protocol::LedgerState& state,
                                                : "standing";
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

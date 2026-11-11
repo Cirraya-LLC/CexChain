@@ -14,9 +14,9 @@
 #include <set>
 #include <vector>
 
-#include <cexchain/crypto/pkcs11.hpp>
+#include <kanhe/crypto/pkcs11.hpp>
 
-namespace cexchain::crypto::pkcs11 {
+namespace kanhe::crypto::pkcs11 {
 
 namespace {
 
@@ -486,14 +486,14 @@ struct Key::Impl {
         auto point = attribute(f(), session, *pub, CKA_EC_POINT);
         if (!type_bytes || !params || !point || type_bytes->size() != sizeof(CK_KEY_TYPE)) {
             return fail(Errc::unsupported,
-                        "the token's key is not an elliptic-curve key CexChain uses");
+                        "the token's key is not an elliptic-curve key Kanhe uses");
         }
         CK_KEY_TYPE type = 0;
         std::memcpy(&type, type_bytes->data(), sizeof type);
         const auto alg = algorithm_of(type, *params);
         if (!alg) {
             return fail(Errc::unsupported,
-                        "the token's key uses a curve CexChain does not (P-256, SM2, Ed25519)");
+                        "the token's key uses a curve Kanhe does not (P-256, SM2, Ed25519)");
         }
         public_key = PublicKey{*alg, unwrap_point(std::move(*point), public_key_size(*alg))};
         if (public_key.bytes.size() != public_key_size(*alg) ||
@@ -542,7 +542,7 @@ Result<Key> Key::generate(const KeyUri& uri, std::string_view pin, SigAlg alg,
         params = oid_ed25519;
     } else {
         return fail(Errc::unsupported,
-                    "CexChain generates ESP256 or Ed25519 keys on tokens; use the vendor's "
+                    "Kanhe generates ESP256 or Ed25519 keys on tokens; use the vendor's "
                     "tools for SM2");
     }
     auto impl = std::make_unique<Impl>();
@@ -688,4 +688,4 @@ Result<Bytes> Key::sign(ByteView message) const {
     return signature;
 }
 
-} // namespace cexchain::crypto::pkcs11
+} // namespace kanhe::crypto::pkcs11

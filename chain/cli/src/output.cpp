@@ -5,7 +5,7 @@
 
 #include <print>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 int report_submitted(const Args& args, const client::Session& session,
                      const protocol::Id& statement, const Json& extra, const std::string& text) {
@@ -22,4 +22,4 @@ int report_submitted(const Args& args, const client::Session& session,
     return 0;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

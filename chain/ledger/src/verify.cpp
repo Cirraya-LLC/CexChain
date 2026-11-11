@@ -11,14 +11,14 @@
 #include <set>
 #include <utility>
 
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/ledger/parallel.hpp>
-#include <cexchain/ledger/verify.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/ledger/parallel.hpp>
+#include <kanhe/ledger/verify.hpp>
 
 #include "signature_table.hpp"
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace detail {
 
@@ -606,4 +606,4 @@ SignatureCache& signature_cache() {
     return *cache;
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

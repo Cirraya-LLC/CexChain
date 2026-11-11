@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-#include <cexchain/core/error.hpp>
+#include <kanhe/core/error.hpp>
 
-namespace cexchain {
+namespace kanhe {
 
 std::string_view to_string(Errc code) noexcept {
     switch (code) {
@@ -33,4 +33,4 @@ std::string_view to_string(Errc code) noexcept {
     return "unknown error";
 }
 
-} // namespace cexchain
+} // namespace kanhe

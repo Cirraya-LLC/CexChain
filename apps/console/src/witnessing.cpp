@@ -20,22 +20,22 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/witness.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/witness.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -363,4 +363,4 @@ nlohmann::json Console::witnessing_view(const node::Peer& peer) const {
     return {{"witnesses_us", us}, {"we_witness", them}};
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

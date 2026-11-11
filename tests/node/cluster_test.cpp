@@ -19,9 +19,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/contracts.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/contracts.hpp>
 
 #include "cluster_parts.hpp"
 #include "support/ledger_world.hpp"
@@ -32,12 +32,12 @@
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
 using namespace std::chrono_literals;
-namespace node = cexchain::node;
+namespace node = kanhe::node;
 
 bool eventually(const std::function<bool()>& condition, std::chrono::milliseconds limit = 60s) {
     const auto deadline = std::chrono::steady_clock::now() + limit;
@@ -68,7 +68,7 @@ struct Node {
         auto started = node::Cluster::start(
             dir, *ledger,
             [id = config.id](std::string_view what, std::string_view detail) {
-                if (std::getenv("CEXCHAIN_CLUSTER_DEBUG") != nullptr) {
+                if (std::getenv("KANHE_CLUSTER_DEBUG") != nullptr) {
                     std::fprintf(stderr, "node %d: %.*s %.*s\n", id, static_cast<int>(what.size()),
                                  what.data(), static_cast<int>(detail.size()), detail.data());
                 }
@@ -97,9 +97,9 @@ struct Trio {
     explicit Trio(int members = 3, node::ClusterTuning tuning = {},
                   std::vector<Bytes> secrets = {}) {
         static int counter = 0;
-        const auto base = std::filesystem::temp_directory_path() /
-                          ("cexchain-cluster-test-" + std::to_string(::getpid()) + "-" +
-                           std::to_string(counter++));
+        const auto base =
+            std::filesystem::temp_directory_path() /
+            ("kanhe-cluster-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
         std::filesystem::remove_all(base);
         const Bytes genesis = *w.ledger().entry(0);
         for (int id = 1; id <= 3; ++id) {
@@ -154,12 +154,12 @@ struct Trio {
         std::vector<std::optional<node::Sidecar>> vaults(statements.size());
         vaults[0] = node::Sidecar{node::Sidecar::Kind::vault,
                                   Bytes{0xa0, static_cast<std::uint8_t>(at & 0xffU)}};
-        cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
+        kanhe::Result<node::BatchResult> results = std::unexpected(kanhe::Error{});
         REQUIRE(eventually([&] {
             Node* now = leader();
             results = now != nullptr ? now->cluster->submit(views, vaults, at)
-                                     : cexchain::Result<node::BatchResult>(std::unexpected(
-                                           cexchain::Error{Errc::unavailable, "no leader"}));
+                                     : kanhe::Result<node::BatchResult>(std::unexpected(
+                                           kanhe::Error{Errc::unavailable, "no leader"}));
             return results.has_value();
         }));
         for (const auto& r : *results) {
@@ -187,13 +187,13 @@ struct Trio {
     std::uint64_t commit_one(const Bytes& statement, std::optional<node::Sidecar> sidecar,
                              protocol::Timestamp at) {
         const ByteView view = statement;
-        cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
+        kanhe::Result<node::BatchResult> results = std::unexpected(kanhe::Error{});
         REQUIRE(eventually([&] {
             Node* now = leader();
             results = now != nullptr
                           ? now->cluster->submit(std::span(&view, 1), std::span(&sidecar, 1), at)
-                          : cexchain::Result<node::BatchResult>(
-                                std::unexpected(cexchain::Error{Errc::unavailable, "no leader"}));
+                          : kanhe::Result<node::BatchResult>(
+                                std::unexpected(kanhe::Error{Errc::unavailable, "no leader"}));
             return results.has_value();
         }));
         INFO((results->front() ? std::string() : std::string(results->front().error().detail)));
@@ -287,7 +287,7 @@ struct Trio {
 
     /// Every running node's ledger has the same entries.
     bool agree() {
-        std::optional<cexchain::crypto::Digest> root;
+        std::optional<kanhe::crypto::Digest> root;
         std::uint64_t size = 0;
         for (auto& n : nodes) {
             if (!n->ledger) {
@@ -320,7 +320,7 @@ TEST_CASE("a cluster replicates writes and survives its leader", "[node][cluster
     const std::vector<Bytes> batch{trio.record(t0 + 1), trio.record(t0 + 2), forged};
     const std::vector<ByteView> views(batch.begin(), batch.end());
     const std::vector<std::optional<node::Sidecar>> vaults(batch.size());
-    cexchain::Result<node::BatchResult> results = std::unexpected(cexchain::Error{});
+    kanhe::Result<node::BatchResult> results = std::unexpected(kanhe::Error{});
     REQUIRE(eventually([&] {
         results = trio.leader()->cluster->submit(views, vaults, t0 + 5000);
         return results.has_value();
@@ -334,7 +334,7 @@ TEST_CASE("a cluster replicates writes and survives its leader", "[node][cluster
 
     // A checkpoint, signed by the leader, the same everywhere.
     const crypto::Signer* keys[] = {&trio.w.log_key()};
-    cexchain::Result<protocol::SignedCheckpoint> checkpoint = std::unexpected(cexchain::Error{});
+    kanhe::Result<protocol::SignedCheckpoint> checkpoint = std::unexpected(kanhe::Error{});
     REQUIRE(eventually([&] {
         checkpoint = trio.leader()->cluster->checkpoint(ledger::LogKeys(keys));
         return checkpoint.has_value();
@@ -561,7 +561,7 @@ namespace {
 /// and a vault.
 std::filesystem::path machine_directory(std::string_view name) {
     const auto dir = std::filesystem::temp_directory_path() /
-                     ("cexchain-" + std::string(name) + "-" + std::to_string(::getpid()));
+                     ("kanhe-" + std::string(name) + "-" + std::to_string(::getpid()));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir / node::cluster_directory);
     std::filesystem::create_directories(dir / "vault" / "records");
@@ -599,7 +599,7 @@ TEST_CASE("a node keeps a batch's private data, or says it could not", "[node][c
     };
     const Bytes first = record(t0);
     const auto id = protocol::parse_statement(provider(), first, w.hash())->id;
-    const auto file = dir / "vault" / "records" / (cexchain::to_hex(id.bytes()) + ".cbor");
+    const auto file = dir / "vault" / "records" / (kanhe::to_hex(id.bytes()) + ".cbor");
     const auto entry = batch(first, Bytes{0xa0, 1});
     {
         cd::LedgerMachine machine(dir, w.ledger(), {});
@@ -610,8 +610,8 @@ TEST_CASE("a node keeps a batch's private data, or says it could not", "[node][c
     // Stopped after the ledger took the statement, before its data was
     // written: applied again, the entry writes the data alone.
     std::filesystem::remove(file);
-    REQUIRE(node::detail::write_file(cd::cluster_path(dir, cd::applied_file),
-                                     cexchain::as_bytes("0"), false));
+    REQUIRE(node::detail::write_file(cd::cluster_path(dir, cd::applied_file), kanhe::as_bytes("0"),
+                                     false));
     cd::LedgerMachine machine(dir, w.ledger(), {});
     machine.commit(1, *entry);
     CHECK(node::detail::read_file(file) == Bytes{0xa0, 1});
@@ -629,8 +629,7 @@ TEST_CASE("a node keeps a batch's private data, or says it could not", "[node][c
     CHECK(outcome(machine, 3));
     const auto second_id = protocol::parse_statement(provider(), second, w.hash())->id;
     CHECK(node::detail::read_file(dir / "vault" / "records" /
-                                  (cexchain::to_hex(second_id.bytes()) + ".cbor")) ==
-          Bytes{0xa0, 2});
+                                  (kanhe::to_hex(second_id.bytes()) + ".cbor")) == Bytes{0xa0, 2});
     std::filesystem::remove_all(dir);
 }
 
@@ -695,8 +694,8 @@ TEST_CASE("a snapshot sends every file it listed, though calls go while it is re
 
 TEST_CASE("the Raft log keeps exactly what was written", "[node][cluster][storage]") {
     namespace cd = node::cluster_detail;
-    const auto dir = std::filesystem::temp_directory_path() /
-                     ("cexchain-raft-log-" + std::to_string(::getpid()));
+    const auto dir =
+        std::filesystem::temp_directory_path() / ("kanhe-raft-log-" + std::to_string(::getpid()));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     const auto path = dir / "raft-log";

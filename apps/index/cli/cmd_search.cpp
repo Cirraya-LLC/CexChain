@@ -12,15 +12,15 @@
 #include <memory>
 #include <print>
 
-#include <cexchain/search/index.hpp>
-#include <cexchain/search/query.hpp>
-#include <cexchain/search/served.hpp>
+#include <kanhe/search/index.hpp>
+#include <kanhe/search/query.hpp>
+#include <kanhe/search/served.hpp>
 
 #include "index_commands.hpp"
 #include "output.hpp"
 #include "serve.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -329,4 +329,4 @@ int cmd_index_serve(const Args& args) {
     return serve(args, defaults);
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

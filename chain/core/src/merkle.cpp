@@ -9,9 +9,9 @@
 #include <optional>
 #include <vector>
 
-#include <cexchain/core/merkle.hpp>
+#include <kanhe/core/merkle.hpp>
 
-namespace cexchain::merkle {
+namespace kanhe::merkle {
 
 namespace {
 
@@ -542,4 +542,4 @@ Status verify_consistency(const crypto::Provider& provider, HashAlg alg, std::ui
     return {};
 }
 
-} // namespace cexchain::merkle
+} // namespace kanhe::merkle

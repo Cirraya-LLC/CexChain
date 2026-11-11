@@ -6,9 +6,9 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/core/cose.hpp>
+#include <kanhe/core/cose.hpp>
 
-namespace cexchain::cose {
+namespace kanhe::cose {
 
 namespace {
 
@@ -243,4 +243,4 @@ Status verify(const crypto::Provider& provider, const Sign1& message, const cryp
     return provider.verify(key, *to_be_signed, message.signature);
 }
 
-} // namespace cexchain::cose
+} // namespace kanhe::cose

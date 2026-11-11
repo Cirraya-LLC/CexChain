@@ -22,12 +22,12 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/parser.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -2143,4 +2143,4 @@ std::string dump(const Parsed& parsed, const Pack* language) {
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

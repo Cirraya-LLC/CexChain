@@ -11,9 +11,9 @@
 
 #include <openssl/ssl.h>
 
-#include <cexchain/node/client.hpp>
+#include <kanhe/node/client.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -533,4 +533,4 @@ Connection::request(std::string_view method, std::string_view path, ByteView bod
     }
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

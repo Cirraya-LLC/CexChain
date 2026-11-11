@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# CexChain's macOS package: the programs (cexchain, bo, cexchain-console,
-# cexchain-index) in /usr/local/bin, in a .pkg; and the programs alone in a
+# Kanhe's macOS package: the programs (kanhe, bo, kanhe-console,
+# kanhe-index) in /usr/local/bin, in a .pkg; and the programs alone in a
 # tarball. Run on a Mac with Homebrew's gcc (16),
 # ninja, and openssl@3:
 #
@@ -11,8 +11,8 @@
 #
 # OpenSSL is linked in statically: Homebrew's path is not on other Macs. GCC's
 # C++ library is too, and it needs the system's iconv (std::format).
-# CEXCHAIN_DEVELOPER_ID, if set (a "Developer ID Installer: ..." identity in
-# the keychain), signs the package, and CEXCHAIN_DEVELOPER_APP_ID the tool;
+# KANHE_DEVELOPER_ID, if set (a "Developer ID Installer: ..." identity in
+# the keychain), signs the package, and KANHE_DEVELOPER_APP_ID the tool;
 # otherwise they are unsigned (the tool ad hoc), and macOS asks the person to
 # allow them. WASM_DIR as in linux.sh.
 set -Eeuo pipefail
@@ -26,11 +26,11 @@ ARCH="$(uname -m)"
 OPENSSL="$(brew --prefix openssl@3)"
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-16 \
-    -DCEXCHAIN_BUILD_TESTS=OFF -DCEXCHAIN_BO=ON \
+    -DKANHE_BUILD_TESTS=OFF -DKANHE_BO=ON \
     -DOPENSSL_ROOT_DIR="$OPENSSL" -DOPENSSL_USE_STATIC_LIBS=TRUE \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc -liconv" \
-    ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
-PROGRAMS=(cexchain bo cexchain-console cexchain-index)
+    ${WASM_DIR:+-DKANHE_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
+PROGRAMS=(kanhe bo kanhe-console kanhe-index)
 cmake --build "$BUILD" --target "${PROGRAMS[@]}"
 for p in "${PROGRAMS[@]}"; do
     strip "$BUILD/bin/$p"
@@ -43,31 +43,31 @@ for p in "${PROGRAMS[@]}"; do
 done
 
 # The package: the tool in /usr/local/bin, its completions, notices, and the
-# standalone verifier page beside it. With CEXCHAIN_DEVELOPER_APP_ID (a
+# standalone verifier page beside it. With KANHE_DEVELOPER_APP_ID (a
 # "Developer ID Application: ..." identity) the tool is signed; otherwise
 # ad hoc.
 PAYLOAD="$BUILD/root"
 rm -rf "$PAYLOAD"
-install -d "$PAYLOAD/usr/local/bin" "$PAYLOAD/usr/local/share/doc/cexchain" \
+install -d "$PAYLOAD/usr/local/bin" "$PAYLOAD/usr/local/share/doc/kanhe" \
     "$PAYLOAD/usr/local/share/zsh/site-functions"
 for p in "${PROGRAMS[@]}"; do
     install -m755 "$BUILD/bin/$p" "$PAYLOAD/usr/local/bin/$p"
     codesign --force --options runtime --timestamp=none \
-        --sign "${CEXCHAIN_DEVELOPER_APP_ID:--}" "$PAYLOAD/usr/local/bin/$p"
+        --sign "${KANHE_DEVELOPER_APP_ID:--}" "$PAYLOAD/usr/local/bin/$p"
     codesign --verify --strict "$PAYLOAD/usr/local/bin/$p"
     "$PAYLOAD/usr/local/bin/$p" completion zsh > "$PAYLOAD/usr/local/share/zsh/site-functions/_$p"
 done
-install -m644 "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$PAYLOAD/usr/local/share/doc/cexchain/"
-if [ -n "${WASM_DIR:-}" ] && [ -f "$WASM_DIR/cexchain-verify.html" ]; then
-    install -d "$PAYLOAD/usr/local/share/cexchain"
-    install -m644 "$WASM_DIR/cexchain-verify.html" "$PAYLOAD/usr/local/share/cexchain/"
+install -m644 "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$PAYLOAD/usr/local/share/doc/kanhe/"
+if [ -n "${WASM_DIR:-}" ] && [ -f "$WASM_DIR/kanhe-verify.html" ]; then
+    install -d "$PAYLOAD/usr/local/share/kanhe"
+    install -m644 "$WASM_DIR/kanhe-verify.html" "$PAYLOAD/usr/local/share/kanhe/"
 fi
 
-pkgbuild --root "$PAYLOAD" --identifier com.cirraya.cexchain --version "$VERSION" \
+pkgbuild --root "$PAYLOAD" --identifier com.cirraya.kanhe --version "$VERSION" \
     --install-location / "$BUILD/component.pkg" > /dev/null
 productbuild --package "$BUILD/component.pkg" \
-    ${CEXCHAIN_DEVELOPER_ID:+--sign "$CEXCHAIN_DEVELOPER_ID"} \
-    "$OUT/CexChain-$VERSION-macos-$ARCH.pkg" > /dev/null
-echo "wrote $OUT/CexChain-$VERSION-macos-$ARCH.pkg${CEXCHAIN_DEVELOPER_ID:+ (signed)}"
-tar -C "$PAYLOAD/usr/local/bin" -czf "$OUT/cexchain-$VERSION-macos-$ARCH.tar.gz" "${PROGRAMS[@]}"
-echo "wrote $OUT/cexchain-$VERSION-macos-$ARCH.tar.gz"
+    ${KANHE_DEVELOPER_ID:+--sign "$KANHE_DEVELOPER_ID"} \
+    "$OUT/Kanhe-$VERSION-macos-$ARCH.pkg" > /dev/null
+echo "wrote $OUT/Kanhe-$VERSION-macos-$ARCH.pkg${KANHE_DEVELOPER_ID:+ (signed)}"
+tar -C "$PAYLOAD/usr/local/bin" -czf "$OUT/kanhe-$VERSION-macos-$ARCH.tar.gz" "${PROGRAMS[@]}"
+echo "wrote $OUT/kanhe-$VERSION-macos-$ARCH.tar.gz"

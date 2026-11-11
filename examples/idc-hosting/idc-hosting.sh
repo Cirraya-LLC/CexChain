@@ -16,22 +16,22 @@
 #     and terminate; the provider's AI agent answers the notices through MCP;
 #     a clerk answers a payment made in cash by hand;
 #   - time passes: the script moves every clock ahead with
-#     CEXCHAIN_CLOCK_OFFSET (for demonstrations and tests only) and restarts
+#     KANHE_CLOCK_OFFSET (for demonstrations and tests only) and restarts
 #     the cluster, rather than waiting a month;
 #   - anyone verifies the whole history offline.
-# It needs a cexchain built with the Bo compiler (GCC 16; the release build
+# It needs a kanhe built with the Bo compiler (GCC 16; the release build
 # and the Docker image have it) and python3.
 #
-# Usage: idc-hosting.sh [CEXCHAIN] [DIR]
-#   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
+# Usage: idc-hosting.sh [KANHE] [DIR]
+#   KANHE  the command-line tool (default: kanhe on the PATH)
 #   DIR       where to keep the ledgers (default: a temporary directory,
 #             removed at the end; give one to look around afterwards)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2; logs >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
+KANHE="${1:-kanhe}"
 # A path relative to where the script starts works too.
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
@@ -59,17 +59,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
@@ -92,8 +92,8 @@ eventually() {
 }
 
 step "1. A hosting provider and a customer, each with a ledger of its own"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside kanhe (it is built with GCC 16)." >&2
     exit 1
 fi
 run key generate --out provider-root.key > /dev/null
@@ -206,9 +206,9 @@ member_count() { [ "$(run cluster status --server "${API[1]}" --token-file admin
 start_member() {
     local n="$1"
     # A server refuses a clock run ahead unless told it is meant.
-    "$CEXCHAIN" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
+    "$KANHE" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
         --log-key provider-log.key --keeper-key keeper.key --keeper-interval 1 --json \
-        ${CEXCHAIN_CLOCK_OFFSET:+--allow-clock-offset} > "node$n.json" 2> "node$n.log" &
+        ${KANHE_CLOCK_OFFSET:+--allow-clock-offset} > "node$n.json" 2> "node$n.log" &
     MEMBERS+=("$!")
     eventually 60 status "$n"
 }
@@ -221,7 +221,7 @@ run cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${A
 start_member 1
 eventually 60 has_leader 1
 for n in 2 3; do
-    CEXCHAIN_TOKEN="$(cat admin.token)" run cluster join --ledger "node$n" --from "${API[1]}" \
+    KANHE_TOKEN="$(cat admin.token)" run cluster join --ledger "node$n" --from "${API[1]}" \
         --ledger-id "$PROVIDER_ID" --id "$n" --raft "127.0.0.1:${RPORT[$n]}" --api "${API[$n]}" \
         --secret-file node1/cluster/secret > /dev/null
     cp node1/api-tokens "node$n/api-tokens"
@@ -331,9 +331,9 @@ agent() { # NOTICE: the agent answers the open notify request, having sent NOTIC
     local id
     id="$(prov request list --kind notify --open --json | json 'd[0]["id"]')"
     {
-        tool 1 cexchain_list_requests '{"state":"open","kinds":["notify"]}'
-        tool 2 cexchain_get_instance "{\"instance\":\"$SERVICE\"}"
-        tool 3 cexchain_answer_request "{\"request\":\"$id\",\"status\":\"done\",\"arguments\":{\"result\":\"$2\"},\"inputs\":\"$1\"}"
+        tool 1 kanhe_list_requests '{"state":"open","kinds":["notify"]}'
+        tool 2 kanhe_get_instance "{\"instance\":\"$SERVICE\"}"
+        tool 3 kanhe_answer_request "{\"request\":\"$id\",\"status\":\"done\",\"arguments\":{\"result\":\"$2\"},\"inputs\":\"$1\"}"
     } > agent-calls.jsonl
     run mcp --server "$URL" --token-file agent.token --ledger-id "$PROVIDER_ID" \
         --cache "$WORK/agent-cache" --as agent.key < agent-calls.jsonl > agent-answers.jsonl 2> agent.err
@@ -356,16 +356,16 @@ say "Paid until $(day paid_until), billed until $(day billed_until): no bill ope
 
 # advance DATE DAYS: moves every clock to DAYS days after a date field
 # (an hour into that day), restarting the cluster to read the new clock.
-# Each command reads CEXCHAIN_CLOCK_OFFSET, so the customer's ledger, the
+# Each command reads KANHE_CLOCK_OFFSET, so the customer's ledger, the
 # executor, and the agent move with the provider's.
 OFFSET=0
 advance() {
     OFFSET="$(python3 -c "import sys, time; t = int(sys.argv[1]) / 1000 + int(sys.argv[2]) * 86400 + 3600; print(max(int(sys.argv[3]), int(t - time.time()) + 1))" \
         "$(field "$1")" "$2" "$OFFSET")"
     stop_members
-    export CEXCHAIN_CLOCK_OFFSET="${OFFSET}s"
+    export KANHE_CLOCK_OFFSET="${OFFSET}s"
     start_cluster
-    say "Clocks moved $((OFFSET / 86400)) days ahead (CEXCHAIN_CLOCK_OFFSET=${OFFSET}s): it is $(python3 -c "import datetime as t, sys; print(t.datetime.fromtimestamp(t.datetime.now().timestamp() + int(sys.argv[1]), t.timezone(t.timedelta(hours=8))).strftime('%Y-%m-%d %H:%M'))" "$OFFSET") in Hong Kong."
+    say "Clocks moved $((OFFSET / 86400)) days ahead (KANHE_CLOCK_OFFSET=${OFFSET}s): it is $(python3 -c "import datetime as t, sys; print(t.datetime.fromtimestamp(t.datetime.now().timestamp() + int(sys.argv[1]), t.timezone(t.timedelta(hours=8))).strftime('%Y-%m-%d %H:%M'))" "$OFFSET") in Hong Kong."
 }
 status_is() { [ "$(prov contract instance "$SERVICE" --json | json 'd["status"]')" = "$1" ]; }
 last_call() { prov contract instance "$SERVICE" --json | json '"%s by %s" % (d["calls"][-1]["function"], d["calls"][-1]["by"]["name"])'; }
@@ -428,7 +428,7 @@ check history.txt 'rebuilds'
 # answers through MCP with its model, and the clerk's answer by hand.
 check history.txt 'call when.suspend by "Keeper" [device]'
 check history.txt 'call result by "Operations" [device]'
-check history.txt 'call result by "Support Agent" [AI agent: example-llm; responsible: Mei Chan; via mcp:cexchain_answer_request]'
+check history.txt 'call result by "Support Agent" [AI agent: example-llm; responsible: Mei Chan; via mcp:kanhe_answer_request]'
 check history.txt 'call result by "Mei Chan" [person'
 check history.txt 'given by "Kowloon Design Studio"'
 check history.txt 'params {"machine": "srv-0001"}'
@@ -438,7 +438,7 @@ grep -E ' (create|call) |^ +answers ' history.txt \
     | sed -E 's/ \[AI agent: ([^;]*);.*\]/ [AI agent, \1, via MCP]/' | cut -c1-100 | indent
 sed -n '/^  Requests/p' history.txt | sed 's/^ *//' | indent
 sed -n '/^  Verified/,/^$/{/^$/!p;}' history.txt | sed 's/^ *//' | indent
-say "The same file opens in the browser verifier (cexchain-verify.html), with nothing installed."
+say "The same file opens in the browser verifier (kanhe-verify.html), with nothing installed."
 run audit --ledger customer > /dev/null
 prov audit > /dev/null
 say "Both ledgers audit clean; the panel and billing system hold no ledger of their own."

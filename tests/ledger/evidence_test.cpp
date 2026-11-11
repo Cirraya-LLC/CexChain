@@ -8,17 +8,17 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/record.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/record.hpp>
 
 #include "support/ledger_world.hpp"
 
-using namespace cexchain::test;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 namespace {
 

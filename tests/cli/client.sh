@@ -6,11 +6,11 @@
 # records with private data, checkpoints, receipts, and evidence, all through
 # the API, shown from a mirror this client verified; keys never leave it. A
 # server that serves another ledger, or a forked history, is refused.
-# Usage: client.sh CEXCHAIN
+# Usage: client.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -20,15 +20,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="client test"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="client test"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -42,7 +42,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -64,8 +64,8 @@ start_server primary.json --ledger primary --log-key log.key --checkpoint-interv
 URL="$(json 'd["url"]' < primary.json)"
 
 # --- A client: the same commands, with --server ------------------------------------
-export CEXCHAIN_SERVER="$URL"
-export CEXCHAIN_TOKEN="$(cat ops.token)"
+export KANHE_SERVER="$URL"
+export KANHE_TOKEN="$(cat ops.token)"
 CACHE="$WORK/cache"
 run status --help | contains -- '--server URL'
 expect_exit 1 token list --server "$URL"
@@ -106,7 +106,7 @@ run audit --cache "$CACHE" | contains 'audit passed'
 [ "$(run status --ledger primary --json | json 'd["root"]')" = "$(run status --cache "$CACHE" --json | json 'd["root"]')" ]
 
 # A read token cannot write; the mirror itself is never written to directly.
-CEXCHAIN_TOKEN="$(cat reader.token)" expect_exit 2 record issue --cache "$CACHE" --as alice.key \
+KANHE_TOKEN="$(cat reader.token)" expect_exit 2 record issue --cache "$CACHE" --as alice.key \
     --type example.document/1 --field result=fail
 contains 'refused' out.txt
 expect_exit 2 record issue --ledger "$CACHE/$LEDGER_ID" --as alice.key --type example.document/1 \
@@ -121,7 +121,7 @@ run init --ledger other --org "Other Org" --root-key other.key --log-key log.key
 run token create --ledger other ops --scope read,submit,admin --out other.token > /dev/null
 start_server other.json --ledger other
 OTHER_URL="$(json 'd["url"]' < other.json)"
-CEXCHAIN_TOKEN="$(cat other.token)" expect_exit 2 status --cache "$CACHE" --server "$OTHER_URL" \
+KANHE_TOKEN="$(cat other.token)" expect_exit 2 status --cache "$CACHE" --server "$OTHER_URL" \
     --ledger-id "$LEDGER_ID"
 contains 'not the one expected' out.txt
 

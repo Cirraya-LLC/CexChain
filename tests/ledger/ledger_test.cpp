@@ -11,27 +11,27 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/ledger.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/ledger.hpp>
 
 #include "support/crashing_fs.hpp"
 #include "support/ledger_world.hpp"
 
-namespace crypto = cexchain::crypto;
-namespace ledger = cexchain::ledger;
-namespace protocol = cexchain::protocol;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
+namespace crypto = kanhe::crypto;
+namespace ledger = kanhe::ledger;
+namespace protocol = kanhe::protocol;
 using crypto::openssl::KeyPair;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
 using protocol::StatementType;
 
-using namespace cexchain::test;
+using namespace kanhe::test;
 
 TEST_CASE("a full record lifecycle, checkpoint, receipts, and replay", "[ledger][engine]") {
     const crypto::HashAlg hash = GENERATE(crypto::HashAlg::sha256, crypto::HashAlg::sm3);
@@ -205,7 +205,7 @@ TEST_CASE("delegations only narrow, and revocation and expiry cascade", "[ledger
     }
 }
 
-TEST_CASE("the cexchain. record type prefix is reserved", "[ledger][engine]") {
+TEST_CASE("the kanhe. record type prefix is reserved", "[ledger][engine]") {
     World w;
     auto register_type = [&](const std::string& type) {
         return w.submit(w.org(), w.statement(w.org_id(), std::nullopt, w.record_body(type)));
@@ -213,8 +213,8 @@ TEST_CASE("the cexchain. record type prefix is reserved", "[ledger][engine]") {
     // Spec v0.9: the protocol's own types, and nothing else, under the
     // prefix; types it once built in are refused like an invented one.
     for (const std::string type :
-         {"cexchain.certificate/1", "cexchain.receivable/1", "cexchain.asset-consent/1",
-          "cexchain.document/1", "cexchain.access-request/2", "cexchain."}) {
+         {"kanhe.certificate/1", "kanhe.receivable/1", "kanhe.asset-consent/1", "kanhe.document/1",
+          "kanhe.access-request/2", "kanhe."}) {
         INFO(type);
         const auto refused = register_type(type);
         REQUIRE_FALSE(refused);
@@ -227,10 +227,9 @@ TEST_CASE("the cexchain. record type prefix is reserved", "[ledger][engine]") {
         INFO(type);
         CHECK(register_type(std::string(type)));
     }
-    // The nine bytes exactly, case-sensitive.
-    for (const std::string type :
-         {"cexchain", "cexchain-example.note/1", "Cexchain.note/1", "CEXCHAIN.note/1",
-          "example.cexchain.note/1", "cexchainx.note/1"}) {
+    // The six bytes exactly, case-sensitive.
+    for (const std::string type : {"kanhe", "kanhe-example.note/1", "Kanhe.note/1", "KANHE.note/1",
+                                   "example.kanhe.note/1", "kanhex.note/1"}) {
         INFO(type);
         CHECK(register_type(type));
     }
@@ -242,9 +241,9 @@ TEST_CASE("the cexchain. record type prefix is reserved", "[ledger][engine]") {
     const protocol::Id delegation =
         w.grant(w.org(), w.org_id(), std::nullopt, alice_id,
                 scope({StatementType::record_register},
-                      std::vector<std::string>{"cexchain.document/1", document_type}));
+                      std::vector<std::string>{"kanhe.document/1", document_type}));
     const auto refused =
-        w.submit(alice, w.statement(alice_id, delegation, w.record_body("cexchain.document/1")));
+        w.submit(alice, w.statement(alice_id, delegation, w.record_body("kanhe.document/1")));
     REQUIRE_FALSE(refused);
     CHECK(std::string(refused.error().detail).find("reserved") != std::string::npos);
     w.ok(alice, w.statement(alice_id, delegation, w.record_body(document_type)));
@@ -420,7 +419,7 @@ TEST_CASE("the ledger survives crashes at any point", "[ledger][engine][simulati
         // random number of writes and syncs, possibly mid-submission.
         std::vector<protocol::Id> acknowledged;
         {
-            cexchain::test::CrashingFileSystem fs(w.fs(), entropy.below(30));
+            kanhe::test::CrashingFileSystem fs(w.fs(), entropy.below(30));
             auto crashing = ledger::Ledger::open(fs, w.clock(), provider());
             REQUIRE(crashing);
             for (int i = 0; i < 8; ++i) {
@@ -483,8 +482,8 @@ TEST_CASE("a batch is validated in order and made durable at once", "[ledger][en
         dana2, w.statement(dana_id, std::nullopt,
                            protocol::ActorRotateKeyBody{dana_id, key("dana4").public_key()}));
     const Bytes garbage{1, 2, 3};
-    const std::vector<cexchain::ByteView> batch{add,    too_early,      rotate, record, record,
-                                                forged, after_rotation, first,  garbage};
+    const std::vector<kanhe::ByteView> batch{add,    too_early,      rotate, record, record,
+                                             forged, after_rotation, first,  garbage};
     const auto results = w.ledger().submit_batch(batch);
     REQUIRE(results.size() == batch.size());
     CHECK(results[0]);
@@ -521,7 +520,7 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
         ledger::SeededEntropy entropy(seed);
         std::vector<protocol::Id> acknowledged;
         {
-            cexchain::test::CrashingFileSystem fs(w.fs(), entropy.below(30));
+            kanhe::test::CrashingFileSystem fs(w.fs(), entropy.below(30));
             auto crashing = ledger::Ledger::open(fs, w.clock(), provider());
             REQUIRE(crashing);
             for (int round = 0; round < 6; ++round) {
@@ -534,8 +533,8 @@ TEST_CASE("batches survive crashes at any point", "[ledger][engine][simulation][
                 if (entropy.below(2) == 0) {
                     signed_statements.push_back(signed_statements.front());
                 }
-                const std::vector<cexchain::ByteView> views(signed_statements.begin(),
-                                                            signed_statements.end());
+                const std::vector<kanhe::ByteView> views(signed_statements.begin(),
+                                                         signed_statements.end());
                 const auto results = crashing->submit_batch(views);
                 bool ok = true;
                 for (const auto& r : results) {

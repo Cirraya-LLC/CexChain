@@ -6,15 +6,15 @@
 #include <utility>
 #include <variant>
 
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 std::uint64_t StateStamp::next() noexcept {
     static std::atomic<std::uint64_t> last{0};
@@ -218,7 +218,7 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
     }
     input.contract = contract->id;
     input.caller = *statement.actor_id;
-    CEXCHAIN_TRY(input.caller_signer, contract_signer(statement));
+    KANHE_TRY(input.caller_signer, contract_signer(statement));
     input.time = now;
     for (const ContractConsentRef& c : call->consents) {
         input.consents.emplace_back(c.ledger, c.signer);
@@ -239,7 +239,7 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
         };
     }
     ContractRun run;
-    CEXCHAIN_TRY(run.input, encode_contract_input(input));
+    KANHE_TRY(run.input, encode_contract_input(input));
     // A run made ahead of time on this very input is this run: the input
     // names the contract, whose module never changes.
     if (offered != nullptr && *offered && (*offered)->input == run.input) {
@@ -250,7 +250,7 @@ Result<ContractRun> LedgerState::run_contract(const crypto::Provider& provider,
         }
         return run;
     }
-    CEXCHAIN_TRY(run.outcome, vm::run(*contract->module, run.input, provider, hash_));
+    KANHE_TRY(run.outcome, vm::run(*contract->module, run.input, provider, hash_));
     if (!run.outcome.trap) {
         if (auto output = decode_contract_output(run.outcome.output, ledger_id_)) {
             run.output = std::move(*output);
@@ -265,7 +265,7 @@ Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
                                               const SignedStatement& signed_call, Timestamp now,
                                               std::optional<ContractRun>* offered,
                                               bool* took_offer) const {
-    CEXCHAIN_TRY(ContractRun run, run_contract(provider, signed_call, now, offered, took_offer));
+    KANHE_TRY(ContractRun run, run_contract(provider, signed_call, now, offered, took_offer));
     if (run.outcome.trap == vm::Trap::aborted) {
         return fail(Errc::rejected, "the contract rejected the call");
     }
@@ -280,8 +280,8 @@ Result<ContractRun> LedgerState::accepted_run(const crypto::Provider& provider,
         return fail(Errc::rejected, "the contract needs more consents for the call");
     }
     const auto& call = std::get<ContractCallBody>(signed_call.statement.body);
-    CEXCHAIN_CHECK(check_children(call, *accept));
-    CEXCHAIN_CHECK(check_requests(call, *accept, now));
+    KANHE_CHECK(check_children(call, *accept));
+    KANHE_CHECK(check_requests(call, *accept, now));
     return run;
 }
 
@@ -396,7 +396,7 @@ Result<vm::Module> LedgerState::load_module(ByteView code) const {
     if (std::optional<vm::Module> known = modules_->find(code)) {
         return std::move(*known);
     }
-    CEXCHAIN_TRY(vm::Module module, vm::load(code));
+    KANHE_TRY(vm::Module module, vm::load(code));
     modules_->loaded(module);
     return module;
 }
@@ -793,7 +793,7 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                 // Spec v0.9: only the protocol registers its own types.
                 if (is_reserved_record_type(b.record_type)) {
                     return fail(Errc::rejected,
-                                "the record type is reserved: types beginning with \"cexchain.\" "
+                                "the record type is reserved: types beginning with \"kanhe.\" "
                                 "are the protocol's own");
                 }
                 // Claims (v0.14): the metadata's shape, and a source of
@@ -1160,7 +1160,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 return {};
             },
             [&](const ContractDeployBody& b) -> Status {
-                CEXCHAIN_TRY(vm::Module module, load_module(b.code));
+                KANHE_TRY(vm::Module module, load_module(b.code));
                 ContractState contract;
                 contract.id = id;
                 contract.deployer = *statement.actor_id;
@@ -1180,8 +1180,8 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
 #ifndef NDEBUG
                 // Debug builds check the reuse: a fresh run must equal it.
                 if (run) {
-                    CEXCHAIN_TRY(const ContractRun fresh,
-                                 accepted_run(provider, signed_statement, now));
+                    KANHE_TRY(const ContractRun fresh,
+                              accepted_run(provider, signed_statement, now));
                     if (fresh.input != run->input || fresh.outcome.trap != run->outcome.trap ||
                         fresh.outcome.output != run->outcome.output ||
                         fresh.outcome.fuel_used != run->outcome.fuel_used) {
@@ -1191,7 +1191,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 }
 #endif
                 if (!run) {
-                    CEXCHAIN_TRY(run, accepted_run(provider, signed_statement, now));
+                    KANHE_TRY(run, accepted_run(provider, signed_statement, now));
                 }
                 // accepted_run() checked that the output is an accept.
                 ContractAccept accept = std::get<ContractAccept>(std::move(*run->output));
@@ -1230,8 +1230,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 const CompactId contract = instance.contract;
                 const std::uint32_t depth = instance.depth + 1;
                 for (std::size_t position = 0; position < accept.children.size(); ++position) {
-                    CEXCHAIN_TRY(const Id child_id,
-                                 child_instance_id(provider, hash_, id, position));
+                    KANHE_TRY(const Id child_id, child_instance_id(provider, hash_, id, position));
                     ContractChild& from = accept.children[position];
                     InstanceState child;
                     child.id = child_id;
@@ -1252,7 +1251,7 @@ Status LedgerState::apply(const crypto::Provider& provider, const SignedStatemen
                 // They have no state leaf, so nothing changes for the tree.
                 // `instance` stays valid: instances never move.
                 for (std::size_t position = 0; position < accept.requests.size(); ++position) {
-                    CEXCHAIN_TRY(const Id made, request_id(provider, hash_, id, position));
+                    KANHE_TRY(const Id made, request_id(provider, hash_, id, position));
                     ContractRequest& from = accept.requests[position];
                     RequestState request;
                     request.id = made;
@@ -1365,4 +1364,4 @@ const ActorState* LedgerState::actor_by_kid(const Id& kid) const {
     return actors_.find(it->second);
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

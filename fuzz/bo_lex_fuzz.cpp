@@ -19,13 +19,13 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 const bo::Lexicon& lexicon() {
     static const bo::Lexicon instance = [] {

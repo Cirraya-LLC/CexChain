@@ -10,7 +10,7 @@
 // of a step is checked: implicit consents, the party that starts an action,
 // the home, signers, time, the ledger's own refusals, a failing step that
 // stops its test, and the clause of the contract text a refusal comes from.
-// Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the goldens.
+// Set KANHE_UPDATE_GOLDENS=1 to rewrite the goldens.
 
 #include <algorithm>
 #include <cstddef>
@@ -26,23 +26,23 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
 std::string read_text(const std::filesystem::path& path) {
@@ -182,7 +182,7 @@ const TestResult& only(const Tested& t) {
 } // namespace
 
 TEST_CASE("bo test: the goldens", "[bo][test]") {
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     for (const auto& [name, path] : cases()) {
         INFO(name);
         const std::string source = read_text(path);

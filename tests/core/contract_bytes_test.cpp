@@ -16,24 +16,24 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/contract_reference.hpp"
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-namespace cbor = cexchain::cbor;
-namespace reference = cexchain::test::reference;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+namespace cbor = kanhe::cbor;
+namespace reference = kanhe::test::reference;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 

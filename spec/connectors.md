@@ -2,7 +2,7 @@
 
 Version 1 (draft). Informative: it is not part of the ledger's protocol, and nothing here changes what a ledger accepts or a verifier checks.
 
-An **executor** carries out the requests contracts make (the protocol, [`README.md`](README.md) section 15) and answers them with signed calls. CexChain's executor runtime, `cexchain executor run`, does everything on the ledger's side: it finds requests, verifies each in the instance's evidence, keeps a journal, and signs and submits answers. What it does in the outside world it leaves to **connectors**: programs, in any language, that speak one outside system's API. This document defines how the runtime and a connector talk, what an answer carries, and how secrets reach a connector. It also describes the two connectors CexChain ships, `webhook` and `command`.
+An **executor** carries out the requests contracts make (the protocol, [`README.md`](README.md) section 15) and answers them with signed calls. Kanhe's executor runtime, `kanhe executor run`, does everything on the ledger's side: it finds requests, verifies each in the instance's evidence, keeps a journal, and signs and submits answers. What it does in the outside world it leaves to **connectors**: programs, in any language, that speak one outside system's API. This document defines how the runtime and a connector talk, what an answer carries, and how secrets reach a connector. It also describes the two connectors Kanhe ships, `webhook` and `command`.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as in RFC 2119.
 
@@ -19,7 +19,7 @@ A buggy or hostile connector can misreport its own requests' outcomes. It cannot
 
 A connector is a child process of the runtime. They exchange **JSON lines** over the connector's stdin (runtime to connector) and stdout (connector to runtime): one JSON object per line, UTF-8, ending in a newline, at most 1 MiB per line. The connector's stderr is the runtime's; it MUST NOT carry secrets.
 
-The runtime starts a connector without a shell (the program and its arguments as configured), in a process group of its own, with the default signal dispositions, and with its own environment minus every variable whose name starts with `CEXCHAIN_`. CexChain's runtime runs its first-party connectors as `cexchain connector webhook` and `cexchain connector command`.
+The runtime starts a connector without a shell (the program and its arguments as configured), in a process group of its own, with the default signal dispositions, and with its own environment minus every variable whose name starts with `KANHE_`. Kanhe's runtime runs its first-party connectors as `kanhe connector webhook` and `kanhe connector command`.
 
 **Numbers are integers.** A number with a fraction or an exponent, or beyond 64 bits, makes the whole line invalid: amounts travel in minor units. Nesting is at most 64 deep. Unknown fields MUST be ignored; a message of an unknown `type` SHOULD be ignored (a later version's), and a line that is not a message MAY be logged and skipped.
 
@@ -119,10 +119,10 @@ Each `perform` becomes a `POST` to the URL, with the body the perform's fields a
 | Field | Value |
 |---|---|
 | `Content-Type` | `application/json` |
-| `X-CexChain-Request`, `Idempotency-Key` | the request's id |
-| `X-CexChain-Attempt` | the attempt |
-| `X-CexChain-Timestamp` | milliseconds since the epoch |
-| `X-CexChain-Signature` | `sha256=` and the hex of HMAC-SHA-256(secret, timestamp ‖ `.` ‖ body) |
+| `X-Kanhe-Request`, `Idempotency-Key` | the request's id |
+| `X-Kanhe-Attempt` | the attempt |
+| `X-Kanhe-Timestamp` | milliseconds since the epoch |
+| `X-Kanhe-Signature` | `sha256=` and the hex of HMAC-SHA-256(secret, timestamp ‖ `.` ‖ body) |
 
 A receiver SHOULD check the signature in constant time and refuse timestamps more than five minutes away from its clock. TLS certificates and host names are verified; redirects are not followed. Each copy of the connector keeps its connection to the receiver open between requests (HTTP/1.1 keep-alive); a request sent on a connection the receiver had closed, and never answered, is sent once more on a new connection, with the same `Idempotency-Key`.
 
@@ -151,4 +151,4 @@ If its stdout is a JSON object, its `"result"`, `"reason"`, `"status"`, and `"re
 
 ## 8. Writing a connector
 
-A connector in any language reads lines from stdin, answers `hello` with `ready`, and each `perform` with one `outcome`, then exits on `stop` or at the end of its input. Configure it with `cexchain executor connector add NAME --type program --program PATH [--arg ...] --kinds ... [--secrets ...] [--connector-config JSON]`, and check it with `cexchain executor check`.
+A connector in any language reads lines from stdin, answers `hello` with `ready`, and each `perform` with one `outcome`, then exits on `stop` or at the end of its input. Configure it with `kanhe executor connector add NAME --type program --program PATH [--arg ...] --kinds ... [--secrets ...] [--connector-config JSON]`, and check it with `kanhe executor check`.

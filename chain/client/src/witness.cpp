@@ -3,22 +3,22 @@
 
 #include <algorithm>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/keys.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/keys.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/ledger/storage.hpp>
 
-// Like CEXCHAIN_TRY, for the non-throwing witness path.
-#define CEXCHAIN_APP_TRY(name, expr)                                                               \
+// Like KANHE_TRY, for the non-throwing witness path.
+#define KANHE_APP_TRY(name, expr)                                                                  \
     auto name##_result = (expr);                                                                   \
     if (!name##_result) {                                                                          \
         return std::unexpected(name##_result.error());                                             \
     }                                                                                              \
     auto name = std::move(*name##_result)
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 std::filesystem::path witness_state_path(const std::filesystem::path& dir,
                                          const protocol::Id& ledger) {
@@ -104,7 +104,7 @@ std::vector<WitnessState> witness_states(const std::filesystem::path& dir) {
     std::vector<WitnessState> out;
     if (!std::filesystem::is_directory(dir)) {
         throw ActionError{"no witness directory at " + dir.string() +
-                          " (create one with cexchain witness add-log)"};
+                          " (create one with kanhe witness add-log)"};
     }
     std::vector<std::filesystem::path> files;
     for (const auto& entry : std::filesystem::directory_iterator(dir)) {
@@ -154,8 +154,8 @@ Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Sig
     if (!lock) {
         return std::unexpected(lock.error());
     }
-    CEXCHAIN_APP_TRY(request, protocol::decode_cosign_request(request_bytes));
-    CEXCHAIN_APP_TRY(checkpoint, protocol::parse_checkpoint(request.checkpoint));
+    KANHE_APP_TRY(request, protocol::decode_cosign_request(request_bytes));
+    KANHE_APP_TRY(checkpoint, protocol::parse_checkpoint(request.checkpoint));
     const std::filesystem::path path = witness_state_path(dir, checkpoint.checkpoint.ledger_id);
     if (!std::filesystem::exists(path)) {
         return fail(Errc::not_found, "this witness does not follow the ledger");
@@ -175,15 +175,15 @@ Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Sig
         checkpoint.checkpoint.root == state.log.root &&
         checkpoint.checkpoint.ledger_id == state.log.ledger_id &&
         protocol::verify_checkpoint(provider, checkpoint, state.log.log_key)) {
-        CEXCHAIN_APP_TRY(again, protocol::cosign_checkpoint(key, provider, checkpoint.checkpoint));
+        KANHE_APP_TRY(again, protocol::cosign_checkpoint(key, provider, checkpoint.checkpoint));
         return again.encoded;
     }
-    CEXCHAIN_APP_TRY(approved, protocol::check_cosign_request(provider, state.log, request));
+    KANHE_APP_TRY(approved, protocol::check_cosign_request(provider, state.log, request));
     if (key.public_key() == approved.log.log_key) {
         return fail(Errc::invalid_argument, "a ledger's log key cannot witness the ledger");
     }
-    CEXCHAIN_APP_TRY(cosigned,
-                     protocol::cosign_checkpoint(key, provider, approved.checkpoint.checkpoint));
+    KANHE_APP_TRY(cosigned,
+                  protocol::cosign_checkpoint(key, provider, approved.checkpoint.checkpoint));
     state.log = std::move(approved.log);
     state.cosigned_at = now;
     try {
@@ -194,4 +194,4 @@ Result<Bytes> witness_cosign(const std::filesystem::path& dir, const crypto::Sig
     return cosigned.encoded;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

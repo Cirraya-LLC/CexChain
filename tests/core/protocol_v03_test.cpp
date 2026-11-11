@@ -11,18 +11,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
 namespace {
 
-namespace protocol = cexchain::protocol;
-using cexchain::Bytes;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+using kanhe::Bytes;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 std::string text(const nlohmann::json& value) {
     return value.get<std::string>();
@@ -36,15 +36,15 @@ std::vector<std::string> names(const nlohmann::json& value) {
     return value.get<std::vector<std::string>>();
 }
 
-cexchain::cbor::Value metadata(const nlohmann::json& section) {
-    auto value = cexchain::cbor::decode(hex(text(section["metadata"])));
+kanhe::cbor::Value metadata(const nlohmann::json& section) {
+    auto value = kanhe::cbor::decode(hex(text(section["metadata"])));
     REQUIRE(value);
     return std::move(*value);
 }
 
-Bytes encoded(const cexchain::Result<cexchain::cbor::Value>& value) {
+Bytes encoded(const kanhe::Result<kanhe::cbor::Value>& value) {
     REQUIRE(value);
-    return *cexchain::cbor::encode(*value);
+    return *kanhe::cbor::encode(*value);
 }
 
 } // namespace
@@ -89,19 +89,18 @@ TEST_CASE("v0.3 objects from an independent encoder", "[protocol][vectors][acces
     CHECK(delivery->encapsulated_key == hex(text(d["encapsulated_key"])));
     CHECK(*protocol::encode_delivery(*delivery) == delivery_bytes);
 
-    const auto key =
-        cexchain::crypto::openssl::HpkeKey::from_pkcs8(hex(text(d["recipient_pkcs8"])));
+    const auto key = kanhe::crypto::openssl::HpkeKey::from_pkcs8(hex(text(d["recipient_pkcs8"])));
     REQUIRE(key);
     CHECK(Bytes(key->public_key().begin(), key->public_key().end()) ==
           hex(text(d["recipient_public_key"])));
     const Bytes grant_id = hex(text(d["grant_id"]));
     const auto opened = key->open({delivery->encapsulated_key, delivery->ciphertext},
-                                  cexchain::as_bytes(protocol::delivery_info), grant_id);
+                                  kanhe::as_bytes(protocol::delivery_info), grant_id);
     REQUIRE(opened);
     CHECK(Bytes(opened->view().begin(), opened->view().end()) == hex(text(d["contents"])));
     // Bound to the grant: another grant id does not open it.
     CHECK_FALSE(key->open({delivery->encapsulated_key, delivery->ciphertext},
-                          cexchain::as_bytes(protocol::delivery_info), Bytes(32, 0)));
+                          kanhe::as_bytes(protocol::delivery_info), Bytes(32, 0)));
 
     const auto contents = protocol::decode_delivery_contents(opened->view());
     REQUIRE(contents);

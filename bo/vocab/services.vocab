@@ -48,10 +48,10 @@
   "terms": [
     "bo 1",
     "use services",
-    "# The standard terms of the services pack's built-in actions (D-054): they",
+    "# The standard terms of the services pack's built-in actions: they",
     "# allocate a resource to one holder at a time. A contract that uses the pack",
     "# (`use services`) and writes `can allocate to customer` gets the allocation",
-    "# below; `cexchain bo stdlib show allocate` prints it.",
+    "# below; `kanhe bo stdlib show allocate` prints it.",
     "#",
     "# The fields these terms use: holder (a party, which Bo adds to a resource,",
     "# holding no party while the resource is in its pool; R20) and cooling period.",

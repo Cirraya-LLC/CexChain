@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include <cexchain/console/keystore.hpp>
+#include <kanhe/console/keystore.hpp>
 
 #include "commands.hpp"
 
-/// The cexchain-console program's command handlers (commands_console.cpp).
-namespace cexchain::cli {
+/// The kanhe-console program's command handlers (commands_console.cpp).
+namespace kanhe::cli {
 
 int cmd_console_run(const Args& args);
 int cmd_console_key_init(const Args& args);
@@ -54,4 +54,4 @@ int cmd_certificate_show(const Args& args);
 int cmd_certificate_withdraw(const Args& args);
 int cmd_certificate_print(const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

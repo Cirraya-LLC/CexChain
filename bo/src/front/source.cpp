@@ -17,16 +17,16 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/vm.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -667,4 +667,4 @@ Result<BuiltContract> decode_built(ByteView encoded) {
     return built;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

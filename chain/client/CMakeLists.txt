@@ -7,7 +7,7 @@
 # consents; requests and answers; peers; and the JSON views of ledger
 # objects. Nothing here parses a command line, prompts on a terminal, or
 # prints: secrets and approvals come in through callbacks.
-add_library(cexchain_client
+add_library(kanhe_client
     src/access.cpp
     src/backups.cpp
     src/claims.cpp
@@ -26,14 +26,14 @@ add_library(cexchain_client
     src/support.cpp
     src/views.cpp
     src/witness.cpp)
-add_library(cexchain::client ALIAS cexchain_client)
-target_include_directories(cexchain_client PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(cexchain_client
-    PUBLIC cexchain::ledger cexchain::node cexchain::verifier
+add_library(kanhe::client ALIAS kanhe_client)
+target_include_directories(kanhe_client PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_link_libraries(kanhe_client
+    PUBLIC kanhe::ledger kanhe::node kanhe::verifier
            nlohmann_json::nlohmann_json)
 # The tool named in an agent's provenance, and the public witnesses offered
 # (none by default).
-target_compile_definitions(cexchain_client PRIVATE CEXCHAIN_VERSION="${PROJECT_VERSION}"
-                                               CEXCHAIN_PUBLIC_WITNESSES="${CEXCHAIN_PUBLIC_WITNESSES}")
-target_compile_features(cexchain_client PUBLIC cxx_std_26)
-cexchain_target_defaults(cexchain_client)
+target_compile_definitions(kanhe_client PRIVATE KANHE_VERSION="${PROJECT_VERSION}"
+                                               KANHE_PUBLIC_WITNESSES="${KANHE_PUBLIC_WITNESSES}")
+target_compile_features(kanhe_client PUBLIC cxx_std_26)
+kanhe_target_defaults(kanhe_client)

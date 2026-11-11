@@ -5,10 +5,10 @@
 
 #include <print>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 void print_json(const Json& value) {
     std::println("{}", value.dump(2));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

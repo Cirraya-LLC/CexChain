@@ -15,12 +15,12 @@
 #include <string_view>
 #include <variant>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/connector.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/connector.hpp>
 
-namespace connector = cexchain::node::connector;
-namespace cbor = cexchain::cbor;
+namespace connector = kanhe::node::connector;
+namespace cbor = kanhe::cbor;
 
 namespace {
 
@@ -33,7 +33,7 @@ void require(bool condition) {
 std::string encoded(const cbor::Value& value) {
     const auto bytes = cbor::encode(value);
     require(bytes.has_value());
-    return cexchain::to_hex(*bytes);
+    return kanhe::to_hex(*bytes);
 }
 
 void from_connector(std::string_view line) {
@@ -56,7 +56,7 @@ void from_connector(std::string_view line) {
             require(encoded(*o->result) == encoded(*b.result));
         }
         if (o->reason) {
-            require(cexchain::protocol::is_request_kind(*o->reason));
+            require(kanhe::protocol::is_request_kind(*o->reason));
         }
         if (o->response) {
             require(o->response->size() <= connector::max_response);
@@ -81,7 +81,7 @@ void to_connector(std::string_view line) {
     require(back.has_value() && back->index() == decoded->index());
     if (const auto* p = std::get_if<connector::Perform>(&*decoded)) {
         const auto& b = std::get<connector::Perform>(*back);
-        require(cexchain::protocol::is_request_kind(p->kind) && p->attempt >= 1);
+        require(kanhe::protocol::is_request_kind(p->kind) && p->attempt >= 1);
         require(p->request == b.request && p->deadline == b.deadline &&
                 encoded(p->params) == encoded(b.params));
     } else if (const auto* h = std::get_if<connector::Hello>(&*decoded)) {

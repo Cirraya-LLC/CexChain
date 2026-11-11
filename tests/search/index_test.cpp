@@ -13,25 +13,25 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/search/index.hpp>
-#include <cexchain/search/query.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/search/index.hpp>
+#include <kanhe/search/query.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-namespace search = cexchain::search;
+using namespace kanhe::test;
+using kanhe::Bytes;
+namespace search = kanhe::search;
 
 struct TempFile {
     std::filesystem::path path;
     TempFile() {
         static int counter = 0;
         path = std::filesystem::temp_directory_path() /
-               ("cexchain-search-test-" + std::to_string(::getpid()) + "-" +
+               ("kanhe-search-test-" + std::to_string(::getpid()) + "-" +
                 std::to_string(++counter) + ".sqlite");
         remove();
     }
@@ -304,7 +304,7 @@ TEST_CASE("the index finds instances by their contract, state, parties, and fiel
     auto by_contract =
         (*index)->report(search::InstanceFilter{}, {.by = {search::Group::contract}});
     REQUIRE(by_contract->rows.size() == 1);
-    CHECK(by_contract->rows[0].key[0] == cexchain::to_hex(contract.bytes()));
+    CHECK(by_contract->rows[0].key[0] == kanhe::to_hex(contract.bytes()));
     auto total = (*index)->report(search::InstanceFilter{.fields = {F{"class", "S5B", {}, {}}}},
                                   {.sum = "fee"});
     REQUIRE(total->rows.size() == 1);

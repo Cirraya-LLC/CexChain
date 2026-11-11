@@ -8,23 +8,23 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/claims.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/claims.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const auto value = cexchain::cbor::decode({data, size});
+    const auto value = kanhe::cbor::decode({data, size});
     if (!value) {
         return 0;
     }
-    const auto claim = cexchain::protocol::decode_claim(*value);
+    const auto claim = kanhe::protocol::decode_claim(*value);
     if (!claim) {
         return 0;
     }
-    const auto again = cexchain::protocol::encode_claim(*claim);
-    if (!again || cexchain::protocol::decode_claim(*again) != claim) {
+    const auto again = kanhe::protocol::encode_claim(*claim);
+    if (!again || kanhe::protocol::decode_claim(*again) != claim) {
         __builtin_trap();
     }
-    if (cexchain::protocol::claim_text(*claim).empty()) {
+    if (kanhe::protocol::claim_text(*claim).empty()) {
         __builtin_trap();
     }
     return 0;

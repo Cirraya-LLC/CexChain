@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Proposal and consent files (.cexchain) in the console, for ledgers that do
+// Proposal and consent files (.kanhe) in the console, for ledgers that do
 // not reach each other's APIs. The home writes a proposal for a call that
 // waits for other parties' consents; a party opens it, reads the call
 // against the contract's text and the instance's state (the evidence in the
@@ -22,25 +22,25 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/bo/source.hpp>
-#include <cexchain/client/contracts.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/client/contracts.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -71,7 +71,7 @@ std::string file_name(const protocol::ExchangeFile& f) {
         function += std::isalnum(static_cast<unsigned char>(c)) != 0 ? c : '-';
     }
     return std::string(protocol::name(f.kind)) + "-" + hex_of(f.instance).substr(0, 12) + "-" +
-           function + ".cexchain";
+           function + ".kanhe";
 }
 
 http::Response attachment(const Bytes& content, const std::string& name) {
@@ -180,7 +180,7 @@ std::variant<std::string, http::Response> Console::take_opened(const Signed& who
     }
     const Bytes content = client::read_file(path);
     std::filesystem::remove(path, ec);
-    return store_upload(who.user, "opened.cexchain", content);
+    return store_upload(who.user, "opened.kanhe", content);
 }
 
 std::variant<nlohmann::json, http::Response>
@@ -681,4 +681,4 @@ nlohmann::json Console::held_on(const protocol::Id& instance) const {
     return out;
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

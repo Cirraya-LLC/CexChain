@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
 
-namespace cexchain::test::bo_runtime {
+namespace kanhe::test::bo_runtime {
 
 namespace {
 
@@ -420,4 +420,4 @@ Bytes typical_output_module() {
     return finish(m);
 }
 
-} // namespace cexchain::test::bo_runtime
+} // namespace kanhe::test::bo_runtime

@@ -10,10 +10,10 @@
 #include <optional>
 #include <string>
 
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -156,4 +156,4 @@ std::string wire_name(const Concept* word, const std::string& name) {
     return std::string(dot == std::string_view::npos ? word->id : word->id.substr(dot + 1));
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

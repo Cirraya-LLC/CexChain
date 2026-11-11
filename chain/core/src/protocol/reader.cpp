@@ -3,7 +3,7 @@
 
 #include "reader.hpp"
 
-namespace cexchain::protocol::detail {
+namespace kanhe::protocol::detail {
 
 Result<MapReader> MapReader::open(const cbor::Value& value) {
     const cbor::Map* map = value.as_map();
@@ -182,4 +182,4 @@ Result<const cbor::Array*> as_array(const cbor::Value& value) {
     return array;
 }
 
-} // namespace cexchain::protocol::detail
+} // namespace kanhe::protocol::detail

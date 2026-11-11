@@ -15,11 +15,11 @@
 # a receivable split across organizations, a part split again, a tier-3 part
 # taken by the bank, verified offline, and sold on with an SM3 consent; the
 # depth limit and a retired contract refuse new parts.
-# Usage: contracts.sh CEXCHAIN
+# Usage: contracts.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 SERVERS=()
@@ -30,15 +30,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="contracts test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="contracts test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -52,7 +52,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json; json.load(open('$out'))" 2> /dev/null; then
@@ -275,7 +275,7 @@ OFFICER="$(b actor add --as b-root.key --kind person --name "Credit Officer" --k
 AGENT="$(b actor add --as b-root.key --kind agent --name "Credit Agent" --key b-agent.key \
     --responsible "$OFFICER" --model credit-model-7 --json | json 'd["actor"]["id"]')"
 b delegation grant --as b-root.key --to "$AGENT" --allow record-register \
-    --record-types cexchain.contract-consent/1 > /dev/null
+    --record-types kanhe.contract-consent/1 > /dev/null
 b contract consent --peer core --call "$CALL" --as b-agent.key --log-key b-log.key --send \
     --reference "Credit approval CA-9" --json > consent-b.json
 json 'd["home_answer"]["status"]' < consent-b.json | contains -x recorded
@@ -398,7 +398,7 @@ run contract pending "${SERVER[@]}" --json | json 'len(d)' | contains -x 1
 # it (bo rebuild, bo explain) where the build has them (bo.sh rebuilds).
 printf 'not a bundle' > junk.bundle
 BJ="$(d contract deploy counting.wasm --function propose=create --language bo \
-    --compiler "cexchain-bo 9.9.9; codegen 4; edition 1" --source junk.bundle --as d-root.key --json \
+    --compiler "kanhe-bo 9.9.9; codegen 4; edition 1" --source junk.bundle --as d-root.key --json \
     | json 'd["contract"]["id"]')"
 d contract show "$BJ" | contains "source:     12 bytes"
 d contract show "$BJ" --source-out junk-again.bundle > /dev/null
@@ -425,7 +425,7 @@ bundle = (head(5, 4) + head(0, 1) + head(0, 1) + head(0, 2) + head(0, 1) + head(
 open("other.bundle", "wb").write(bundle)
 EOF2
 BO="$(d contract deploy counting.wasm --function propose=create --language bo \
-    --compiler "cexchain-bo 9.9.9; codegen 1; edition 1" --source other.bundle --as d-root.key --json \
+    --compiler "kanhe-bo 9.9.9; codegen 1; edition 1" --source other.bundle --as d-root.key --json \
     | json 'd["contract"]["id"]')"
 d contract export "$BO" --out other.boc > /dev/null
 IB="$(d contract create "$BO" propose --args "$CREATE" --as d-root.key --json | json 'd["instance"]["id"]')"
@@ -433,7 +433,7 @@ d contract evidence "$IB" --log-key d-log.key --out bo.cbor > /dev/null
 run contract verify bo.cbor --ledger-id "$D_ID" --deploy-out evidence.boc --json | json 'd["verified"]' \
     | contains -x True
 cmp -s other.boc evidence.boc || fail "the evidence carries the deploy as exported"
-if [ -x "$(dirname "$CEXCHAIN")/bo" ]; then
+if [ -x "$(dirname "$KANHE")/bo" ]; then
     expect_exit 3 bo rebuild junk.boc
     contains "rebuild:  MALFORMED: the deploy's source is not a bo-source bundle" out.txt
     run bo rebuild junk.boc --json | json 'd["status"], d["failed"]' | contains -x "malformed True" || true
@@ -613,7 +613,7 @@ run contract verify p3r.cbor --ledger-id "$D_ID" | contains 'consent of Bank (SM
 # --- Help, completion, audits ------------------------------------------------------------
 for cmd in deploy show list retire create call instance instances evidence propose pending \
     consent withdraw send fetch verify export; do
-    run contract "$cmd" --help | contains 'Usage: cexchain contract'
+    run contract "$cmd" --help | contains 'Usage: kanhe contract'
 done
 run contract call --help | contains 'diagnostic notation'
 run delegation grant --help | contains 'contract-call'

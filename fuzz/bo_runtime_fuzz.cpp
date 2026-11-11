@@ -27,13 +27,13 @@
 #include <span>
 #include <string_view>
 
-#include <cexchain/bo/read_bound.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/read_bound.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-namespace vm = cexchain::vm;
+namespace vm = kanhe::vm;
 
 namespace {
 
@@ -73,7 +73,7 @@ const vm::Module& reader_module() {
 
 /// Counts a value's items and map keys as read_input reads them; false if a
 /// key is longer than the bound allows for.
-bool count_items(const cexchain::cbor::Value& v, std::uint64_t& items, std::uint64_t& keys) {
+bool count_items(const kanhe::cbor::Value& v, std::uint64_t& items, std::uint64_t& keys) {
     ++items;
     if (const auto* a = v.as_array()) {
         return std::ranges::all_of(*a, [&](const auto& x) { return count_items(x, items, keys); });
@@ -81,8 +81,8 @@ bool count_items(const cexchain::cbor::Value& v, std::uint64_t& items, std::uint
     if (const auto* m = v.as_map()) {
         for (const auto& e : *m) {
             ++keys;
-            const auto key = cexchain::cbor::encode(e.key);
-            if (!key || key->size() > cexchain::bo::runtime::max_key_size + 2 ||
+            const auto key = kanhe::cbor::encode(e.key);
+            if (!key || key->size() > kanhe::bo::runtime::max_key_size + 2 ||
                 !count_items(e.key, items, keys) || !count_items(e.value, items, keys)) {
                 return false;
             }
@@ -98,14 +98,14 @@ bool count_items(const cexchain::cbor::Value& v, std::uint64_t& items, std::uint
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
+    static const kanhe::crypto::openssl::Provider provider;
     const std::span<const std::uint8_t> input(data, size);
-    const auto outcome = vm::run(module(), input, provider, cexchain::crypto::HashAlg::sha256);
+    const auto outcome = vm::run(module(), input, provider, kanhe::crypto::HashAlg::sha256);
     require(outcome.has_value());
     require(outcome->fuel_used <= vm::fuel_limit);
-    std::optional<cexchain::Result<cexchain::cbor::Value>> decoded;
+    std::optional<kanhe::Result<kanhe::cbor::Value>> decoded;
     if (size <= input_max) {
-        decoded = cexchain::cbor::decode(input);
+        decoded = kanhe::cbor::decode(input);
     }
     const bool accepted = decoded && decoded->has_value();
     const bool utf8_only = decoded && !decoded->has_value() &&
@@ -119,9 +119,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             std::uint64_t keys = 0;
             if (count_items(**decoded, items, keys)) {
                 const auto read =
-                    vm::run(reader_module(), input, provider, cexchain::crypto::HashAlg::sha256);
+                    vm::run(reader_module(), input, provider, kanhe::crypto::HashAlg::sha256);
                 require(read.has_value() && read->ok());
-                require(read->fuel_used <= cexchain::bo::runtime::read_input_fuel(items, keys));
+                require(read->fuel_used <= kanhe::bo::runtime::read_input_fuel(items, keys));
             }
         }
     } else {

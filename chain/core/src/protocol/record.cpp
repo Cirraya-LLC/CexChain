@@ -4,12 +4,12 @@
 #include <algorithm>
 #include <utility>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/record.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/record.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 Result<Bytes> encode_field(const RecordField& field) {
     if (field.name.empty()) {
@@ -20,17 +20,17 @@ Result<Bytes> encode_field(const RecordField& field) {
 }
 
 Result<RecordField> decode_field(ByteView leaf) {
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(leaf));
+    KANHE_TRY(cbor::Value value, cbor::decode(leaf));
     const cbor::Array* parts = value.as_array();
     if (parts == nullptr || parts->size() != 3) {
         return fail(Errc::malformed, "record field must be [name, salt, value]");
     }
     RecordField field;
-    CEXCHAIN_TRY(field.name, detail::as_text((*parts)[0]));
+    KANHE_TRY(field.name, detail::as_text((*parts)[0]));
     if (field.name.empty()) {
         return fail(Errc::malformed, "field name must not be empty");
     }
-    CEXCHAIN_TRY(Bytes salt, detail::as_bytes_value((*parts)[1]));
+    KANHE_TRY(Bytes salt, detail::as_bytes_value((*parts)[1]));
     if (salt.size() != field.salt.size()) {
         return fail(Errc::malformed, "field salt must be 16 bytes");
     }
@@ -58,12 +58,12 @@ Result<FieldCommitment> commit_fields(const crypto::Provider& provider, crypto::
     std::vector<Bytes> leaves;
     leaves.reserve(fields.size());
     for (const RecordField& field : fields) {
-        CEXCHAIN_TRY(Bytes leaf, encode_field(field));
-        CEXCHAIN_TRY(std::uint64_t index, tree.append(leaf));
+        KANHE_TRY(Bytes leaf, encode_field(field));
+        KANHE_TRY(std::uint64_t index, tree.append(leaf));
         static_cast<void>(index);
         leaves.push_back(std::move(leaf));
     }
-    CEXCHAIN_TRY(crypto::Digest root, tree.root());
+    KANHE_TRY(crypto::Digest root, tree.root());
     return FieldCommitment{root, std::move(fields), std::move(leaves)};
 }
 
@@ -77,10 +77,10 @@ Result<FieldDisclosure> disclose_field(const crypto::Provider& provider, crypto:
 
     merkle::Tree tree(provider, hash);
     for (const Bytes& leaf : commitment.leaves) {
-        CEXCHAIN_TRY(std::uint64_t appended, tree.append(leaf));
+        KANHE_TRY(std::uint64_t appended, tree.append(leaf));
         static_cast<void>(appended);
     }
-    CEXCHAIN_TRY(std::vector<crypto::Digest> path, tree.inclusion_proof(index, tree.size()));
+    KANHE_TRY(std::vector<crypto::Digest> path, tree.inclusion_proof(index, tree.size()));
     return FieldDisclosure{commitment.leaves[static_cast<std::size_t>(index)], index,
                            std::move(path)};
 }
@@ -88,10 +88,10 @@ Result<FieldDisclosure> disclose_field(const crypto::Provider& provider, crypto:
 Result<RecordField> verify_disclosure(const crypto::Provider& provider, crypto::HashAlg hash,
                                       ByteView root, std::uint64_t field_count,
                                       const FieldDisclosure& disclosure) {
-    CEXCHAIN_TRY(crypto::Digest expected_root, crypto::Digest::from_bytes(root));
-    CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, hash, disclosure.leaf));
-    CEXCHAIN_CHECK(merkle::verify_inclusion(provider, hash, leaf, disclosure.index, field_count,
-                                            disclosure.path, expected_root));
+    KANHE_TRY(crypto::Digest expected_root, crypto::Digest::from_bytes(root));
+    KANHE_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, hash, disclosure.leaf));
+    KANHE_CHECK(merkle::verify_inclusion(provider, hash, leaf, disclosure.index, field_count,
+                                         disclosure.path, expected_root));
     return decode_field(disclosure.leaf);
 }
 
@@ -103,4 +103,4 @@ Result<crypto::Digest> attachment_commitment(const crypto::Provider& provider, c
     return provider.digest(hash, {ByteView(salt), content});
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

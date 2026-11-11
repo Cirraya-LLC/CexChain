@@ -77,7 +77,7 @@ set -u
 cp -a /mnt/src /src
 cd /src
 # As CI names it (.github/workflows/ci.yml).
-export CEXCHAIN_PYTHON=/opt/python-verifier/bin/python
+export KANHE_PYTHON=/opt/python-verifier/bin/python
 # A prebuilt image (CI_LOCAL_IMAGE) has the tools: installing again would
 # fetch whatever the mirrors have newer.
 if [ -z "${CI_LOCAL_PREBUILT:-}" ] &&
@@ -91,10 +91,10 @@ job() {
             cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ &&
                 cmake --build --preset gcc-debug && ctest --preset gcc-debug ;;
         release)
-            cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
+            cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DKANHE_BUILD_TESTS=OFF \
                 -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" &&
-                cmake --build --preset gcc-release --target cexchain bo cexchain-console cexchain-index &&
-                for p in cexchain bo cexchain-console cexchain-index; do build/gcc-release/bin/$p version || exit 1; done &&
+                cmake --build --preset gcc-release --target kanhe bo kanhe-console kanhe-index &&
+                for p in kanhe bo kanhe-console kanhe-index; do build/gcc-release/bin/$p version || exit 1; done &&
                 build/gcc-release/bin/bo packs list ;;
         clang-asan)
             cmake --preset clang-asan -DCMAKE_CXX_COMPILER=clang++-23 &&

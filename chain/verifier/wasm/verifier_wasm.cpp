@@ -2,12 +2,12 @@
 // Copyright 2026 Cirraya
 
 // The browser verifier's interface to JavaScript. Options are set one call at
-// a time (so attachment contents need no encoding), then cexchain_verify runs
-// the same verification as `cexchain verify` (or, for a contract instance's
-// evidence, `cexchain contract verify`) and returns the report as JSON, with
+// a time (so attachment contents need no encoding), then kanhe_verify runs
+// the same verification as `kanhe verify` (or, for a contract instance's
+// evidence, `kanhe contract verify`) and returns the report as JSON, with
 // "kind" set to "record" or "contract".
 // Strings returned to JavaScript are allocated with malloc; release them with
-// cexchain_free.
+// kanhe_free.
 
 #include <cstdint>
 #include <cstdlib>
@@ -17,16 +17,16 @@
 #include <optional>
 #include <string>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/verifier/report.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 using verifier::Json;
 
 protocol::VerifyOptions options;
@@ -67,16 +67,16 @@ char* verify_contract(ByteView input) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE const char* cexchain_version() {
-    return CEXCHAIN_VERSION;
+EMSCRIPTEN_KEEPALIVE const char* kanhe_version() {
+    return KANHE_VERSION;
 }
 
-EMSCRIPTEN_KEEPALIVE void cexchain_reset() {
+EMSCRIPTEN_KEEPALIVE void kanhe_reset() {
     options = {};
 }
 
 /// Returns 0, or -1 if `hex` is not a ledger id.
-EMSCRIPTEN_KEEPALIVE int cexchain_set_expected_ledger(const char* hex) {
+EMSCRIPTEN_KEEPALIVE int kanhe_set_expected_ledger(const char* hex) {
     const auto bytes = from_hex(hex);
     if (!bytes) {
         return -1;
@@ -90,8 +90,8 @@ EMSCRIPTEN_KEEPALIVE int cexchain_set_expected_ledger(const char* hex) {
 }
 
 /// Trusts a witness, given its public key file. Returns 0, or -1 if the file
-/// is not a CexChain public key.
-EMSCRIPTEN_KEEPALIVE int cexchain_add_witness(const std::uint8_t* data, std::size_t size) {
+/// is not a Kanhe public key.
+EMSCRIPTEN_KEEPALIVE int kanhe_add_witness(const std::uint8_t* data, std::size_t size) {
     const auto value = cbor::decode(ByteView(data, size));
     if (!value) {
         return -1;
@@ -106,7 +106,7 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_witness(const std::uint8_t* data, std::siz
 
 /// Trusts an open network's witness, given its verifier key (spec v0.13):
 /// a cosigner's, type 0x04 or 0x06. Returns 0, or -1 if it is not one.
-EMSCRIPTEN_KEEPALIVE int cexchain_add_network_witness(const char* vkey) {
+EMSCRIPTEN_KEEPALIVE int kanhe_add_network_witness(const char* vkey) {
     auto key = protocol::network::parse_verifier_key(provider(), vkey);
     if (!key || (key->type != protocol::network::cosigner_ed25519 &&
                  key->type != protocol::network::cosigner_ml_dsa_44)) {
@@ -119,7 +119,7 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_network_witness(const char* vkey) {
 /// Trusts the time-stamp authorities under these root certificates (a PEM
 /// file of one or more, or one DER certificate; spec v0.11). Returns 0, or -1
 /// if there is none or one does not parse.
-EMSCRIPTEN_KEEPALIVE int cexchain_add_timestamp_root(const std::uint8_t* data, std::size_t size) {
+EMSCRIPTEN_KEEPALIVE int kanhe_add_timestamp_root(const std::uint8_t* data, std::size_t size) {
     auto roots = crypto::openssl::read_certificates(ByteView(data, size));
     if (!roots) {
         return -1;
@@ -132,7 +132,7 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_timestamp_root(const std::uint8_t* data, s
 /// Believes a trust node's memberships (spec v0.16), naming it `name` (the
 /// page's list gives it, never the evidence). Returns 0, or -1 if `hex` is
 /// not a ledger id or the name is empty.
-EMSCRIPTEN_KEEPALIVE int cexchain_add_trust_node(const char* hex, const char* name) {
+EMSCRIPTEN_KEEPALIVE int kanhe_add_trust_node(const char* hex, const char* name) {
     const auto bytes = from_hex(hex);
     const auto id =
         bytes ? protocol::to_id(*bytes) : Result<protocol::Id>(std::unexpected(bytes.error()));
@@ -143,14 +143,14 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_trust_node(const char* hex, const char* na
     return 0;
 }
 
-EMSCRIPTEN_KEEPALIVE void cexchain_add_attachment(const char* name, const std::uint8_t* data,
-                                                  std::size_t size) {
+EMSCRIPTEN_KEEPALIVE void kanhe_add_attachment(const char* name, const std::uint8_t* data,
+                                               std::size_t size) {
     options.attachment_contents[name] = Bytes(data, data + size);
 }
 
 /// Verifies an evidence bundle or a contract instance's evidence, with the
 /// options set since the last reset.
-EMSCRIPTEN_KEEPALIVE char* cexchain_verify(const std::uint8_t* bundle, std::size_t size) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_verify(const std::uint8_t* bundle, std::size_t size) {
     try {
         const ByteView input(bundle, size);
         const bool checked = options.expected_ledger.has_value();
@@ -171,7 +171,7 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_verify(const std::uint8_t* bundle, std::size
     }
 }
 
-EMSCRIPTEN_KEEPALIVE void cexchain_free(char* text) {
+EMSCRIPTEN_KEEPALIVE void kanhe_free(char* text) {
     std::free(text);
 }
 

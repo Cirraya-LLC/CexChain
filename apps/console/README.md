@@ -1,17 +1,17 @@
 # The web console
 
 An application on the chain: a web console for a ledger, for one person on their computer or a
-company on its server. `cexchain-console` serves it beside the ledger's API, as an extension of
+company on its server. `kanhe-console` serves it beside the ledger's API, as an extension of
 the chain's node. It builds what it signs with the chain's client library, and the ledger applies
 its own rules to it, so what someone may do on the ledger stays in their delegations; each
 statement is approved with a passkey, checked in the browser before the tap. Its Things and
 Reports screens read the [search index](../index/README.md), and its rules editor runs the `bo`
 compiler beside it.
 
-`cexchain-console run` serves a web console for the ledger on this computer, at
+`kanhe-console run` serves a web console for the ledger on this computer, at
 `http://localhost:7470/console/` (or the next free port, remembered), beside the ledger's API;
-`cexchain-console status`, `open`, and `stop` manage it. A company serves it on its server with
-`cexchain-console run --listen 0.0.0.0:443 --tls-cert … --public-url https://ledger.example.com`
+`kanhe-console status`, `open`, and `stop` manage it. A company serves it on its server with
+`kanhe-console run --listen 0.0.0.0:443 --tls-cert … --public-url https://ledger.example.com`
 (beyond this computer only over TLS, here or by a proxy in front). It sets a ledger up for
 one person or a team, signs people in, registers documents with their fields and files, shows a
 thing's page, shares and verifies proof, writes, tests, and deploys rules, creates things under
@@ -23,16 +23,16 @@ statement with a passkey. Not yet: Windows.
 |---|---|
 | `src/` | The console's routes, beside the node's: setup, sign-in, documents and kinds, things and rules, parties, people, automation, backups, the witness, and the relay |
 | `web/` | The page (`index.html`, `console.js`, `console.css`) and its catalogs in three languages (`web/i18n/`) |
-| `wasm/` | Its checks in the browser, built to WebAssembly (`tools/wasm/build.sh`) and embedded when `CEXCHAIN_CONSOLE_WASM_DIR` names them |
-| `cli/` | The `cexchain-console` program |
+| `wasm/` | Its checks in the browser, built to WebAssembly (`tools/wasm/build.sh`) and embedded when `KANHE_CONSOLE_WASM_DIR` names them |
+| `cli/` | The `kanhe-console` program |
 
 ## What it does
 
 ```sh
-cexchain-console run --ledger ./ledger   # an empty directory: the browser opens the setup page
-cexchain-console user add Bob --role member   # a link for Bob to register his own passkey
-cexchain-console user list
-cexchain-console settings show
+kanhe-console run --ledger ./ledger   # an empty directory: the browser opens the setup page
+kanhe-console user add Bob --role member   # a link for Bob to register his own passkey
+kanhe-console user list
+kanhe-console settings show
 ```
 
 - **The first run.** On a directory with no ledger, `console run` opens a one-time setup page
@@ -66,15 +66,15 @@ cexchain-console settings show
 - **A thing's page** shows what the ledger holds about it, and its private fields and files to
   those allowed: owners and admins, and members for the documents they registered or may
   register. **Share proof** makes the evidence file with the fields you disclose and the files'
-  openings, as `cexchain export` would; **Verify** checks a proof and its files in the browser,
-  with a report in the reader's language, as `cexchain verify` and the standalone page do.
+  openings, as `kanhe export` would; **Verify** checks a proof and its files in the browser,
+  with a report in the reader's language, as `kanhe verify` and the standalone page do.
   **New version** registers a document's replacement with one tap: the old one's page then says
   a newer version replaced it and links the latest, its versions are listed, Things hides old
   versions until asked, and its proof, wherever it is checked, says it was superseded.
 - **Certificates.** A kind whose sheet lists `"printed": [fields]` is a certificate: the fields
   on paper. `console certificate issue TYPE --csv FILE --as KEY --out ISSUED.csv` issues a
   record per row of a table (a spreadsheet saved as CSV) and publishes each at a private
-  address (`cexchain record publish`): whoever scans its QR code gets the record as it is then,
+  address (`kanhe record publish`): whoever scans its QR code gets the record as it is then,
   revoked or replaced included, with the printed fields disclosed and the others sealed.
   `--out` lists what was issued, so a run that stops carries on without issuing anything twice.
   `certificate print --type TYPE --out DIR --url URL` writes a page per certificate (an A4
@@ -92,17 +92,17 @@ cexchain-console settings show
   link, its page to print in the console's language, and Withdraw.
 
   ```sh
-  cexchain-console kind add diploma.json      # ... "printed": ["name", "degree", "year"]
-  cexchain-console certificate allow example.org.diploma/1
-  cexchain-console certificate issue example.org.diploma/1 --csv class-of-2026.csv \
+  kanhe-console kind add diploma.json      # ... "printed": ["name", "degree", "year"]
+  kanhe-console certificate allow example.org.diploma/1
+  kanhe-console certificate issue example.org.diploma/1 --csv class-of-2026.csv \
       --machine --out issued.csv --url https://ledger.example.com
-  cexchain-console certificate print --type example.org.diploma/1 --out pages \
+  kanhe-console certificate print --type example.org.diploma/1 --out pages \
       --url https://ledger.example.com --language zh-Hant
   ```
 - **Claims.** "Confirm a condition" on a document's page confirms that its fields meet a
   condition without showing them ("monthly_salary is above HKD 30,000.00", not the salary): the
   console checks the conditions against the document's private data, the page checks the claim's
-  bytes in WebAssembly, and a passkey tap approves it, as `cexchain claim issue` does. A condition
+  bytes in WebAssembly, and a passkey tap approves it, as `kanhe claim issue` does. A condition
   that does not hold gets no claim unless asked for one that says so. The claim's page, its proof,
   and the verifier page show the condition, the answer, and whether the document was revoked or
   replaced since.
@@ -117,7 +117,7 @@ cexchain-console settings show
   English, Traditional Chinese, and Simplified Chinese side by side; "Run the tests" runs the
   rules' tests. Deploying and retiring are approved with a passkey, and the page checks the
   code's size and SHA-256 digest in the bytes it signs. The compiler is the `bo` program beside
-  `cexchain-console`, run in a child process, never in the node: one run at a time per session, at most 30 seconds, 1 GiB of
+  `kanhe-console`, run in a child process, never in the node: one run at a time per session, at most 30 seconds, 1 GiB of
   memory, and 8 MiB of output, on at most 256 KiB of rules; only owners and admins write rules.
   Open the examples' `.bo` files (or a sheet saved with "Download") to start from them; the
   editor keeps its draft in the browser tab, so a reload does not lose it.
@@ -132,9 +132,9 @@ cexchain-console settings show
   tap: a value that does not fit is shown on its field, a call the rules refuse says why in the
   reader's words, and one that needs another ledger's consent says whose, and offers to ask
   for it by file. Otherwise the page checks, in WebAssembly, that the bytes it approves are
-  the call it shows. "Share proof" gives the thing's contract evidence, which `cexchain contract
+  the call it shows. "Share proof" gives the thing's contract evidence, which `kanhe contract
   verify` and the Verify screen check.
-- **Consents by file.** "Ask for consent by file" writes a proposal (`.cexchain`, as `contract
+- **Consents by file.** "Ask for consent by file" writes a proposal (`.kanhe`, as `contract
   proposal` does) with a note; the other party opens it from Home ("Open a proposal or consent
   file"), where it is verified against the thing's history and shown with the call's clauses and
   the thing's fields, consents with a tap on its own ledger, and gets the consent file to send
@@ -179,19 +179,19 @@ cexchain-console settings show
   its condition), never the fields, and acknowledges it with a tap; the party sees it under
   "Answered for them", where an answer is withdrawn with a tap. A kind may list fields under
   `"answers"` (a box per field in the kind form): once an owner taps "Let the console answer by
-  itself" (or runs `cexchain-console answers allow`), the console's machine answers, at each
+  itself" (or runs `kanhe-console answers allow`), the console's machine answers, at each
   poll, a question whose every term is about those fields, on the record's latest version, when
   it holds, valid as long as the question was asked for; a question about other fields, and
   every one that does not hold, waits for a person. Each such answer is in the activity log.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line).
-- **In the background.** `cexchain-console open` starts the console if it is not running (in
+- **In the background.** `kanhe-console open` starts the console if it is not running (in
   the background, its log in the console's folder) and opens it in the browser;
   `console open FILE` opens a proposal or consent file there.
-  `cexchain-console service install` runs it from each login: a LaunchAgent on macOS, a systemd
+  `kanhe-console service install` runs it from each login: a LaunchAgent on macOS, a systemd
   user unit elsewhere, restarted if it fails; `console service status|uninstall`. Without
   `--ledger`, the console's commands use this computer's place for a person's ledger
-  (`~/Library/Application Support/CexChain/ledger` on macOS, `$XDG_DATA_HOME/cexchain/ledger`
+  (`~/Library/Application Support/Kanhe/ledger` on macOS, `$XDG_DATA_HOME/kanhe/ledger`
   elsewhere); `console status` shows it.
 - **Backups.** Once a day while the console is unlocked (and on "Back up now"), it writes a
   backup into the backup folder: the ledger's backup, signed by its log key, with the console's
@@ -199,7 +199,7 @@ cexchain-console settings show
   restoring it in memory, then sealed so that the folder (an external disk, a synced folder)
   learns only the ledger's id and the time: only the recovery code opens it. The folder keeps the
   newest seven and one a week for four weeks; Home shows the last backup, and warns after two
-  days without one. `cexchain-console restore FILE --ledger DIR` restores the ledger and its
+  days without one. `kanhe-console restore FILE --ledger DIR` restores the ledger and its
   console on any computer with the recovery code; `console backup now|list` do the rest from the
   command line.
 
@@ -235,7 +235,7 @@ cexchain-console settings show
   console holds, by an owner, after the owner's passkey, and recorded in the activity log. Then
   its key is handed out once, encrypted with a passphrase typed on the page (the console keeps no
   machine's key), with an API token and the `executor run` config and command, or the MCP client
-  setup for an agent (`cexchain mcp --server URL --token-file FILE --as KEY`).
+  setup for an agent (`kanhe mcp --server URL --token-file FILE --as KEY`).
 - **Action links.** Each action on a thing's page offers a link to it (`/console/#/act/THING/ACTION`)
   and its QR code, to print or show: whoever opens it signs in and sees that action's form,
   checked and approved as any other, so the link holds no secret. The page fits a phone's screen
@@ -244,7 +244,7 @@ cexchain-console settings show
   within five minutes, with the person verified (a PIN or a biometric). A session is a bearer
   token that the node keeps only as a hash, in memory; it ends after 30 idle minutes, after 12
   hours at most, on signing out, when the console stops, or with
-  `cexchain-console session revoke ID` (`console session list` shows them).
+  `kanhe-console session revoke ID` (`console session list` shows them).
 - **Sealed keys, unlocked by a passkey.** `console key init` makes the console's node key and
   prints its recovery code once; `console key import NAME FILE` seals a key in the console. The
   node key is stored only wrapped: under the recovery code, a passphrase or an unlock file

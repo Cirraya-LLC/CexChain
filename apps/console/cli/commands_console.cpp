@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// cexchain-console's commands: the table the registry dispatches, documents, and
+// kanhe-console's commands: the table the registry dispatches, documents, and
 // completes from.
 
 #include "console_commands.hpp"
 #include "registry_options.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 std::vector<CommandSpec> console_commands() {
     return {
@@ -22,7 +22,7 @@ std::vector<CommandSpec> console_commands() {
          1,
          {},
          cmd_completion,
-         "Load with: source <(cexchain completion bash)   or   source <(cexchain completion zsh)"},
+         "Load with: source <(kanhe completion bash)   or   source <(kanhe completion zsh)"},
         {{"run"},
          "Run the web console for this ledger on this computer",
          "Console",
@@ -205,7 +205,7 @@ std::vector<CommandSpec> console_commands() {
                 "The console's passphrase or recovery code (default: asked on the terminal)"}}),
          cmd_answers_allow,
          "The organization grants the console's machine a delegation to register claims\n"
-         "(cexchain.claim/1) only, signed with the root key the console keeps sealed, as an\n"
+         "(kanhe.claim/1) only, signed with the root key the console keeps sealed, as an\n"
          "owner does on the Parties screen. The console then answers by itself a party's\n"
          "question about the fields a kind lists under \"answers\" (kind add), when the\n"
          "condition holds; any other question, and every one that does not hold, waits for a\n"
@@ -263,7 +263,7 @@ std::vector<CommandSpec> console_commands() {
          with({ledger_option,
                {"url", "URL", "The server's public address (default: the server's)"},
                {"verifier-url", "URL",
-                "The verifier page (default: https://cexchain.cirraya.com/verify/)"},
+                "The verifier page (default: https://kanhe.cirraya.com/verify/)"},
                {"language", "LANG", "The page's language: en, zh-Hant, or zh-Hans (default: en)"},
                {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
          cmd_certificate_show},
@@ -277,7 +277,7 @@ std::vector<CommandSpec> console_commands() {
              {ledger_option, {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
          cmd_certificate_withdraw,
          "Its QR code then finds nothing. To say the certificate no longer stands, revoke the\n"
-         "record instead (cexchain record revoke): the QR code then shows it revoked."},
+         "record instead (kanhe record revoke): the QR code then shows it revoked."},
         {{"certificate", "print"},
          "Write certificates as pages to print or save as PDF, each with its QR code",
          "Certificates",
@@ -290,7 +290,7 @@ std::vector<CommandSpec> console_commands() {
                {"template", "FILE", "An HTML template (default: a plain A4 page)"},
                {"url", "URL", "The server's public address (default: the server's)"},
                {"verifier-url", "URL",
-                "The verifier page (default: https://cexchain.cirraya.com/verify/)"},
+                "The verifier page (default: https://kanhe.cirraya.com/verify/)"},
                {"language", "LANG",
                 "The default template's and the page's language: en, zh-Hant, or zh-Hans"},
                {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
@@ -528,4 +528,4 @@ std::vector<CommandSpec> console_commands() {
     };
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

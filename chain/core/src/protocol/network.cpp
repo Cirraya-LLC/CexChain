@@ -5,14 +5,14 @@
 #include <charconv>
 #include <format>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/network.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/network.hpp>
 
-namespace cexchain::protocol::network {
+namespace kanhe::protocol::network {
 
 namespace {
 
-constexpr std::string_view origin_prefix = "cirraya.com/cexchain/";
+constexpr std::string_view origin_prefix = "cirraya.com/kanhe/";
 constexpr std::string_view em_dash_space = "\xE2\x80\x94 ";
 constexpr std::size_t ed25519_key_size = 32;
 constexpr std::size_t ed25519_signature_size = 64;
@@ -321,4 +321,4 @@ Result<std::uint64_t> parse_tlog_size(std::string_view body) {
     return size;
 }
 
-} // namespace cexchain::protocol::network
+} // namespace kanhe::protocol::network

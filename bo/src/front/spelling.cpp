@@ -15,7 +15,7 @@
 
 #include "internal.hpp"
 
-namespace cexchain::bo::detail {
+namespace kanhe::bo::detail {
 
 namespace {
 
@@ -293,4 +293,4 @@ std::string describe(const Meaning& meaning) {
     return "?";
 }
 
-} // namespace cexchain::bo::detail
+} // namespace kanhe::bo::detail

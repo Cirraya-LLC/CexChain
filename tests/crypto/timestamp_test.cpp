@@ -7,17 +7,17 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/timestamp_authority.hpp"
 
-namespace crypto = cexchain::crypto;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::Errc;
-using cexchain::test::TimestampAuthority;
+namespace crypto = kanhe::crypto;
 using crypto::HashAlg;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::Errc;
+using kanhe::test::TimestampAuthority;
 
 namespace {
 

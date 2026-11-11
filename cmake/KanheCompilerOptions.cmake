@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+
+include_guard(GLOBAL)
+
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    message(FATAL_ERROR "Kanhe currently supports GCC and Clang only (found ${CMAKE_CXX_COMPILER_ID}).")
+endif()
+
+# Apple's linker warns when a static library reaches a target through more than
+# one dependency path, which is normal in a layered build.
+if(APPLE)
+    add_link_options(LINKER:-no_warn_duplicate_libraries)
+endif()
+
+# Sanitizers apply to every target, including third-party code, so that
+# instrumented and uninstrumented code never mix.
+if(KANHE_SANITIZERS)
+    list(JOIN KANHE_SANITIZERS "," _kanhe_sanitizers)
+    add_compile_options(-fsanitize=${_kanhe_sanitizers} -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=${_kanhe_sanitizers})
+endif()
+
+# Fuzzing instruments all code for coverage feedback; only the fuzz targets
+# themselves link the libFuzzer driver.
+if(KANHE_BUILD_FUZZERS)
+    add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+
+# Applies the project's warning policy to a first-party target.
+function(kanhe_target_defaults target)
+    set(warnings
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+        -Wshadow
+        -Wnon-virtual-dtor
+        -Wold-style-cast
+        -Wcast-align
+        -Woverloaded-virtual
+        -Wdouble-promotion
+        -Wformat=2
+        -Wimplicit-fallthrough
+        -Wunused)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        list(APPEND warnings -Wduplicated-cond -Wduplicated-branches -Wlogical-op)
+    endif()
+    if(KANHE_WARNINGS_AS_ERRORS)
+        list(APPEND warnings -Werror)
+    endif()
+    target_compile_options(${target} PRIVATE ${warnings})
+endfunction()

@@ -7,10 +7,10 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace {
 
@@ -35,7 +35,7 @@ protocol::Timestamp SystemClock::offset() noexcept {
 
 void SystemEntropy::fill(std::span<std::uint8_t> out) {
     if (!crypto::openssl::random_bytes(out)) {
-        std::fputs("cexchain: the system random number generator failed\n", stderr);
+        std::fputs("kanhe: the system random number generator failed\n", stderr);
         std::abort();
     }
 }
@@ -92,4 +92,4 @@ void SeededEntropy::fill(std::span<std::uint8_t> out) {
     }
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

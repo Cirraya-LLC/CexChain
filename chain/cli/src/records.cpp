@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 crypto::openssl::HpkeKey load_hpke_key(const std::filesystem::path& path, const Args& args) {
     return client::load_hpke_key(path, [&] { return passphrase(args, path.string()); });
@@ -30,4 +30,4 @@ Vault read_vault(const client::Session& session, const protocol::Id& record, con
     return client::read_vault(session, record, [&] { return load_vault_key(session, args); });
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

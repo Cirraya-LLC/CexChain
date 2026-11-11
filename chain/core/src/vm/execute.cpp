@@ -13,11 +13,11 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/core/vm.hpp>
+#include <kanhe/core/vm.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::vm {
+namespace kanhe::vm {
 
 std::string_view name(Trap trap) noexcept {
     switch (trap) {
@@ -410,17 +410,17 @@ private:
 // other compilers use the switch alone, and so does WebAssembly, which has
 // no indirect jumps: Emscripten turns computed gotos into a switch on label
 // numbers, which ran Bo's conformance runs 2.7 times slower than the switch
-// itself (Node.js, 2026-10-20). Defining CEXCHAIN_VM_THREADED as 0 builds
+// itself (Node.js, 2026-10-20). Defining KANHE_VM_THREADED as 0 builds
 // the switch alone anywhere.
-#if !defined(CEXCHAIN_VM_THREADED)
+#if !defined(KANHE_VM_THREADED)
 #if defined(__GNUC__) && !defined(__EMSCRIPTEN__)
-#define CEXCHAIN_VM_THREADED 1
+#define KANHE_VM_THREADED 1
 #else
-#define CEXCHAIN_VM_THREADED 0
+#define KANHE_VM_THREADED 0
 #endif
 #endif
 
-/// One invocation of cexchain_call. Traps are returned, not thrown.
+/// One invocation of kanhe_call. Traps are returned, not thrown.
 ///
 /// Fuel (spec section 14.3) is charged before each WebAssembly instruction
 /// runs. The translated code charges a whole run at once, at its first
@@ -644,7 +644,7 @@ std::optional<Trap> Machine::execute() {
     frames_[0] = Frame{&entry, nullptr, locals};
     depth_ = 1;
     budget_ = entry.slots;
-#if CEXCHAIN_VM_THREADED
+#if KANHE_VM_THREADED
     if (dispatch_ == detail::Dispatch::threaded) {
         return loop<true, false>(entry.code.data(), base, locals, fuel_);
     }
@@ -660,7 +660,7 @@ std::optional<Trap> Machine::execute() {
 // opens it (a case of the switch, and labels for threaded dispatch: C_name
 // charges the run and falls through to L_name), NEXT() goes to the next
 // instruction, TRAP(trap) ends the invocation.
-#if CEXCHAIN_VM_THREADED
+#if KANHE_VM_THREADED
 // Labels as values and computed gotos are GNU extensions, used on purpose:
 // -Wpedantic would refuse them, here only.
 #pragma GCC diagnostic push
@@ -668,14 +668,14 @@ std::optional<Trap> Machine::execute() {
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wgnu-label-as-value"
 #endif
-#define CEXCHAIN_VM_LABEL(prefix, name) prefix##name:
+#define KANHE_VM_LABEL(prefix, name) prefix##name:
 #else
-#define CEXCHAIN_VM_LABEL(prefix, name)
+#define KANHE_VM_LABEL(prefix, name)
 #endif
 
 #define TARGET(name)                                                                               \
     case detail::op_##name + charged:                                                              \
-        CEXCHAIN_VM_LABEL(C_, name)                                                                \
+        KANHE_VM_LABEL(C_, name)                                                                   \
         if (!Step) {                                                                               \
             if (in->fuel > fuel) {                                                                 \
                 goto out_of_run_fuel;                                                              \
@@ -684,9 +684,9 @@ std::optional<Trap> Machine::execute() {
         }                                                                                          \
         [[fallthrough]];                                                                           \
     case detail::op_##name:                                                                        \
-        CEXCHAIN_VM_LABEL(L_, name)
+        KANHE_VM_LABEL(L_, name)
 
-#if CEXCHAIN_VM_THREADED
+#if KANHE_VM_THREADED
 #define NEXT()                                                                                     \
     do {                                                                                           \
         if constexpr (Threaded) {                                                                  \
@@ -722,13 +722,13 @@ std::optional<Trap> Machine::loop(const Instr* pc, std::uint64_t* sp, std::uint6
     Frame* frame = frames_ + depth_ - 1;
     std::uint32_t budget = budget_;
 
-#if CEXCHAIN_VM_THREADED
-#define CEXCHAIN_VM_LABEL_ADDRESS(name, ...) &&L_##name,
-#define CEXCHAIN_VM_CHARGED_ADDRESS(name, ...) &&C_##name,
+#if KANHE_VM_THREADED
+#define KANHE_VM_LABEL_ADDRESS(name, ...) &&L_##name,
+#define KANHE_VM_CHARGED_ADDRESS(name, ...) &&C_##name,
     [[maybe_unused]] static const void* const labels[] = {
-        CEXCHAIN_VM_OPS(CEXCHAIN_VM_LABEL_ADDRESS) CEXCHAIN_VM_OPS(CEXCHAIN_VM_CHARGED_ADDRESS)};
-#undef CEXCHAIN_VM_LABEL_ADDRESS
-#undef CEXCHAIN_VM_CHARGED_ADDRESS
+        KANHE_VM_OPS(KANHE_VM_LABEL_ADDRESS) KANHE_VM_OPS(KANHE_VM_CHARGED_ADDRESS)};
+#undef KANHE_VM_LABEL_ADDRESS
+#undef KANHE_VM_CHARGED_ADDRESS
     static_assert(std::size(labels) == 2 * std::size_t{detail::op_count});
 #endif
 
@@ -937,7 +937,7 @@ dispatch:
         }
 
         // Loads: the address is replaced by the value.
-#define CEXCHAIN_VM_LOAD(name, opcode, width)                                                      \
+#define KANHE_VM_LOAD(name, opcode, width)                                                         \
     TARGET(name) {                                                                                 \
         const std::uint64_t addr = sp[-1] + in->b;                                                 \
         if (addr + (width) > memory_size) {                                                        \
@@ -946,11 +946,11 @@ dispatch:
         sp[-1] = loaded<detail::op_##name>(load_le<width>(memory + addr));                         \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_LOADS(CEXCHAIN_VM_LOAD)
-#undef CEXCHAIN_VM_LOAD
+        KANHE_VM_LOADS(KANHE_VM_LOAD)
+#undef KANHE_VM_LOAD
 
         // Stores: address and value are popped.
-#define CEXCHAIN_VM_STORE(name, opcode, width)                                                     \
+#define KANHE_VM_STORE(name, opcode, width)                                                        \
     TARGET(name) {                                                                                 \
         const std::uint64_t addr = sp[-2] + in->b;                                                 \
         if (addr + (width) > memory_size) {                                                        \
@@ -963,18 +963,18 @@ dispatch:
         sp -= 2;                                                                                   \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_STORES(CEXCHAIN_VM_STORE)
-#undef CEXCHAIN_VM_STORE
+        KANHE_VM_STORES(KANHE_VM_STORE)
+#undef KANHE_VM_STORE
 
-#define CEXCHAIN_VM_UNARY_OP(name, opcode)                                                         \
+#define KANHE_VM_UNARY_OP(name, opcode)                                                            \
     TARGET(name) {                                                                                 \
         sp[-1] = unary<detail::op_##name>(sp[-1]);                                                 \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_UNARY(CEXCHAIN_VM_UNARY_OP)
-#undef CEXCHAIN_VM_UNARY_OP
+        KANHE_VM_UNARY(KANHE_VM_UNARY_OP)
+#undef KANHE_VM_UNARY_OP
 
-#define CEXCHAIN_VM_DIVISION_OP(name, opcode)                                                      \
+#define KANHE_VM_DIVISION_OP(name, opcode)                                                         \
     TARGET(name) {                                                                                 \
         if (const auto trap = divide<detail::op_##name>(sp[-2], sp[-1], sp[-2])) {                 \
             TRAP(*trap);                                                                           \
@@ -982,44 +982,44 @@ dispatch:
         --sp;                                                                                      \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_DIVISION(CEXCHAIN_VM_DIVISION_OP)
-#undef CEXCHAIN_VM_DIVISION_OP
+        KANHE_VM_DIVISION(KANHE_VM_DIVISION_OP)
+#undef KANHE_VM_DIVISION_OP
 
-#define CEXCHAIN_VM_BINARY_OP(name, opcode)                                                        \
+#define KANHE_VM_BINARY_OP(name, opcode)                                                           \
     TARGET(name) {                                                                                 \
         sp[-2] = binary<detail::op_##name>(sp[-2], sp[-1]);                                        \
         --sp;                                                                                      \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_BINARY(CEXCHAIN_VM_BINARY_OP)
-#undef CEXCHAIN_VM_BINARY_OP
+        KANHE_VM_BINARY(KANHE_VM_BINARY_OP)
+#undef KANHE_VM_BINARY_OP
 
         // Fused instructions (see internal.hpp).
-#define CEXCHAIN_VM_FUSED_C(fused, name)                                                           \
+#define KANHE_VM_FUSED_C(fused, name)                                                              \
     TARGET(fused) {                                                                                \
         sp[-1] = binary<detail::op_##name>(sp[-1], in->b);                                         \
         NEXT();                                                                                    \
     }
-#define CEXCHAIN_VM_FUSED_L(fused, name)                                                           \
+#define KANHE_VM_FUSED_L(fused, name)                                                              \
     TARGET(fused) {                                                                                \
         sp[-1] = binary<detail::op_##name>(sp[-1], locals[in->a]);                                 \
         NEXT();                                                                                    \
     }
-#define CEXCHAIN_VM_FUSED_LC(fused, name)                                                          \
+#define KANHE_VM_FUSED_LC(fused, name)                                                             \
     TARGET(fused) {                                                                                \
         *sp++ = binary<detail::op_##name>(locals[in->a], in->b);                                   \
         NEXT();                                                                                    \
     }
-#define CEXCHAIN_VM_FUSED_LL(fused, name)                                                          \
+#define KANHE_VM_FUSED_LL(fused, name)                                                             \
     TARGET(fused) {                                                                                \
         *sp++ = binary<detail::op_##name>(locals[in->a], locals[lo32(in->b)]);                     \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_C, CEXCHAIN_VM_WITH_C)
-        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_L, CEXCHAIN_VM_WITH_L)
-        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_LC, CEXCHAIN_VM_WITH_LC)
-        CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_FUSED_LL, CEXCHAIN_VM_WITH_LL)
-#define CEXCHAIN_VM_FUSED_IF(fused, name)                                                          \
+        KANHE_VM_BINARY_LIST(KANHE_VM_FUSED_C, KANHE_VM_WITH_C)
+        KANHE_VM_BINARY_LIST(KANHE_VM_FUSED_L, KANHE_VM_WITH_L)
+        KANHE_VM_BINARY_LIST(KANHE_VM_FUSED_LC, KANHE_VM_WITH_LC)
+        KANHE_VM_BINARY_LIST(KANHE_VM_FUSED_LL, KANHE_VM_WITH_LL)
+#define KANHE_VM_FUSED_IF(fused, name)                                                             \
     TARGET(fused) {                                                                                \
         sp -= 2;                                                                                   \
         if (binary<detail::op_##name>(sp[0], sp[1]) == 0) {                                        \
@@ -1027,7 +1027,7 @@ dispatch:
         }                                                                                          \
         NEXT();                                                                                    \
     }
-#define CEXCHAIN_VM_FUSED_JUMP_IF(fused, name)                                                     \
+#define KANHE_VM_FUSED_JUMP_IF(fused, name)                                                        \
     TARGET(fused) {                                                                                \
         sp -= 2;                                                                                   \
         if (binary<detail::op_##name>(sp[0], sp[1]) != 0) {                                        \
@@ -1035,40 +1035,38 @@ dispatch:
         }                                                                                          \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_IF, CEXCHAIN_VM_WITH_IF)
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_JUMP_IF, CEXCHAIN_VM_WITH_JUMP_IF)
-#undef CEXCHAIN_VM_FUSED_IF
-#undef CEXCHAIN_VM_FUSED_JUMP_IF
-#define CEXCHAIN_VM_FUSED_BRANCH(fused, name, x, y, taken)                                         \
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_IF, KANHE_VM_WITH_IF)
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_JUMP_IF, KANHE_VM_WITH_JUMP_IF)
+#undef KANHE_VM_FUSED_IF
+#undef KANHE_VM_FUSED_JUMP_IF
+#define KANHE_VM_FUSED_BRANCH(fused, name, x, y, taken)                                            \
     TARGET(fused) {                                                                                \
         if ((binary<detail::op_##name>(x, y) != 0) == (taken)) {                                   \
             pc = in + offset(in->a);                                                               \
         }                                                                                          \
         NEXT();                                                                                    \
     }
-#define CEXCHAIN_VM_FUSED_C_IF(fused, name)                                                        \
-    CEXCHAIN_VM_FUSED_BRANCH(fused, name, *--sp, in->b, false)
-#define CEXCHAIN_VM_FUSED_C_JUMP_IF(fused, name)                                                   \
-    CEXCHAIN_VM_FUSED_BRANCH(fused, name, *--sp, in->b, true)
-#define CEXCHAIN_VM_FUSED_LL_IF(fused, name)                                                       \
-    CEXCHAIN_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], false)
-#define CEXCHAIN_VM_FUSED_LL_JUMP_IF(fused, name)                                                  \
-    CEXCHAIN_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], true)
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_C_IF, CEXCHAIN_VM_WITH_C_IF)
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_C_JUMP_IF, CEXCHAIN_VM_WITH_C_JUMP_IF)
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_LL_IF, CEXCHAIN_VM_WITH_LL_IF)
-        CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_FUSED_LL_JUMP_IF, CEXCHAIN_VM_WITH_LL_JUMP_IF)
-#undef CEXCHAIN_VM_FUSED_BRANCH
-#undef CEXCHAIN_VM_FUSED_C_IF
-#undef CEXCHAIN_VM_FUSED_C_JUMP_IF
-#undef CEXCHAIN_VM_FUSED_LL_IF
-#undef CEXCHAIN_VM_FUSED_LL_JUMP_IF
-#undef CEXCHAIN_VM_FUSED_C
-#undef CEXCHAIN_VM_FUSED_L
-#undef CEXCHAIN_VM_FUSED_LC
-#undef CEXCHAIN_VM_FUSED_LL
+#define KANHE_VM_FUSED_C_IF(fused, name) KANHE_VM_FUSED_BRANCH(fused, name, *--sp, in->b, false)
+#define KANHE_VM_FUSED_C_JUMP_IF(fused, name) KANHE_VM_FUSED_BRANCH(fused, name, *--sp, in->b, true)
+#define KANHE_VM_FUSED_LL_IF(fused, name)                                                          \
+    KANHE_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], false)
+#define KANHE_VM_FUSED_LL_JUMP_IF(fused, name)                                                     \
+    KANHE_VM_FUSED_BRANCH(fused, name, locals[lo32(in->b)], locals[in->b >> 32U], true)
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_C_IF, KANHE_VM_WITH_C_IF)
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_C_JUMP_IF, KANHE_VM_WITH_C_JUMP_IF)
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_LL_IF, KANHE_VM_WITH_LL_IF)
+        KANHE_VM_COMPARE_LIST(KANHE_VM_FUSED_LL_JUMP_IF, KANHE_VM_WITH_LL_JUMP_IF)
+#undef KANHE_VM_FUSED_BRANCH
+#undef KANHE_VM_FUSED_C_IF
+#undef KANHE_VM_FUSED_C_JUMP_IF
+#undef KANHE_VM_FUSED_LL_IF
+#undef KANHE_VM_FUSED_LL_JUMP_IF
+#undef KANHE_VM_FUSED_C
+#undef KANHE_VM_FUSED_L
+#undef KANHE_VM_FUSED_LC
+#undef KANHE_VM_FUSED_LL
 
-#define CEXCHAIN_VM_FUSED_LOAD(fused, name, width)                                                 \
+#define KANHE_VM_FUSED_LOAD(fused, name, width)                                                    \
     TARGET(fused) {                                                                                \
         const std::uint64_t addr = locals[in->a] + in->b;                                          \
         if (addr + (width) > memory_size) {                                                        \
@@ -1077,8 +1075,8 @@ dispatch:
         *sp++ = loaded<detail::op_##name>(load_le<width>(memory + addr));                          \
         NEXT();                                                                                    \
     }
-        CEXCHAIN_VM_FUSED_LOADS(CEXCHAIN_VM_FUSED_LOAD)
-#undef CEXCHAIN_VM_FUSED_LOAD
+        KANHE_VM_FUSED_LOADS(KANHE_VM_FUSED_LOAD)
+#undef KANHE_VM_FUSED_LOAD
 
         TARGET(set_get) {
             locals[in->a] = sp[-1];
@@ -1216,8 +1214,8 @@ out_of_run_fuel:
 #undef TARGET
 #undef NEXT
 #undef TRAP
-#undef CEXCHAIN_VM_LABEL
-#if CEXCHAIN_VM_THREADED
+#undef KANHE_VM_LABEL
+#if KANHE_VM_THREADED
 #pragma GCC diagnostic pop
 #endif
 
@@ -1296,4 +1294,4 @@ Result<Outcome> run(const Module& module, ByteView input, const crypto::Provider
     return detail::run(module, input, provider, hash, fuel_limit, thread_arena());
 }
 
-} // namespace cexchain::vm
+} // namespace kanhe::vm

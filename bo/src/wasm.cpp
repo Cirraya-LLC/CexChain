@@ -19,12 +19,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/vm.hpp>
 
 #include "reflection.hpp"
 
-namespace cexchain::bo::wasm {
+namespace kanhe::bo::wasm {
 
 namespace {
 
@@ -1063,7 +1063,7 @@ Result<Bytes> ModuleWriter::finish() const {
     section.clear();
     put_uleb(section, host_count);
     for (std::uint32_t i = 0; i < host_count; ++i) {
-        put_name(section, "cexchain");
+        put_name(section, "kanhe");
         put_name(section, name_of(static_cast<Host>(i)));
         section.push_back(0x00);
         put_uleb(section, function_types[i]);
@@ -1101,7 +1101,7 @@ Result<Bytes> ModuleWriter::finish() const {
     put_name(section, "memory");
     section.push_back(0x02);
     put_uleb(section, 0);
-    put_name(section, "cexchain_call");
+    put_name(section, "kanhe_call");
     section.push_back(0x00);
     put_uleb(section, entry_->index);
     put_section(out, 7, section);
@@ -1133,4 +1133,4 @@ Result<Bytes> ModuleWriter::finish() const {
     return out;
 }
 
-} // namespace cexchain::bo::wasm
+} // namespace kanhe::bo::wasm

@@ -5,13 +5,13 @@
 #include <system_error>
 #include <utility>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/node/published.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/node/published.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -155,4 +155,4 @@ Status unpublish(const std::filesystem::path& ledger, std::string_view token) {
     return {};
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

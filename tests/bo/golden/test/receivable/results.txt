@@ -4,7 +4,7 @@ test "pledge, release, transfer, pay, dispute, confirm" passed home=role.issuer
   step 3 passed 2026-01-01 refused "bo:state pledge"; fuel 10584
   step 4 passed 2026-01-01 refused "bo:state transfer"; fuel 10415
   step 5 passed 2026-01-01 accepted active event=active consents bank1; fuel 10837 13130
-  step 6 passed 2026-01-01 accepted active event=active consents role.supplier factor1; fuel 11220 13973
+  step 6 passed 2026-01-01 accepted active event=active consents factor1 role.supplier; fuel 11233 13973
   step 7 passed 2026-01-01 waits factor1; fuel 11186 11851
   step 8 passed 2026-01-01 accepted paid event=paid; fuel 12093
   step 9 passed 2026-01-01 accepted disputed event=disputed consents factor1; fuel 10699 13193

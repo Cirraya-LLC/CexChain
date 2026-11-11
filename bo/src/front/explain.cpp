@@ -22,13 +22,13 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -1894,4 +1894,4 @@ std::string quoted_text(std::string_view text, const Pack* language) {
     return Writer(language).quoted(text);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

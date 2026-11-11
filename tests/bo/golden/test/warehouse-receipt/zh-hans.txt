@@ -19,7 +19,7 @@
   第 8 步（第 29 行）通过：bank1 release -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
   第 9 步（第 30 行）通过：depositor transfer to trader1 -> active
-    结果：经 trader1 和 depositor 同意，调用被接受，实例现为正常。
+    结果：经 depositor 和 trader1 同意，调用被接受，实例现为正常。
   第 10 步（第 31 行）通过：trader1 redeem with portion = 15 tonne -> redeemed
     结果：经 trader1 同意，调用被接受，实例现为已赎回；这是最终状态，实例不再接受调用。
   第 11 步（第 32 行）通过：trader1 redeem with portion = 1 tonne -> refused

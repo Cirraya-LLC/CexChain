@@ -7,12 +7,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/ledger/parallel.hpp>
-#include <cexchain/ledger/record_log.hpp>
+#include <kanhe/ledger/parallel.hpp>
+#include <kanhe/ledger/record_log.hpp>
 
 #include "crc32c.hpp"
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace {
 
@@ -455,4 +455,4 @@ Result<std::uint64_t> RecordLog::refresh(FileSystem& fs, std::string_view name, 
     return added.size();
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

@@ -10,12 +10,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/node/record_files.hpp>
 
-namespace node = cexchain::node;
-namespace cbor = cexchain::cbor;
-using cexchain::Bytes;
+namespace node = kanhe::node;
+namespace cbor = kanhe::cbor;
+using kanhe::Bytes;
 
 namespace {
 
@@ -30,8 +30,8 @@ Bytes sealed_of(std::size_t content_size, std::uint8_t fill = 9) {
           cbor::Value::bytes(Bytes(content_size + node::sealed_file_overhead, fill))}}));
 }
 
-cexchain::protocol::RecordRegisterBody registration() {
-    cexchain::protocol::RecordRegisterBody body;
+kanhe::protocol::RecordRegisterBody registration() {
+    kanhe::protocol::RecordRegisterBody body;
     body.attachments.push_back({"photo.jpg", "image/jpeg", 12, Bytes(32, 1)});
     body.attachments.push_back(
         {"big.bin", "application/octet-stream", node::max_record_file + 1, Bytes(32, 2)});
@@ -68,17 +68,17 @@ TEST_CASE("a submission's files ascend and differ", "[node][files]") {
 }
 
 TEST_CASE("a kept file is stored once", "[node][files]") {
-    const auto dir = std::filesystem::temp_directory_path() /
-                     ("cexchain-files-test-" + std::to_string(::getpid()));
+    const auto dir =
+        std::filesystem::temp_directory_path() / ("kanhe-files-test-" + std::to_string(::getpid()));
     std::filesystem::remove_all(dir);
-    const cexchain::protocol::Id record{};
+    const kanhe::protocol::Id record{};
     CHECK(node::kept_record_files(dir, record).empty());
     REQUIRE(node::store_record_file(dir, record, {1, sealed_of(4)}));
     // The same bytes again are a retry; other bytes are refused.
     CHECK(node::store_record_file(dir, record, {1, sealed_of(4)}));
     const auto other = node::store_record_file(dir, record, {1, sealed_of(4, 8)});
     REQUIRE_FALSE(other);
-    CHECK(other.error().code == cexchain::Errc::rejected);
+    CHECK(other.error().code == kanhe::Errc::rejected);
     REQUIRE(node::store_record_file(dir, record, {0, sealed_of(2)}));
     // Names the store never writes are not kept files.
     std::filesystem::copy_file(node::record_file_path(dir, record, 0),

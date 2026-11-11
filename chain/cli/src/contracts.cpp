@@ -3,7 +3,7 @@
 
 #include "contracts.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 cbor::Value contract_arguments_of(const Args& args) {
     const auto text = args.get("args");
@@ -28,4 +28,4 @@ GivenConsent give_consent(client::Session& session, const crypto::Signer& signer
     return client::give_consent(session, signer, consent, options, log_key(ledger_args));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

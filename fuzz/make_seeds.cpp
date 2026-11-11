@@ -30,34 +30,34 @@
 
 #include <nlohmann/json.hpp>
 
-#if defined(CEXCHAIN_HAVE_BO_FRONT)
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/vocab.hpp>
+#if defined(KANHE_HAVE_BO_FRONT)
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/vocab.hpp>
 #endif
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/cose.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
-#include <cexchain/core/protocol/network.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/backup.hpp>
-#include <cexchain/ledger/ledger.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/cose.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/network.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/backup.hpp>
+#include <kanhe/ledger/ledger.hpp>
 
 #include "support/timestamp_authority.hpp"
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 template <class T>
 T must(Result<T> result, const char* what) {
@@ -251,7 +251,7 @@ void ledger_seeds(const Seeds& seeds) {
     // signed by the sender's log key over the relay's context.
     {
         cose::SignOptions options;
-        constexpr std::string_view context = "CexChain relay message v1";
+        constexpr std::string_view context = "Kanhe relay message v1";
         options.external_aad =
             ByteView(reinterpret_cast<const std::uint8_t*>(context.data()), context.size());
         const Bytes payload = must(
@@ -587,31 +587,30 @@ void text_seeds(const Seeds& seeds) {
     // A sealed backup's shape, its fields empty.
     seeds.write(
         "sealed_backup_fuzz", "sealed",
-        cexchain::cbor::encode(
-            cexchain::cbor::Value::map(
-                {{cexchain::cbor::Value::integer(1),
-                  cexchain::cbor::Value::text("cexchain-sealed-backup")},
-                 {cexchain::cbor::Value::integer(2), cexchain::cbor::Value::integer(1)},
-                 {cexchain::cbor::Value::integer(3), cexchain::cbor::Value::bytes(Bytes(32, 7))},
-                 {cexchain::cbor::Value::integer(4), cexchain::cbor::Value::unsigned_integer(1)},
-                 {cexchain::cbor::Value::integer(5), cexchain::cbor::Value::bytes(Bytes(8, 1))},
-                 {cexchain::cbor::Value::integer(6), cexchain::cbor::Value::bytes(Bytes(32, 2))},
-                 {cexchain::cbor::Value::integer(7), cexchain::cbor::Value::bytes(Bytes(48, 3))}}))
+        kanhe::cbor::encode(
+            kanhe::cbor::Value::map(
+                {{kanhe::cbor::Value::integer(1), kanhe::cbor::Value::text("kanhe-sealed-backup")},
+                 {kanhe::cbor::Value::integer(2), kanhe::cbor::Value::integer(1)},
+                 {kanhe::cbor::Value::integer(3), kanhe::cbor::Value::bytes(Bytes(32, 7))},
+                 {kanhe::cbor::Value::integer(4), kanhe::cbor::Value::unsigned_integer(1)},
+                 {kanhe::cbor::Value::integer(5), kanhe::cbor::Value::bytes(Bytes(8, 1))},
+                 {kanhe::cbor::Value::integer(6), kanhe::cbor::Value::bytes(Bytes(32, 2))},
+                 {kanhe::cbor::Value::integer(7), kanhe::cbor::Value::bytes(Bytes(48, 3))}}))
             .value());
     seeds.write("console_request_fuzz", "page",
                 "GET /console/ HTTP/1.1\r\nHost: localhost:7470\r\n\r\n");
     seeds.write("console_request_fuzz", "session",
                 "GET /console/api/session HTTP/1.1\r\nHost: 127.0.0.1:7470\r\n"
-                "Authorization: Bearer cxs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n\r\n");
+                "Authorization: Bearer khs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n\r\n");
     seeds.write("console_request_fuzz", "sign-out",
                 "DELETE /console/api/session HTTP/1.1\r\nHost: [::1]:7470\r\n"
                 "Origin: http://[::1]:7470\r\n"
-                "Authorization: bearer cxs_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\r\n\r\n");
+                "Authorization: bearer khs_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\r\n\r\n");
     seeds.write(
         "console_request_fuzz", "enroll",
         "POST /console/api/enroll/begin HTTP/1.1\r\nHost: localhost:7470\r\n"
         "Origin: http://localhost:7470\r\nContent-Length: 73\r\n\r\n"
-        "{\"code\":\"cxi_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"name\":\"Alice\"}");
+        "{\"code\":\"khi_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"name\":\"Alice\"}");
     seeds.write("console_request_fuzz", "sign-in",
                 "POST /console/api/sign-in/finish HTTP/1.1\r\nHost: localhost:7470\r\n"
                 "Origin: http://localhost:7470\r\nContent-Length: 106\r\n\r\n"
@@ -622,7 +621,7 @@ void text_seeds(const Seeds& seeds) {
     seeds.write("console_request_fuzz", "settings",
                 "POST /console/api/settings HTTP/1.1\r\nHost: localhost:7470\r\n"
                 "Origin: http://localhost:7470\r\n"
-                "Authorization: Bearer cxs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n"
+                "Authorization: Bearer khs_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n"
                 "Content-Length: 48\r\n\r\n"
                 "{\"language\":\"en\",\"backup_folder\":\"/tmp/backups\"}");
     seeds.write("console_request_fuzz", "recover",
@@ -634,7 +633,7 @@ void text_seeds(const Seeds& seeds) {
                 "Origin: https://attacker.example\r\n\r\n");
     seeds.write("http_parse_fuzz", "get",
                 "GET /v1/entries?start=0&count=10 HTTP/1.1\r\nHost: ledger\r\n"
-                "Authorization: Bearer cxt_x\r\n\r\n");
+                "Authorization: Bearer kht_x\r\n\r\n");
     seeds.write("http_parse_fuzz", "post",
                 "POST /v1/statements HTTP/1.1\r\nHost: ledger\r\nContent-Type: application/cose\r\n"
                 "Content-Length: 5\r\nExpect: 100-continue\r\n\r\nhello");
@@ -647,7 +646,7 @@ void text_seeds(const Seeds& seeds) {
                 "HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
     seeds.write("http_parse_fuzz", "requests-poll",
                 "GET /v1/requests?state=open&kind=notify,http.post&after=12&limit=50&wait=25 "
-                "HTTP/1.1\r\nHost: ledger\r\nAuthorization: Bearer cxt_x\r\n\r\n");
+                "HTTP/1.1\r\nHost: ledger\r\nAuthorization: Bearer kht_x\r\n\r\n");
     seeds.write("http_parse_fuzz", "requests-instance",
                 "GET /v1/requests?state=all&instance=" + std::string(64, 'a') +
                     "&contract=" + std::string(64, '0') + " HTTP/1.1\r\nHost: ledger\r\n\r\n");
@@ -715,7 +714,7 @@ void text_seeds(const Seeds& seeds) {
             R"("e526fc7e4bba9f9a0c68ae72097eb49362e5ed47b2e5d9cc1560808051f4fe44","response)"
             R"(":"7b22726573756c74223a20224e2d6535323666633765227d0a","result":"6a4e2d65353)"
             R"(23666633765","salt":"412fed8ce7f14c97ad80d38901316f41","stage":"answered","s)"
-            R"(tatement":"d284584ca301320378236170706c69636174696f6e2f636578636861696e2d737)"
+            R"(tatement":"d284584ca301320378206170706c69636174696f6e2f6b616e68652d737)"
             R"(46174656d656e742b63626f7204582015aa39bc1685dcb52f561fd46107f7d7eb1bfb1f2e8dd)"
             R"(dae5ae5fa496db2d413a059011da8000101160258209b7b02745f0a609a0fdf7ca3562b0a803)"
             R"(641d9cdc7fb708c4b9ca816f8f82cf9035820ad2b642072ec3bf0f7ec67acbd7cfb8a9591c79)"
@@ -739,7 +738,7 @@ void text_seeds(const Seeds& seeds) {
     sealed_secret.insert(sealed_secret.end(), sealed_body.begin(), sealed_body.end());
     seeds.write("executor_state_fuzz", "sealed", sealed_secret);
     seeds.write("pkcs11_uri_fuzz", "key",
-                "pkcs11:token=CexChain;object=alice;type=private?module-path=/usr/lib/"
+                "pkcs11:token=Kanhe;object=alice;type=private?module-path=/usr/lib/"
                 "softhsm/libsofthsm2.so&pin-source=file:/run/pin");
     seeds.write("pkcs11_uri_fuzz", "sm2",
                 "pkcs11:serial=0123;id=%01%02;slot-id=0?module-path=/opt/ukey.so&"
@@ -753,7 +752,7 @@ void text_seeds(const Seeds& seeds) {
 /// conformance contracts: what the interpreter runs most, in the sequences
 /// it fuses.
 void vm_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/vm-v1.json");
+    std::ifstream in(KANHE_TESTVECTORS_DIR "/vm-v1.json");
     if (!in) {
         throw std::runtime_error("cannot read vm-v1.json");
     }
@@ -763,7 +762,7 @@ void vm_seeds(const Seeds& seeds) {
         const auto wasm = must(from_hex(module.at("wasm").get<std::string>()), "module");
         seeds.write("vm_fuzz", std::format("module-{:03}", n++), ByteView(wasm));
     }
-    std::ifstream bo_in(CEXCHAIN_TESTVECTORS_DIR "/bo-v1.json");
+    std::ifstream bo_in(KANHE_TESTVECTORS_DIR "/bo-v1.json");
     if (!bo_in) {
         throw std::runtime_error("cannot read bo-v1.json");
     }
@@ -791,7 +790,7 @@ void vm_seeds(const Seeds& seeds) {
 /// vectors, and real contract evidence: the vectors' test contract deployed,
 /// an instance created, and a call with a supplier's consent.
 void contract_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.6.json");
+    std::ifstream in(KANHE_TESTVECTORS_DIR "/protocol-v0.6.json");
     if (!in) {
         throw std::runtime_error("cannot read protocol-v0.6.json");
     }
@@ -895,7 +894,7 @@ void contract_seeds(const Seeds& seeds) {
 /// contract evidence of children, ancestors and their consents included,
 /// from protocol-v0.7.json (both hashes).
 void child_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.7.json");
+    std::ifstream in(KANHE_TESTVECTORS_DIR "/protocol-v0.7.json");
     if (!in) {
         throw std::runtime_error("cannot read protocol-v0.7.json");
     }
@@ -927,7 +926,7 @@ void child_seeds(const Seeds& seeds) {
 /// scope keys 8 and 9 (well formed and malformed), and the contract evidence
 /// of instances with requests, from protocol-v0.8.json (both hashes).
 void request_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.8.json");
+    std::ifstream in(KANHE_TESTVECTORS_DIR "/protocol-v0.8.json");
     if (!in) {
         throw std::runtime_error("cannot read protocol-v0.8.json");
     }
@@ -990,7 +989,7 @@ void request_seeds(const Seeds& seeds) {
 void generic_seeds(const Seeds& seeds) {
     std::size_t s = 0;
     for (const char* file : {"/protocol-v0.9.json", "/protocol-v0.10.json"}) {
-        std::ifstream in(std::string(CEXCHAIN_TESTVECTORS_DIR) + file);
+        std::ifstream in(std::string(KANHE_TESTVECTORS_DIR) + file);
         if (!in) {
             throw std::runtime_error(std::string("cannot read ") + (file + 1));
         }
@@ -1016,7 +1015,7 @@ void generic_seeds(const Seeds& seeds) {
 /// embeds packs as CBOR); Bo sources, for the lexer, the parser, and the
 /// checker: the goldens, the spec's examples among them, in each language.
 void bo_seeds(const Seeds& seeds) {
-#if defined(CEXCHAIN_HAVE_BO_FRONT)
+#if defined(KANHE_HAVE_BO_FRONT)
     for (const bo::PackText& text : bo::official_pack_texts()) {
         seeds.write("bo_pack_fuzz", std::string(text.id) + ".pack", text.text);
     }
@@ -1024,7 +1023,7 @@ void bo_seeds(const Seeds& seeds) {
         seeds.write("bo_pack_fuzz", pack.id + ".cbor", pack.canonical);
     }
     std::vector<std::filesystem::path> cases;
-    for (const auto& entry : std::filesystem::directory_iterator(CEXCHAIN_BO_GOLDEN_DIR)) {
+    for (const auto& entry : std::filesystem::directory_iterator(KANHE_BO_GOLDEN_DIR)) {
         if (std::filesystem::exists(entry.path() / "source.bo")) {
             cases.push_back(entry.path());
         }
@@ -1041,7 +1040,7 @@ void bo_seeds(const Seeds& seeds) {
     // The formatter's cases (bo_parse_fuzz formats every source it reads):
     // layout, words with arguments on either side, numbers and dates.
     for (const auto& entry : std::filesystem::directory_iterator(
-             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "format")) {
+             std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "format")) {
         std::ifstream in(entry.path() / "source.bo", std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();
@@ -1051,7 +1050,7 @@ void bo_seeds(const Seeds& seeds) {
     // The compiled agreement in four spellings, whose model explains with
     // requirements, choices, and a refusal (bo_check_fuzz writes the text).
     for (const auto& entry : std::filesystem::directory_iterator(
-             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "build")) {
+             std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "build")) {
         std::ifstream in(entry.path() / "source.bo", std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();
@@ -1060,8 +1059,8 @@ void bo_seeds(const Seeds& seeds) {
     }
     // Test blocks (bo test): the tests' own cases, the agreement's and the
     // demo's tests among the sources above.
-    for (const auto& entry : std::filesystem::directory_iterator(
-             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "test")) {
+    for (const auto& entry :
+         std::filesystem::directory_iterator(std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "test")) {
         if (!std::filesystem::exists(entry.path() / "source.bo")) {
             continue;
         }
@@ -1077,12 +1076,10 @@ void bo_seeds(const Seeds& seeds) {
     // The examples' contracts (examples/): a supply agreement, and a
     // receivable split down a supply chain, with their tests.
     for (const std::string_view demo : {"supply-agreement", "multi-tier-split"}) {
-        std::ifstream in(std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR)
-                                 .parent_path()
-                                 .parent_path()
-                                 .parent_path() /
-                             "examples" / demo / (std::string(demo) + ".bo"),
-                         std::ios::binary);
+        std::ifstream in(
+            std::filesystem::path(KANHE_BO_GOLDEN_DIR).parent_path().parent_path().parent_path() /
+                "examples" / demo / (std::string(demo) + ".bo"),
+            std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();
         seeds.write("bo_parse_fuzz", "demo-" + std::string(demo) + ".bo", text.str());
@@ -1109,7 +1106,7 @@ void bo_seeds(const Seeds& seeds) {
         throw std::runtime_error("the official packs");
     }
     for (const auto& entry : std::filesystem::directory_iterator(
-             std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "build")) {
+             std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "build")) {
         cases.push_back(entry.path());
     }
     std::ranges::sort(cases);
@@ -1169,12 +1166,12 @@ void bo_seeds(const Seeds& seeds) {
                     pack->canonical);
     }
     const std::filesystem::path events =
-        std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
+        std::filesystem::path(KANHE_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
     std::vector<bo::VocabularyHandle> users;
     for (const std::filesystem::path& file :
          {events / "events.vocab",
-          std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "check-vocab" / "alpha.vocab",
-          std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "check-vocab" / "beta.vocab"}) {
+          std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "check-vocab" / "alpha.vocab",
+          std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "check-vocab" / "beta.vocab"}) {
         std::ifstream in(file, std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();
@@ -1202,7 +1199,7 @@ void bo_seeds(const Seeds& seeds) {
     seeds.write("bo_source_fuzz", "embedded-vocabulary",
                 ByteView(must(bo::encode_source_bundle(with_vocabulary), "bundle")));
 
-    std::ifstream vectors(CEXCHAIN_TESTVECTORS_DIR "/bo-v1.json");
+    std::ifstream vectors(KANHE_TESTVECTORS_DIR "/bo-v1.json");
     if (!vectors) {
         throw std::runtime_error("cannot read bo-v1.json");
     }
@@ -1214,7 +1211,7 @@ void bo_seeds(const Seeds& seeds) {
                        {"countersign", protocol::FunctionKind::call},
                        {"create", protocol::FunctionKind::create},
                        {"sign", protocol::FunctionKind::call}};
-    built.compiler = "cexchain-bo 0.0.1; codegen 1; edition 1";
+    built.compiler = "kanhe-bo 0.0.1; codegen 1; edition 1";
     built.source = agreement_bundle;
     built.name = "Agreement";
     seeds.write("bo_source_fuzz", "agreement.boc", ByteView(must(bo::encode_built(built), "boc")));
@@ -1240,7 +1237,7 @@ void bo_seeds(const Seeds& seeds) {
 /// Open-network witnesses' verifier keys and answers, from the v0.13
 /// vectors (network_parse_fuzz).
 void network_seeds(const Seeds& seeds) {
-    std::ifstream in(CEXCHAIN_TESTVECTORS_DIR "/protocol-v0.13.json");
+    std::ifstream in(KANHE_TESTVECTORS_DIR "/protocol-v0.13.json");
     if (!in) {
         throw std::runtime_error("cannot read protocol-v0.13.json");
     }
@@ -1295,8 +1292,8 @@ void claim_seeds(const Seeds& seeds) {
 
 /// A membership's metadata (spec v0.16): every key, then only those needed.
 void membership_seeds(const Seeds& seeds) {
-    cexchain::protocol::Membership m;
-    m.member = must(cexchain::protocol::to_id(Bytes(32, 5)), "id");
+    kanhe::protocol::Membership m;
+    m.member = must(kanhe::protocol::to_id(Bytes(32, 5)), "id");
     m.name = "Kowloon Example School";
     m.verified = true;
     m.registration = "12345678";
@@ -1304,14 +1301,14 @@ void membership_seeds(const Seeds& seeds) {
     m.until = 1'825'891'200'000;
     seeds.write(
         "membership_fuzz", "every-key",
-        must(cbor::encode(must(cexchain::protocol::encode_membership(m), "encode")), "encode"));
-    cexchain::protocol::Membership person;
+        must(cbor::encode(must(kanhe::protocol::encode_membership(m), "encode")), "encode"));
+    kanhe::protocol::Membership person;
     person.member = m.member;
-    person.kind = cexchain::protocol::MemberKind::person;
+    person.kind = kanhe::protocol::MemberKind::person;
     person.name = "Chan";
-    seeds.write("membership_fuzz", "self-declared",
-                must(cbor::encode(must(cexchain::protocol::encode_membership(person), "encode")),
-                     "encode"));
+    seeds.write(
+        "membership_fuzz", "self-declared",
+        must(cbor::encode(must(kanhe::protocol::encode_membership(person), "encode")), "encode"));
 }
 
 /// A published record's file: one disclosed field, then none and untimed

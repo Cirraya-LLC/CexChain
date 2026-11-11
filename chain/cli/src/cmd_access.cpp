@@ -13,21 +13,21 @@
 #include <algorithm>
 #include <print>
 
-#include <cexchain/client/access.hpp>
-#include <cexchain/client/claims.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/access.hpp>
+#include <kanhe/client/claims.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -182,7 +182,7 @@ int cmd_peer_invite(const Args& args) {
     std::println(stderr,
                  "Send this code to {} only: it holds the token they call this ledger's API with.\n"
                  "Compare this ledger's fingerprint with them by voice: {}\n"
-                 "Once they send their own code back: cexchain peer accept CODE --name {}",
+                 "Once they send their own code back: kanhe peer accept CODE --name {}",
                  name, ledger_fingerprint(invitation.ledger), name);
     return exit_ok;
 }
@@ -191,7 +191,7 @@ int cmd_peer_accept(const Args& args) {
     const std::filesystem::path dir = args.ledger();
     const auto invitation = decode_invitation(args.positional().front());
     if (!invitation) {
-        throw UsageError{"that is not an invitation code (cxp_...)"};
+        throw UsageError{"that is not an invitation code (khp_...)"};
     }
     const std::string name = args.need("name");
     const std::filesystem::path token_dir = args.get("token-dir")
@@ -258,7 +258,7 @@ int cmd_peer_list(const Args& args) {
         return exit_ok;
     }
     if (peers.empty()) {
-        std::println("no peers (cexchain peer add NAME --ledger-id ID)");
+        std::println("no peers (kanhe peer add NAME --ledger-id ID)");
     }
     for (const auto& p : peers) {
         std::println("{:<20} {}  {}", p.name, short_id(p.ledger_id), p.url.value_or("(no URL)"));
@@ -378,7 +378,7 @@ int cmd_access_request(const Args& args) {
                          peer.name, hex_id(id));
         }
         if (args.has("send")) {
-            std::println("sent to {}; once answered: cexchain access fetch --peer {} --request {}",
+            std::println("sent to {}; once answered: kanhe access fetch --peer {} --request {}",
                          peer.name, peer.name, short_id(id));
         } else if (args.has("out")) {
             std::println("send {} to {}", *args.get("out"), peer.name);
@@ -411,7 +411,7 @@ int cmd_access_fetch(const Args& args) {
     if (args.json()) {
         print_json({{"file", out.string()}, {"bytes", response.body.size()}});
     } else {
-        std::println("fetched the answer to request {} to {}; next: cexchain access accept {}",
+        std::println("fetched the answer to request {} to {}; next: kanhe access accept {}",
                      short_id(request), out.string(), out.string());
     }
     return exit_ok;
@@ -685,7 +685,7 @@ int cmd_access_grant(const Args& args) {
     const protocol::Id request_id = checked->report.record;
     if (request.condition) {
         throw CommandError{"request " + short_id(request_id) +
-                           " asks whether a condition holds, not for data: cexchain access "
+                           " asks whether a condition holds, not for data: kanhe access "
                            "answer " +
                            short_id(request_id)};
     }
@@ -812,7 +812,7 @@ int cmd_access_answer(const Args& args) {
     const protocol::Id request_id = checked->report.record;
     if (!request.condition) {
         throw CommandError{"request " + short_id(request_id) +
-                           " asks for data, not whether a condition holds: cexchain access grant " +
+                           " asks for data, not whether a condition holds: kanhe access grant " +
                            short_id(request_id)};
     }
     const protocol::RecordState* record = session.state().record(request.record);
@@ -839,7 +839,7 @@ int cmd_access_answer(const Args& args) {
     claim.holds = check.holds;
     if (!claim.holds && !args.has("allow-no")) {
         throw CommandError{"the condition does not hold: nothing is answered (--allow-no answers "
-                           "that it does not; cexchain access dismiss takes the request away)"};
+                           "that it does not; kanhe access dismiss takes the request away)"};
     }
     IssueRequest issue;
     issue.record_type = std::string(protocol::claim_type);
@@ -877,7 +877,7 @@ int cmd_access_answer(const Args& args) {
         std::println("answered {}: {} {}: claim {}", peer.name,
                      claim.holds ? "holds:" : "does NOT hold:", protocol::claim_text(claim),
                      hex_id(claim_id));
-        std::println("{} can fetch it from this ledger's API{}; withdraw it with: cexchain "
+        std::println("{} can fetch it from this ledger's API{}; withdraw it with: kanhe "
                      "record revoke {}",
                      peer.name, args.has("out") ? ", or use " + *args.get("out") : "",
                      short_id(claim_id));
@@ -1057,4 +1057,4 @@ int cmd_access_send_request(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

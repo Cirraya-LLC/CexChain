@@ -15,7 +15,7 @@ A probe either has an expected verdict, which the specification decides
 is open: the specification does not say, and the probe records what each
 verifier does.
 
-Usage: python3 contract_probes.py CEXCHAIN
+Usage: python3 contract_probes.py KANHE
 Exit status 1 if a decided probe fails in either verifier.
 """
 
@@ -32,12 +32,12 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
-from cexchain_verify import cbor, crypto, merkle  # noqa: E402
+from kanhe_verify import cbor, crypto, merkle  # noqa: E402
 from compare_reports import compare  # noqa: E402
 from probes import DAY, MINUTE, T0, Forge, _key, passkey, webauthn  # noqa: E402
 
 ORACLE = bytes.fromhex(json.loads((HERE.parents[2] / "testvectors" / "protocol-v0.6.json").read_text())["contract"])
-CONSENT = "cexchain.contract-consent/1"
+CONSENT = "kanhe.contract-consent/1"
 LIMIT = 31_622_400_000  # a request is due at most 366 days after its call
 
 
@@ -135,7 +135,7 @@ class Party(Forge):
 
 
 def hardware_proof(forge, signer, payload) -> dict:
-    challenge = forge.h(b"CexChain presence v1" + forge.kid(signer) + cbor.encode(payload))
+    challenge = forge.h(b"Kanhe presence v1" + forge.kid(signer) + cbor.encode(payload))
     return {1: b"ukey", 4: _key("ukey").sign(challenge)}
 
 
@@ -463,7 +463,7 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
-    cexchain = argv[1]
+    kanhe = argv[1]
     failures, open_differ = 0, 0
     env = dict(os.environ, PYTHONPATH=str(HERE.parent))
     with tempfile.TemporaryDirectory() as tmp:
@@ -472,8 +472,8 @@ def main(argv: list[str]) -> int:
             with open(path, "wb") as f:
                 f.write(build())
             contract = ["contract"] if kind == "contract" else []
-            py_code, py = _verify([sys.executable, "-m", "cexchain_verify", *contract, path, "--json", *options], env)
-            bb_code, bb = _verify([cexchain, *contract, "verify", path, "--json", *options])
+            py_code, py = _verify([sys.executable, "-m", "kanhe_verify", *contract, path, "--json", *options], env)
+            bb_code, bb = _verify([kanhe, *contract, "verify", path, "--json", *options])
             py_ok, bb_ok = py_code == 0, bb_code == 0
             problems, soft = compare(py, py_code, bb, bb_code)
             if expect is None:
@@ -487,7 +487,7 @@ def main(argv: list[str]) -> int:
 
             def verdict(ok, report):
                 return "verified" if ok else f"refused ({report.get('error', '?')})"
-            print(f"  {tag}: {name}\n      python: {verdict(py_ok, py)}\n      cexchain: {verdict(bb_ok, bb)}")
+            print(f"  {tag}: {name}\n      python: {verdict(py_ok, py)}\n      kanhe: {verdict(bb_ok, bb)}")
             for line in problems if py_ok and bb_ok else []:
                 print(f"      differs: {line}")
             for line in soft:

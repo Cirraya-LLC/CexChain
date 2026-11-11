@@ -17,16 +17,16 @@
 #include <string_view>
 #include <variant>
 
-#include <cexchain/bo/calls.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/calls.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/core/cbor.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 void require(bool condition) {
     if (!condition) {

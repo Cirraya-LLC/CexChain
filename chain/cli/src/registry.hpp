@@ -12,7 +12,7 @@
 
 /// The command registry: the single source for dispatch, option validation,
 /// help text, and shell completion.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 struct OptionSpec {
     std::string_view name;
@@ -39,10 +39,10 @@ struct CommandSpec {
     bool alias = false;
 };
 
-/// One program's command line: each program (cexchain, bo, cexchain-console,
-/// cexchain-index) defines program() once.
+/// One program's command line: each program (kanhe, bo, kanhe-console,
+/// kanhe-index) defines program() once.
 struct Program {
-    /// As typed, in help and completion: "cexchain".
+    /// As typed, in help and completion: "kanhe".
     std::string_view name;
     /// What --help says above the list of commands.
     std::string_view overview;
@@ -63,4 +63,4 @@ int dispatch(int argc, const char* const* argv);
 [[nodiscard]] std::string overview_help();
 [[nodiscard]] std::string completion_script(std::string_view shell);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

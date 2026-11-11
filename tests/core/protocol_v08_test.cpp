@@ -28,28 +28,28 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-namespace cbor = cexchain::cbor;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+namespace cbor = kanhe::cbor;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -145,7 +145,7 @@ TEST_CASE("v0.8 requests: statements, runs, ids, the state, and the log",
             if (verdict == "malformed") {
                 const auto output = protocol::decode_contract_output(outcome->output, home);
                 REQUIRE_FALSE(output);
-                CHECK(output.error().code == cexchain::Errc::malformed);
+                CHECK(output.error().code == kanhe::Errc::malformed);
             } else if (verdict == "accept" || verdict == "needs") {
                 const auto output = protocol::decode_contract_output(outcome->output, home);
                 REQUIRE(output);
@@ -225,7 +225,7 @@ TEST_CASE("v0.8 requests: statements, runs, ids, the state, and the log",
         const auto commitment_index = ledger["state_commitment"]["index"].get<std::size_t>();
         REQUIRE(commitment_index + 1 == entries.size());
         REQUIRE(commitment_index == ledger["statements"].size());
-        cexchain::merkle::Tree tree(provider(), hash);
+        kanhe::merkle::Tree tree(provider(), hash);
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const Bytes encoded = hex(text(entries[i]));
             const auto entry = protocol::decode_log_entry(encoded);
@@ -752,7 +752,7 @@ TEST_CASE("v0.8 requests: contract evidence shows every request and answer",
 
             // Every verifier front end reports the same (the command line and
             // the browser share these reports).
-            const auto json = cexchain::verifier::contract_report_json(*report, true);
+            const auto json = kanhe::verifier::contract_report_json(*report, true);
             REQUIRE(json["calls"].size() == expected["calls"].size());
             for (std::size_t n = 0; n < e.events.size(); ++n) {
                 const auto& call = expected["calls"][n];
@@ -777,7 +777,7 @@ TEST_CASE("v0.8 requests: contract evidence shows every request and answer",
             CHECK(json["instance"]["open_requests"] == expected["open"]);
             CHECK(json["instance"]["overdue_requests"] == expected["overdue"]);
             CHECK(json["instance"]["requests"].size() == expected["requests"].size());
-            const std::string shown = cexchain::verifier::contract_report_text(*report, true);
+            const std::string shown = kanhe::verifier::contract_report_text(*report, true);
             CHECK(shown.contains("OVERDUE") == !expected["overdue"].empty());
             CHECK(shown.contains("answers    "));
             const bool late = std::ranges::any_of(expected["calls"], [](const auto& c) {
@@ -948,7 +948,7 @@ TEST_CASE("v0.8 requests: what the vectors cannot reach", "[protocol][contracts]
     auto refused = [&](std::string_view words) {
         const auto encoded = protocol::encode_payload(grant);
         REQUIRE_FALSE(encoded);
-        CHECK(encoded.error().code == cexchain::Errc::invalid_argument);
+        CHECK(encoded.error().code == kanhe::Errc::invalid_argument);
         CHECK(encoded.error().detail.contains(words));
     };
     scope.request_kinds->push_back("invoice");

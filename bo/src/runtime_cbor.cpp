@@ -7,12 +7,12 @@
 #include <array>
 #include <cstdint>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
 
 #include "runtime_parts.hpp"
 
-namespace cexchain::bo::runtime::detail {
+namespace kanhe::bo::runtime::detail {
 
 namespace {
 
@@ -461,4 +461,4 @@ void define_out_finish_at(Runtime& rt, FunctionBuilder& b) {
                        {layout::output_end - layout::output_base});
 }
 
-} // namespace cexchain::bo::runtime::detail
+} // namespace kanhe::bo::runtime::detail

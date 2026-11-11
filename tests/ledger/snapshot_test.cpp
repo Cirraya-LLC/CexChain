@@ -8,16 +8,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/snapshots.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 /// A ledger with people, an agent, a device, delegations of several scopes,
 /// records endorsed, revoked, and superseded, and a key rotation.
@@ -49,7 +49,7 @@ void forge(World& w, const std::string& file, std::size_t offset) {
     REQUIRE(bytes.size() > offset + 32);
     bytes[offset] ^= 0x01;
     // The seal: the SHA-256 of the SHA-256s of its 4 MiB pieces.
-    const cexchain::ByteView body = cexchain::ByteView(bytes).first(bytes.size() - 32);
+    const kanhe::ByteView body = kanhe::ByteView(bytes).first(bytes.size() - 32);
     constexpr std::size_t piece = std::size_t{4} << 20;
     Bytes digests;
     for (std::size_t at = 0; at < body.size(); at += piece) {

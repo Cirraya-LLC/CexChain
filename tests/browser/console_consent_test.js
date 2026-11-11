@@ -10,7 +10,7 @@
 // and records the loan with a tap. The camera is then lent, its history showing the consent. Then the
 // return is proposed online: Alice's own registrar holds it, waiting for
 // Bob.
-// Usage: node console_consent_test.js CEXCHAIN [SOURCE_DIR]
+// Usage: node console_consent_test.js KANHE [SOURCE_DIR]
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -20,15 +20,15 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
 const source = path.resolve(process.argv[3] ?? path.join(__dirname, "..", ".."));
 const lending = path.join(source, "examples", "lending", "lending.bo");
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-consent-"));
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-consent-"));
 
 function freePort() {
   return new Promise((resolve) => {
@@ -44,15 +44,15 @@ function freePort() {
 async function person(browser, name) {
   const ledger = path.join(work, name.toLowerCase(), "ledger");
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1",
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1",
                 HOME: path.dirname(ledger) };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
   const port = await freePort();
-  const process_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const process_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300; i++) {
     try {
-      if (JSON.parse(run("cexchain-console", "status", "--json")).running) break;
+      if (JSON.parse(run("kanhe-console", "status", "--json")).running) break;
     } catch {
       // Not yet.
     }
@@ -130,9 +130,9 @@ async function tap(page, what) {
     const proposing = a.waitForEvent("download");
     proposing.catch(() => {}); // awaited below; a step failing first is the error shown
     await lend.getByRole("button", { name: "Ask for consent by file" }).click();
-    const proposal = path.join(work, "lend.cexchain");
+    const proposal = path.join(work, "lend.kanhe");
     await (await proposing).saveAs(proposal);
-    await lend.getByText(/^Saved proposal-[0-9a-f]{12}-lend\.cexchain\./).waitFor();
+    await lend.getByText(/^Saved proposal-[0-9a-f]{12}-lend\.kanhe\./).waitFor();
 
     // Bob reads it, verified, and consents with a tap; the consent file is saved.
     current = bob;
@@ -148,18 +148,18 @@ async function tap(page, what) {
     const consenting = b.waitForEvent("download", { timeout: 60000 });
     consenting.catch(() => {});
     await tap(b, "Consent to a call");
-    const consent = path.join(work, "lend-consent.cexchain");
+    const consent = path.join(work, "lend-consent.kanhe");
     await (await consenting).saveAs(consent);
-    await b.getByText(/^Saved consent-[0-9a-f]{12}-lend\.cexchain\./).waitFor();
+    await b.getByText(/^Saved consent-[0-9a-f]{12}-lend\.kanhe\./).waitFor();
     const consents = JSON.parse(bob.run("record", "list", "--json"));
     const list = Array.isArray(consents) ? consents : consents.records;
-    assert.ok(list.some((r) => (r.record_type ?? r.type) === "cexchain.contract-consent/1"),
+    assert.ok(list.some((r) => (r.record_type ?? r.type) === "kanhe.contract-consent/1"),
               "Bob's consent is a record on his ledger");
 
     // Alice opens the consent as a double-click does (console open FILE),
     // and records the loan with it.
     current = alice;
-    const opened = alice.run("cexchain-console", "open", "--print", consent).trim();
+    const opened = alice.run("kanhe-console", "open", "--print", consent).trim();
     assert.match(opened, /#\/exchange\/opened\/[0-9a-f]{24}$/);
     await a.goto(opened);
     await a.getByRole("heading", { name: "A consent from Bob" }).waitFor();
@@ -210,7 +210,7 @@ async function tap(page, what) {
     await browser.close();
     for (const p of people) {
       try {
-        p.run("cexchain-console", "stop");
+        p.run("kanhe-console", "stop");
       } catch {
         // Not running: nothing to stop.
       }

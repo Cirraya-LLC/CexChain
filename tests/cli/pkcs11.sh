@@ -5,11 +5,11 @@
 # Keys on tokens, end to end, with SoftHSM standing in for USB keys and HSMs:
 # the organization's root key lives on a token, a person signs with a token
 # key and proves presence with a second one (a UKey), and verifiers see it.
-# Usage: pkcs11.sh CEXCHAIN SOFTHSM_MODULE
+# Usage: pkcs11.sh KANHE SOFTHSM_MODULE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 MODULE="$2"
 # Leaks inside SoftHSM itself are not ours to fix. Matching them needs full
 # stacks: the fast unwinder stops in libcrypto, which has no frame pointers.
@@ -19,12 +19,12 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -40,9 +40,9 @@ expect_exit() {
 mkdir tokens
 printf 'directories.tokendir = %s/tokens\nobjectstore.backend = file\nlog.level = ERROR\n' "$WORK" > softhsm2.conf
 export SOFTHSM2_CONF="$WORK/softhsm2.conf"
-softhsm2-util --init-token --free --label CexChain --pin 123456 --so-pin 12345678 > /dev/null
-export CEXCHAIN_PKCS11_PIN=123456 CEXCHAIN_PASSPHRASE="token test" CEXCHAIN_LEDGER="$WORK/ledger"
-token() { printf 'pkcs11:token=CexChain;object=%s?module-path=%s' "$1" "$MODULE"; }
+softhsm2-util --init-token --free --label Kanhe --pin 123456 --so-pin 12345678 > /dev/null
+export KANHE_PKCS11_PIN=123456 KANHE_PASSPHRASE="token test" KANHE_LEDGER="$WORK/ledger"
+token() { printf 'pkcs11:token=Kanhe;object=%s?module-path=%s' "$1" "$MODULE"; }
 ROOT="$(token root)"
 ALICE_KEY="$(token alice)"
 ALICE_UKEY="$(token alice-ukey)"
@@ -55,7 +55,7 @@ expect_exit 2 key generate --pkcs11 "$ROOT" --alg esp256 --out again.pub
 contains 'already has a key' out.txt
 run key show "$ROOT" | contains 'key on a token'
 run key show "$ROOT" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["type"] == "token"'
-CEXCHAIN_PKCS11_PIN=000000 expect_exit 2 key show "$ROOT"
+KANHE_PKCS11_PIN=000000 expect_exit 2 key show "$ROOT"
 contains 'wrong PIN' out.txt
 
 # The organization's root key never leaves its token (an HSM).
@@ -80,7 +80,7 @@ expect_exit 1 record issue --as "$ALICE_KEY" --type example.document/1 --field r
     --presence-key "$ALICE_UKEY&pin-value=1234"
 contains 'remove pin-value' out.txt
 # URIs: an absolute module path, and each attribute once.
-expect_exit 2 key public "pkcs11:token=CexChain;object=alice?module-path=libsofthsm2.so"
+expect_exit 2 key public "pkcs11:token=Kanhe;object=alice?module-path=libsofthsm2.so"
 contains 'absolute' out.txt
 expect_exit 2 key public "$ALICE_KEY&module-path=/tmp/other.so"
 contains 'repeats an attribute' out.txt

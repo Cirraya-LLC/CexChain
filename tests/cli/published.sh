@@ -6,11 +6,11 @@
 # at GET /c/TOKEN for anyone (any page may read it), the evidence as it is
 # when asked (revoked since, it says so at once), on a ledger directory and
 # through a server, kept in backups, taken down again.
-# Usage: published.sh CEXCHAIN
+# Usage: published.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -20,11 +20,11 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="published test"
+export KANHE_PASSPHRASE="published test"
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
-run() { "$CEXCHAIN" "$@"; }
+run() { "$KANHE" "$@"; }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
@@ -36,7 +36,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -94,7 +94,7 @@ run verify body.cbor --ledger-id "$LEDGER_ID" --json | json 'd["record"]["revoke
     fail "the revocation shows"
 
 # --- Through the server (client mode, an admin token) ----------------------------------
-export CEXCHAIN_SERVER="$URL" CEXCHAIN_TOKEN="$(cat ops.token)"
+export KANHE_SERVER="$URL" KANHE_TOKEN="$(cat ops.token)"
 CACHE="$WORK/cache"
 run status --cache "$CACHE" --ledger-id "$LEDGER_ID" > /dev/null
 SECOND="$(run record issue --cache "$CACHE" --as root.key --type example.org.diploma/1 \
@@ -107,9 +107,9 @@ T2="$(echo "$P2" | json 'd["token"]')"
 run record unpublish --cache "$CACHE" "$T2" | contains "took the address down"
 [ "$(fetch "$URL/c/$T2")" = 404 ] || fail "taken down"
 expect_exit 2 record unpublish --cache "$CACHE" "$T2"
-CEXCHAIN_TOKEN="$(cat ops.token)" expect_exit 2 record publish --cache "$CACHE" "$SECOND" --disclose nickname \
+KANHE_TOKEN="$(cat ops.token)" expect_exit 2 record publish --cache "$CACHE" "$SECOND" --disclose nickname \
     --vault-key local/vault/vault.key
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
+unset KANHE_SERVER KANHE_TOKEN
 
 # --- Backups keep them with the private data ----------------------------------------
 run backup create --ledger local --log-key log.key --out b.cxb > /dev/null

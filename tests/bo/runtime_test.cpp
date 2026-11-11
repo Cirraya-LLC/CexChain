@@ -31,27 +31,27 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "bo/runtime_harness.hpp"
 #include "vm/internal.hpp"
 
 namespace {
 
-namespace cbor = cexchain::cbor;
-namespace vm = cexchain::vm;
-namespace wasm = cexchain::bo::wasm;
-namespace rt = cexchain::bo::runtime;
-namespace h = cexchain::test::bo_runtime;
-using cexchain::Bytes;
-using cexchain::ByteView;
+namespace cbor = kanhe::cbor;
+namespace vm = kanhe::vm;
+namespace wasm = kanhe::bo::wasm;
+namespace rt = kanhe::bo::runtime;
+namespace h = kanhe::test::bo_runtime;
 using h::MathOp;
+using kanhe::Bytes;
+using kanhe::ByteView;
 
 __extension__ using int128 = __int128;
 __extension__ using uint128 = unsigned __int128;
@@ -60,10 +60,10 @@ constexpr std::int64_t int64_min = std::numeric_limits<std::int64_t>::min();
 constexpr std::int64_t int64_max = std::numeric_limits<std::int64_t>::max();
 constexpr std::int64_t day_ms = 86'400'000;
 
-const std::filesystem::path golden_dir = std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "runtime";
+const std::filesystem::path golden_dir = std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "runtime";
 
 bool updating_goldens() {
-    const char* value = std::getenv("CEXCHAIN_UPDATE_GOLDENS");
+    const char* value = std::getenv("KANHE_UPDATE_GOLDENS");
     return value != nullptr && std::string_view(value) == "1";
 }
 
@@ -79,8 +79,8 @@ void write_file(const std::filesystem::path& path, const ByteView bytes) {
               static_cast<std::streamsize>(bytes.size()));
 }
 
-const cexchain::crypto::Provider& provider() {
-    static const cexchain::crypto::openssl::Provider instance;
+const kanhe::crypto::Provider& provider() {
+    static const kanhe::crypto::openssl::Provider instance;
     return instance;
 }
 
@@ -126,7 +126,7 @@ struct Run {
 
 Run run(const std::string_view module, const ByteView input) {
     auto outcome =
-        vm::run(harness(module).module, input, provider(), cexchain::crypto::HashAlg::sha256);
+        vm::run(harness(module).module, input, provider(), kanhe::crypto::HashAlg::sha256);
     REQUIRE(outcome.has_value());
     Run r;
     r.outcome = outcome->trap ? std::string(vm::name(*outcome->trap)) : "ok";
@@ -346,7 +346,7 @@ Bytes mutate(Bytes b, Random& r) {
 }
 
 Bytes hex(const std::string_view text) {
-    auto bytes = cexchain::from_hex(text);
+    auto bytes = kanhe::from_hex(text);
     REQUIRE(bytes.has_value());
     return *bytes;
 }
@@ -648,7 +648,7 @@ void write_commands(Bytes& out, const cbor::Value& value, Random& r) {
     case cbor::Type::text: {
         const bool is_text = value.type() == cbor::Type::text;
         const ByteView content =
-            is_text ? cexchain::as_bytes(*value.as_text()) : ByteView(*value.as_bytes());
+            is_text ? kanhe::as_bytes(*value.as_text()) : ByteView(*value.as_bytes());
         out.push_back(is_text ? 3 : 2);
         put_u32(out, static_cast<std::uint32_t>(content.size()));
         out.insert(out.end(), content.begin(), content.end());
@@ -1088,7 +1088,7 @@ Bytes results_bytes(const std::vector<std::int64_t>& results) {
 /// not check texts' UTF-8 (the ledger's input holds valid UTF-8 only), so an
 /// input core refuses for that alone it may accept.
 void check_reader(const Case& c, const Run& r) {
-    INFO("input " << cexchain::to_hex(c.input));
+    INFO("input " << kanhe::to_hex(c.input));
     if (c.input.size() > rt::layout::input_max) {
         CHECK(r.aborted("bo:input"));
         return;
@@ -1105,7 +1105,7 @@ void check_reader(const Case& c, const Run& r) {
 }
 
 void check_lookup(const Case& c, const Run& r) {
-    INFO("input " << cexchain::to_hex(c.input));
+    INFO("input " << kanhe::to_hex(c.input));
     const auto decoded = cbor::decode(c.input);
     REQUIRE(decoded.has_value());
     const cbor::Array& pair = *decoded->as_array();
@@ -1127,7 +1127,7 @@ void check_lookup(const Case& c, const Run& r) {
 }
 
 void check_math(const Case& c, const Run& r) {
-    INFO("input " << cexchain::to_hex(c.input));
+    INFO("input " << kanhe::to_hex(c.input));
     const Expected e = expect_math(c.input);
     if (e.reason) {
         CHECK(r.aborted(*e.reason));
@@ -1137,7 +1137,7 @@ void check_math(const Case& c, const Run& r) {
     }
 }
 
-/// Builds a module whose cexchain_call writes constants, to check how the
+/// Builds a module whose kanhe_call writes constants, to check how the
 /// builder encodes them.
 Bytes constants_module(const std::vector<std::int64_t>& values) {
     wasm::ModuleWriter m(rt::memory_plan());
@@ -1163,12 +1163,12 @@ Bytes constants_module(const std::vector<std::int64_t>& values) {
 }
 
 std::string hex_of(const ByteView bytes) {
-    return cexchain::to_hex(bytes);
+    return kanhe::to_hex(bytes);
 }
 
 /// A typical call's input, as the ledger encodes it.
 Bytes typical_input(const bool creation) {
-    namespace protocol = cexchain::protocol;
+    namespace protocol = kanhe::protocol;
     protocol::ContractInput input;
     input.function = creation ? "create" : "pledge";
     const auto id = [](const std::uint8_t fill) {
@@ -1267,7 +1267,7 @@ TEST_CASE("bo runtime: constants and stores encode as WebAssembly reads them", "
     const Bytes wasm_bytes = constants_module(values);
     const auto module = vm::load(wasm_bytes);
     REQUIRE(module.has_value());
-    const auto outcome = vm::run(*module, {}, provider(), cexchain::crypto::HashAlg::sha256);
+    const auto outcome = vm::run(*module, {}, provider(), kanhe::crypto::HashAlg::sha256);
     REQUIRE(outcome.has_value());
     REQUIRE(outcome->ok());
     Bytes expected;
@@ -1376,11 +1376,11 @@ TEST_CASE("bo runtime: the CBOR writer agrees with core's encoder byte for byte"
     REQUIRE(bytes.has_value());
     const auto module = vm::load(*bytes);
     REQUIRE(module.has_value());
-    const auto outcome = vm::run(*module, {}, provider(), cexchain::crypto::HashAlg::sha256);
+    const auto outcome = vm::run(*module, {}, provider(), kanhe::crypto::HashAlg::sha256);
     REQUIRE(outcome.has_value());
     CHECK(outcome->trap == vm::Trap::aborted);
     CHECK(outcome->abort_reason ==
-          Bytes(cexchain::as_bytes("bo:output").begin(), cexchain::as_bytes("bo:output").end()));
+          Bytes(kanhe::as_bytes("bo:output").begin(), kanhe::as_bytes("bo:output").end()));
 }
 
 TEST_CASE("bo runtime: arithmetic, rounding, dates, and texts agree with exact values",
@@ -1418,7 +1418,7 @@ TEST_CASE("bo runtime: the fuel each routine costs", "[bo][runtime]") {
     std::ostringstream text;
     text << "# Fuel of the Bo runtime's routines (codegen " << wasm::codegen_version
          << "), measured by tests/bo/runtime_test.cpp.\n"
-         << "# A call has 10,000,000. Rewrite with CEXCHAIN_UPDATE_GOLDENS=1.\n";
+         << "# A call has 10,000,000. Rewrite with KANHE_UPDATE_GOLDENS=1.\n";
     const auto line = [&](const std::string_view what, const std::uint64_t fuel) {
         text << std::format("{:<64} {:>9}\n", what, fuel);
     };
@@ -1486,7 +1486,7 @@ TEST_CASE("bo runtime: the fuel each routine costs", "[bo][runtime]") {
     line("date_from_parts", math_fuel(MathOp::date_from_parts, {2027, 1, 31, 8 * 3'600'000}));
     const auto text_fuel = [&](const MathOp op, const std::string_view a,
                                const std::string_view b) {
-        const Run r = run("math", text_input(op, cexchain::as_bytes(a), cexchain::as_bytes(b)));
+        const Run r = run("math", text_input(op, kanhe::as_bytes(a), kanhe::as_bytes(b)));
         REQUIRE(r.ok());
         return r.fuel - run("math", math_input(MathOp::nop, {})).fuel;
     };
@@ -1499,14 +1499,14 @@ TEST_CASE("bo runtime: the fuel each routine costs", "[bo][runtime]") {
 
     const auto path = golden_dir / "fuel.txt";
     if (updating_goldens()) {
-        write_file(path, cexchain::as_bytes(text.str()));
+        write_file(path, kanhe::as_bytes(text.str()));
     }
     const Bytes golden = read_file(path);
     CHECK(std::string(golden.begin(), golden.end()) == text.str());
 }
 
 TEST_CASE("bo runtime: write the runs for the Python reference", "[.reference]") {
-    const char* path = std::getenv("CEXCHAIN_BO_REFERENCE");
+    const char* path = std::getenv("KANHE_BO_REFERENCE");
     REQUIRE(path != nullptr);
     std::vector<Case> cases = reader_cases();
     for (auto* more : {&reader_limit_cases, &lookup_cases, &writer_cases, &math_cases}) {
@@ -1718,7 +1718,7 @@ TEST_CASE("bo runtime: read_input stays within its bound", "[bo][runtime]") {
 
     std::uint64_t closest = 0;
     for (const Bytes& input : inputs) {
-        INFO("input " << cexchain::to_hex(
+        INFO("input " << kanhe::to_hex(
                  ByteView(input).first(std::min<std::size_t>(input.size(), 40))));
         REQUIRE(input.size() <= rt::layout::input_max);
         const auto value = cbor::decode(input);

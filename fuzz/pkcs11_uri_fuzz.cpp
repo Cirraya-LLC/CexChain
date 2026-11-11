@@ -10,11 +10,11 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/crypto/pkcs11.hpp>
+#include <kanhe/crypto/pkcs11.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     const std::string_view text(reinterpret_cast<const char*>(data), size);
-    const auto uri = cexchain::crypto::pkcs11::parse_uri(text);
+    const auto uri = kanhe::crypto::pkcs11::parse_uri(text);
     if (uri && (uri->module_path.empty() || uri->module_path.front() != '/' ||
                 (!uri->object && !uri->id))) {
         std::abort();

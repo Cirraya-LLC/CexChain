@@ -18,12 +18,12 @@
 #include <utility>
 #include <variant>
 
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/parallel.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/parallel.hpp>
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace {
 
@@ -86,7 +86,9 @@ constexpr std::array<std::string_view, 2> snapshot_files{"snapshot-a", "snapshot
 //   magic (16) | format u32 | rules u32 | ledger id (32) | hash alg i32 |
 //   size u64 | root (32) | state root (32) | written at u64 |
 //   leaves (size x 32) | state length u64 | state | seal (32)
-constexpr std::string_view snapshot_magic("cexchain state\n\0", 16);
+constexpr char snapshot_magic_text[] = "kanhe snapshot\n";
+constexpr std::string_view snapshot_magic(snapshot_magic_text, sizeof snapshot_magic_text);
+static_assert(snapshot_magic.size() == 16);
 constexpr std::uint32_t snapshot_format = 1;
 constexpr std::size_t snapshot_header_size = 16 + 4 + 4 + 32 + 4 + 8 + 32 + 32 + 8;
 constexpr std::size_t snapshot_seal_piece = std::size_t{4} << 20;
@@ -1304,7 +1306,7 @@ struct Ledger::Impl {
             if (given && epoch.key != needed) {
                 return fail(Errc::invalid_argument,
                             "the log key given is not the one in effect for what is signed: the "
-                            "log key was rotated (see `cexchain ledger keys`)");
+                            "log key was rotated (see `kanhe ledger keys`)");
             }
         }
         return fail(Errc::invalid_argument, "the signer is not this ledger's log key");
@@ -3218,4 +3220,4 @@ Result<protocol::EvidenceBundle> Ledger::export_evidence(LogKeys log_keys,
     return bundle;
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

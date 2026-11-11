@@ -15,12 +15,12 @@
 #include <utility>
 #include <variant>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
 
 #include "protocol/reader.hpp"
 
-namespace cexchain::test::reference {
+namespace kanhe::test::reference {
 
 namespace detail {
 
@@ -378,4 +378,4 @@ inline Result<Bytes> encode_contract_output(const protocol::ContractOutput& outp
         cbor::Value::array({cbor::Value::unsigned_integer(1), cbor::Value::map(std::move(map))}));
 }
 
-} // namespace cexchain::test::reference
+} // namespace kanhe::test::reference

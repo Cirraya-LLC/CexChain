@@ -6,7 +6,7 @@
 // language), a source read back into its sheet, and every source that fits
 // the form written again to the same tree, in any language. The goldens in
 // tests/bo/golden/form/CASE/ hold a sheet (sheet.json) and the source it
-// writes (source.bo). Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the sources.
+// writes (source.bo). Set KANHE_UPDATE_GOLDENS=1 to rewrite the sources.
 
 #include <cstddef>
 #include <cstdlib>
@@ -21,20 +21,20 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/form.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/form.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
 const PackSet& official_set() {
@@ -126,7 +126,7 @@ void round_trip_in(std::string_view source, const Pack* language) {
 } // namespace
 
 TEST_CASE("bo form: the golden sheets", "[bo][form]") {
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     const auto cases = golden_cases();
     REQUIRE(cases.size() >= 20);
     for (const auto& dir : cases) {

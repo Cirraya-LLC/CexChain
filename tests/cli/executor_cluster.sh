@@ -9,11 +9,11 @@
 # acted on once and answered once, none is lost, the executor never stops,
 # and once its server is back it answers within seconds, not after a long
 # backoff.
-# Usage: executor_cluster.sh CEXCHAIN
+# Usage: executor_cluster.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
@@ -32,15 +32,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="executor cluster test"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
+export KANHE_PASSPHRASE="executor cluster test"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
@@ -110,7 +110,7 @@ knows_leader() {
 }
 start_member() {
     local n="$1"
-    "$CEXCHAIN" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
+    "$KANHE" serve --cluster --ledger "node$n" --listen "127.0.0.1:${APORT[$n]}" \
         --log-key log.key --checkpoint-interval 0 --json > "node$n.json" 2>> "node$n.log" &
     PIDS[$n]=$!
     echo "${PIDS[$n]}" > "member$n.pid"
@@ -168,19 +168,19 @@ run checkpoint create --ledger node1 --log-key log.key > /dev/null
 run cluster init --ledger node1 --id 1 --raft "127.0.0.1:${RPORT[1]}" --api "${API[1]}" > /dev/null
 start_member 1
 eventually 60 knows_leader 1
-export CEXCHAIN_TOKEN="$(cat ops.token)"
+export KANHE_TOKEN="$(cat ops.token)"
 for n in 2 3; do
     run cluster join --ledger "node$n" --from "${API[1]}" --ledger-id "$LEDGER_ID" --id "$n" \
         --raft "127.0.0.1:${RPORT[$n]}" --api "${API[$n]}" --secret-file node1/cluster/secret > /dev/null
     cp node1/api-tokens "node$n/api-tokens"
     start_member "$n"
     run cluster add --server "${API[1]}" --id "$n" --raft "127.0.0.1:${RPORT[$n]}" --api "${API[$n]}" > /dev/null
-    eventually 60 sh -c "[ \"\$(\"$CEXCHAIN\" cluster status --server ${API[1]} --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)[\"members\"]))')\" = $n ]"
+    eventually 60 sh -c "[ \"\$(\"$KANHE\" cluster status --server ${API[1]} --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)[\"members\"]))')\" = $n ]"
 done
 for n in 1 2 3; do eventually 60 knows_leader "$n"; done
 
 # --- The executor, as a service on member 1 ----------------------------------------
-"$CEXCHAIN" executor run --config worker.json --state "$S" --server "${API[1]}" \
+"$KANHE" executor run --config worker.json --state "$S" --server "${API[1]}" \
     --token-file worker.token --as worker.key --wait 1 --lease-ttl 5 --json \
     > executor.jsonl 2> executor.log &
 EXECUTOR=$!

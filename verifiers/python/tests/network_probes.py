@@ -13,9 +13,9 @@ A probe may also name a difference that is known and reported: it is
 printed, and does not fail.
 
 The cosignatures are made here from c2sp.org's texts with Python's
-`cryptography`, apart from the verifier's own code (cexchain_verify/network.py).
+`cryptography`, apart from the verifier's own code (kanhe_verify/network.py).
 
-Usage: python3 network_probes.py CEXCHAIN
+Usage: python3 network_probes.py KANHE
 Exit status 1 if a decided probe fails in either verifier, or the
 verifiers' reports differ where no difference is known.
 """
@@ -38,16 +38,16 @@ sys.path.insert(0, str(HERE))
 
 from cryptography.hazmat.primitives.asymmetric import ed25519, mldsa  # noqa: E402
 
-from cexchain_verify import cbor, crypto  # noqa: E402
+from kanhe_verify import cbor, crypto  # noqa: E402
 from compare_reports import compare  # noqa: E402
 from probes import Forge  # noqa: E402
 
 T = 1_794_000_000  # the witnesses' time, POSIX seconds
-COSIGNATURE_TYPE = "application/cexchain-cosignature+cbor"
+COSIGNATURE_TYPE = "application/kanhe-cosignature+cbor"
 
 
 def _seed(name: str) -> bytes:
-    return hashlib.sha256(f"CexChain probe key: {name}".encode()).digest()
+    return hashlib.sha256(f"Kanhe probe key: {name}".encode()).digest()
 
 
 def _key_id(name: str, kind: int, public: bytes) -> bytes:
@@ -82,7 +82,7 @@ class Witness:
 def note_of(bundle: dict) -> tuple[str, int, bytes]:
     """(origin, size, root) of the bundle's checkpoint."""
     payload = cbor.decode(cbor.decode(bundle[3]).value[2])
-    return "cirraya.com/cexchain/" + payload[1].hex(), payload[3], payload[4]
+    return "cirraya.com/kanhe/" + payload[1].hex(), payload[3], payload[4]
 
 
 def forged(cosignatures=None, anchors=None, hash_alg: int = crypto.SHA256, ledger_witness: Witness | None = None):
@@ -246,7 +246,7 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
-    cexchain = argv[1]
+    kanhe = argv[1]
     env = dict(os.environ, PYTHONPATH=str(HERE.parent))
     failures = open_differ = known = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -254,8 +254,8 @@ def main(argv: list[str]) -> int:
             path = os.path.join(tmp, "probe.cbor")
             with open(path, "wb") as f:
                 f.write(build())
-            pe, py = _run([sys.executable, "-m", "cexchain_verify", path, "--json", *options], env)
-            be, bb = _run([cexchain, "verify", path, "--json", *options])
+            pe, py = _run([sys.executable, "-m", "kanhe_verify", path, "--json", *options], env)
+            be, bb = _run([kanhe, "verify", path, "--json", *options])
             problems, _ = compare(py, pe, bb, be)
             py_ok, bb_ok = pe == 0, be == 0
 
@@ -272,7 +272,7 @@ def main(argv: list[str]) -> int:
                 tag, failures = "THE REPORTS DIFFER", failures + 1
             else:
                 tag = "as the spec says, the reports agree"
-            print(f"  {tag}: {name}\n      python: {verdict(py_ok, py)}\n      cexchain verify: {verdict(bb_ok, bb)}")
+            print(f"  {tag}: {name}\n      python: {verdict(py_ok, py)}\n      kanhe verify: {verdict(bb_ok, bb)}")
             for line in problems:
                 print(f"      differ: {line}")
     print(f"network probes: {failures} failed; {open_differ} open probe(s) on which the verifiers differ; "

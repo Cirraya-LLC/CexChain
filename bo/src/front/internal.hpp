@@ -19,11 +19,11 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/contracts.hpp>
-#include <cexchain/bo/pack.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/contracts.hpp>
+#include <kanhe/bo/pack.hpp>
 
-namespace cexchain::bo::detail {
+namespace kanhe::bo::detail {
 
 using Args = std::initializer_list<std::pair<std::string_view, std::string>>;
 
@@ -143,4 +143,4 @@ void index_spellings(std::span<const Pack* const> packs,
 read_user_terms(const PackSet& set, std::span<const std::shared_ptr<const VocabularyPack>> users,
                 Diagnostics& diagnostics);
 
-} // namespace cexchain::bo::detail
+} // namespace kanhe::bo::detail

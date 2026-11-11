@@ -18,13 +18,13 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/core/cbor.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo::detail {
+namespace kanhe::bo::detail {
 
 inline std::string join(std::string_view path, std::string_view key) {
     if (path.empty() || path == ".") {
@@ -249,4 +249,4 @@ protected:
     Diagnostics diagnostics_;
 };
 
-} // namespace cexchain::bo::detail
+} // namespace kanhe::bo::detail

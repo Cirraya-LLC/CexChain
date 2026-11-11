@@ -9,7 +9,7 @@
 # cosigned after each new checkpoint by serve; exported evidence carries the
 # cosignature and verifies with the witness required. Quotas hold, a ledger
 # showing another history is refused, and unregistering stops the asking.
-# Usage: public_witness.sh CEXCHAIN
+# Usage: public_witness.sh KANHE
 set -Eeuo pipefail
 dump_logs() {
     for log in "$WORK"/*.json.log; do
@@ -19,7 +19,7 @@ dump_logs() {
 }
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -29,15 +29,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="witness test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="witness test"
+unset KANHE_LEDGER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
@@ -64,7 +64,7 @@ PY
 }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -84,7 +84,7 @@ latest_size() { run checkpoint list --ledger "$1" --json | json 'max(c["tree_siz
 
 for command in "witness register" "witness registered" "witness unregister"; do
     # shellcheck disable=SC2086
-    run $command --help | contains -F "cexchain $command" || fail "help for $command"
+    run $command --help | contains -F "kanhe $command" || fail "help for $command"
 done
 run completion bash | contains unregister || fail "completion"
 run serve --help | contains -F -- '--witness-public' || fail "serve --help"

@@ -18,19 +18,19 @@
 #include <unistd.h>
 #include <utility>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/executor.hpp>
-#include <cexchain/node/process.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/executor.hpp>
+#include <kanhe/node/process.hpp>
 
 #include "files.hpp"
 #include "json_cbor.hpp"
 
-namespace cexchain::node::executor {
+namespace kanhe::node::executor {
 
 namespace {
 
@@ -1479,7 +1479,7 @@ private:
                                                         as_bytes(std::string_view(options_.tool)));
             if (tool) {
                 p.tools.push_back(
-                    {"executor:cexchain", Bytes(tool->bytes().begin(), tool->bytes().end())});
+                    {"executor:kanhe", Bytes(tool->bytes().begin(), tool->bytes().end())});
             }
             st.provenance = std::move(p);
         }
@@ -2065,4 +2065,4 @@ std::expected<void, std::string> run(const Config& config, RunOptions& options) 
     return runtime.run();
 }
 
-} // namespace cexchain::node::executor
+} // namespace kanhe::node::executor

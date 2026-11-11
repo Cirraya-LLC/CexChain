@@ -9,7 +9,7 @@
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -131,4 +131,4 @@ int cmd_qr(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

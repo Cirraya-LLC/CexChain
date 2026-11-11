@@ -14,12 +14,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/vm.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::vm {
+namespace kanhe::vm {
 
 namespace detail {
 
@@ -318,13 +318,13 @@ constexpr NumericType numeric_type(std::uint8_t op) noexcept {
 constexpr auto operations = [] {
     std::array<std::uint16_t, 256> ops{};
     ops.fill(op_count);
-#define CEXCHAIN_VM_MAP(name, opcode, ...) ops[opcode] = op_##name;
-    CEXCHAIN_VM_LOADS(CEXCHAIN_VM_MAP)
-    CEXCHAIN_VM_STORES(CEXCHAIN_VM_MAP)
-    CEXCHAIN_VM_UNARY(CEXCHAIN_VM_MAP)
-    CEXCHAIN_VM_DIVISION(CEXCHAIN_VM_MAP)
-    CEXCHAIN_VM_BINARY(CEXCHAIN_VM_MAP)
-#undef CEXCHAIN_VM_MAP
+#define KANHE_VM_MAP(name, opcode, ...) ops[opcode] = op_##name;
+    KANHE_VM_LOADS(KANHE_VM_MAP)
+    KANHE_VM_STORES(KANHE_VM_MAP)
+    KANHE_VM_UNARY(KANHE_VM_MAP)
+    KANHE_VM_DIVISION(KANHE_VM_MAP)
+    KANHE_VM_BINARY(KANHE_VM_MAP)
+#undef KANHE_VM_MAP
     return ops;
 }();
 
@@ -359,66 +359,66 @@ constexpr Fusions fusions = [] {
     f.load_l.fill(op_count);
     f.if_.fill(op_count);
     f.jump_if.fill(op_count);
-#define CEXCHAIN_VM_FUSE(table)                                                                    \
+#define KANHE_VM_FUSE(table)                                                                       \
     [&f](std::uint16_t fused, std::uint16_t name) {                                                \
         f.table[name] = fused;                                                                     \
     }
-#define CEXCHAIN_VM_C(fused, name) CEXCHAIN_VM_FUSE(c)(op_##fused, op_##name);
-#define CEXCHAIN_VM_L(fused, name) CEXCHAIN_VM_FUSE(l)(op_##fused, op_##name);
-#define CEXCHAIN_VM_LC(fused, name) CEXCHAIN_VM_FUSE(lc)(op_##fused, op_##name);
-#define CEXCHAIN_VM_LL(fused, name)                                                                \
-    CEXCHAIN_VM_FUSE(ll)(op_##fused, op_##name);                                                   \
+#define KANHE_VM_C(fused, name) KANHE_VM_FUSE(c)(op_##fused, op_##name);
+#define KANHE_VM_L(fused, name) KANHE_VM_FUSE(l)(op_##fused, op_##name);
+#define KANHE_VM_LC(fused, name) KANHE_VM_FUSE(lc)(op_##fused, op_##name);
+#define KANHE_VM_LL(fused, name)                                                                   \
+    KANHE_VM_FUSE(ll)(op_##fused, op_##name);                                                      \
     f.two_locals[op_##fused] = true;
-#define CEXCHAIN_VM_LOAD_L(fused, name, width) CEXCHAIN_VM_FUSE(load_l)(op_##fused, op_##name);
-#define CEXCHAIN_VM_IF(fused, name)                                                                \
-    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name);                                                  \
+#define KANHE_VM_LOAD_L(fused, name, width) KANHE_VM_FUSE(load_l)(op_##fused, op_##name);
+#define KANHE_VM_IF(fused, name)                                                                   \
+    KANHE_VM_FUSE(if_)(op_##fused, op_##name);                                                     \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_JUMP_IF(fused, name)                                                           \
-    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name);                                              \
+#define KANHE_VM_JUMP_IF(fused, name)                                                              \
+    KANHE_VM_FUSE(jump_if)(op_##fused, op_##name);                                                 \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_C_IF(fused, name)                                                              \
-    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name##_c);                                              \
+#define KANHE_VM_C_IF(fused, name)                                                                 \
+    KANHE_VM_FUSE(if_)(op_##fused, op_##name##_c);                                                 \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_C_JUMP_IF(fused, name)                                                         \
-    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name##_c);                                          \
+#define KANHE_VM_C_JUMP_IF(fused, name)                                                            \
+    KANHE_VM_FUSE(jump_if)(op_##fused, op_##name##_c);                                             \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_LL_IF(fused, name)                                                             \
-    CEXCHAIN_VM_FUSE(if_)(op_##fused, op_##name##_ll);                                             \
+#define KANHE_VM_LL_IF(fused, name)                                                                \
+    KANHE_VM_FUSE(if_)(op_##fused, op_##name##_ll);                                                \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_LL_JUMP_IF(fused, name)                                                        \
-    CEXCHAIN_VM_FUSE(jump_if)(op_##fused, op_##name##_ll);                                         \
+#define KANHE_VM_LL_JUMP_IF(fused, name)                                                           \
+    KANHE_VM_FUSE(jump_if)(op_##fused, op_##name##_ll);                                            \
     f.branches[op_##fused] = true;
-#define CEXCHAIN_VM_QUIET(name, ...) f.quiet[op_##name] = true;
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_C, CEXCHAIN_VM_WITH_C)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_L, CEXCHAIN_VM_WITH_L)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_LC, CEXCHAIN_VM_WITH_LC)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_LL, CEXCHAIN_VM_WITH_LL)
-    CEXCHAIN_VM_FUSED_LOADS(CEXCHAIN_VM_LOAD_L)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_IF, CEXCHAIN_VM_WITH_IF)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_JUMP_IF, CEXCHAIN_VM_WITH_JUMP_IF)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_C_IF, CEXCHAIN_VM_WITH_C_IF)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_C_JUMP_IF, CEXCHAIN_VM_WITH_C_JUMP_IF)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_LL_IF, CEXCHAIN_VM_WITH_LL_IF)
-    CEXCHAIN_VM_COMPARE_LIST(CEXCHAIN_VM_LL_JUMP_IF, CEXCHAIN_VM_WITH_LL_JUMP_IF)
-    CEXCHAIN_VM_UNARY(CEXCHAIN_VM_QUIET)
-    CEXCHAIN_VM_BINARY(CEXCHAIN_VM_QUIET)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_C)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_L)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_LC)
-    CEXCHAIN_VM_BINARY_LIST(CEXCHAIN_VM_QUIET, CEXCHAIN_VM_WITH_LL)
-#undef CEXCHAIN_VM_FUSE
-#undef CEXCHAIN_VM_C
-#undef CEXCHAIN_VM_L
-#undef CEXCHAIN_VM_LC
-#undef CEXCHAIN_VM_LL
-#undef CEXCHAIN_VM_LOAD_L
-#undef CEXCHAIN_VM_IF
-#undef CEXCHAIN_VM_JUMP_IF
-#undef CEXCHAIN_VM_C_IF
-#undef CEXCHAIN_VM_C_JUMP_IF
-#undef CEXCHAIN_VM_LL_IF
-#undef CEXCHAIN_VM_LL_JUMP_IF
-#undef CEXCHAIN_VM_QUIET
+#define KANHE_VM_QUIET(name, ...) f.quiet[op_##name] = true;
+    KANHE_VM_BINARY_LIST(KANHE_VM_C, KANHE_VM_WITH_C)
+    KANHE_VM_BINARY_LIST(KANHE_VM_L, KANHE_VM_WITH_L)
+    KANHE_VM_BINARY_LIST(KANHE_VM_LC, KANHE_VM_WITH_LC)
+    KANHE_VM_BINARY_LIST(KANHE_VM_LL, KANHE_VM_WITH_LL)
+    KANHE_VM_FUSED_LOADS(KANHE_VM_LOAD_L)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_IF, KANHE_VM_WITH_IF)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_JUMP_IF, KANHE_VM_WITH_JUMP_IF)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_C_IF, KANHE_VM_WITH_C_IF)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_C_JUMP_IF, KANHE_VM_WITH_C_JUMP_IF)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_LL_IF, KANHE_VM_WITH_LL_IF)
+    KANHE_VM_COMPARE_LIST(KANHE_VM_LL_JUMP_IF, KANHE_VM_WITH_LL_JUMP_IF)
+    KANHE_VM_UNARY(KANHE_VM_QUIET)
+    KANHE_VM_BINARY(KANHE_VM_QUIET)
+    KANHE_VM_BINARY_LIST(KANHE_VM_QUIET, KANHE_VM_WITH_C)
+    KANHE_VM_BINARY_LIST(KANHE_VM_QUIET, KANHE_VM_WITH_L)
+    KANHE_VM_BINARY_LIST(KANHE_VM_QUIET, KANHE_VM_WITH_LC)
+    KANHE_VM_BINARY_LIST(KANHE_VM_QUIET, KANHE_VM_WITH_LL)
+#undef KANHE_VM_FUSE
+#undef KANHE_VM_C
+#undef KANHE_VM_L
+#undef KANHE_VM_LC
+#undef KANHE_VM_LL
+#undef KANHE_VM_LOAD_L
+#undef KANHE_VM_IF
+#undef KANHE_VM_JUMP_IF
+#undef KANHE_VM_C_IF
+#undef KANHE_VM_C_JUMP_IF
+#undef KANHE_VM_LL_IF
+#undef KANHE_VM_LL_JUMP_IF
+#undef KANHE_VM_QUIET
     for (const Op op : {op_if, op_jump, op_jump_if, op_br, op_br_if, op_tee_jump_if, op_set_jump,
                         op_if_l, op_jump_if_l}) {
         f.branches[op] = true;
@@ -1441,7 +1441,7 @@ private:
                 return;
             }
             const auto spec = std::ranges::find(host_functions, field, &HostSpec::name);
-            if (module != "cexchain" || spec == host_functions.end()) {
+            if (module != "kanhe" || spec == host_functions.end()) {
                 s.fail(Errc::unsupported, "unknown import");
                 return;
             }
@@ -1689,14 +1689,14 @@ private:
         if (!memory || memory->kind != 2 || !m_.memory) {
             return fail(Errc::unsupported, "must export its memory as \"memory\"");
         }
-        const auto entry = find_export("cexchain_call");
+        const auto entry = find_export("kanhe_call");
         if (!entry || entry->kind != 0 || entry->index >= m_.functions.size() ||
             entry->index < m_.imports) {
-            return fail(Errc::unsupported, "must export a function \"cexchain_call\"");
+            return fail(Errc::unsupported, "must export a function \"kanhe_call\"");
         }
         const FuncType& entry_type = m_.types[m_.functions[entry->index].type];
         if (!entry_type.params.empty() || !entry_type.results.empty()) {
-            return fail(Errc::unsupported, "cexchain_call must take and return nothing");
+            return fail(Errc::unsupported, "kanhe_call must take and return nothing");
         }
         m_.entry = entry->index;
         for (const auto& [name, e] : exports_) {
@@ -1779,4 +1779,4 @@ Result<Module> load(ByteView wasm) {
     return detail::load(wasm, detail::Translation{});
 }
 
-} // namespace cexchain::vm
+} // namespace kanhe::vm

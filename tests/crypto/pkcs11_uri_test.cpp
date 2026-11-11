@@ -5,10 +5,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/crypto/pkcs11.hpp>
+#include <kanhe/crypto/pkcs11.hpp>
 
-namespace pkcs11 = cexchain::crypto::pkcs11;
-using cexchain::Bytes;
+namespace pkcs11 = kanhe::crypto::pkcs11;
+using kanhe::Bytes;
 
 TEST_CASE("PKCS #11 URIs parse as RFC 7512 writes them", "[pkcs11]") {
     const auto uri =

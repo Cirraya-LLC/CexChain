@@ -9,7 +9,7 @@
 # libcrypto. When a process's first signature checks run on several threads at
 # once (evidence verified on all cores), it reports those as races between two
 # threads that are both inside libcrypto, on memory libcrypto allocated.
-# Accesses made from libcrypto are ignored; races in CexChain's own code are
+# Accesses made from libcrypto are ignored; races in Kanhe's own code are
 # still reported.
 called_from_lib:libcrypto
 

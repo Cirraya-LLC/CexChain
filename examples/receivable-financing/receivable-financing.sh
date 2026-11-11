@@ -20,19 +20,19 @@
 #     again, every consent checked on the ledger that gave it, the contract's
 #     code rebuilt from its source.
 # Five ledgers, each its own organization, talk over HTTP. It needs a
-# cexchain built with the Bo compiler (GCC 16; the release build and the
+# kanhe built with the Bo compiler (GCC 16; the release build and the
 # Docker image have it).
 #
-# Usage: receivable-financing.sh [CEXCHAIN] [DIR]
-#   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
+# Usage: receivable-financing.sh [KANHE] [DIR]
+#   KANHE  the command-line tool (default: kanhe on the PATH)
 #   DIR       where to keep the ledgers (default: a temporary directory,
 #             removed at the end; give one to look around afterwards)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
+KANHE="${1:-kanhe}"
 # A path relative to where the script starts works too.
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
@@ -51,17 +51,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
@@ -107,8 +107,8 @@ for org in "${ORGS[@]:1}"; do
 done
 
 step "2. The core enterprise builds the contract and deploys it on its ledger"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This demo needs a cexchain built with the Bo compiler (GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This demo needs a kanhe built with the Bo compiler (GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/receivable-financing.bo" .
@@ -151,7 +151,7 @@ for org in "${ORGS[@]:1}"; do
     run token create "$org" --scope peer --out "$org.token" --ledger "$(dir core)" > /dev/null
 done
 # Started directly (not through a shell function), so $! is the server itself.
-"$CEXCHAIN" serve --ledger "$(dir core)" --log-key core-log.key --registrar-key registrar.key \
+"$KANHE" serve --ledger "$(dir core)" --log-key core-log.key --registrar-key registrar.key \
     --listen 127.0.0.1:0 --json --quiet > core.json 2> core.log &
 SERVER=$!
 for _ in $(seq 1 300); do

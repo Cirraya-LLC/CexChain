@@ -25,7 +25,7 @@ Besides Bo's core words, the contract uses the commerce vocabulary pack (version
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 subscribe
-  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the customer, whose agreement it needs.
   4.1.3 Requirement 1: the instance is active. [R7, R19]
   4.1.4 Requirement 2: paid until holds no date. [R19]
@@ -40,7 +40,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.10 An AI agent may start it within its delegation. [R14]
 
 4.2 upgrade
-  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the customer, whose agreement it needs.
   4.2.3 Requirement 1: the instance is active. [R7, R19]
   4.2.4 It asks an executor for upgrade, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
@@ -48,7 +48,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.2.5 An AI agent may start it within its delegation. [R14]
 
 4.3 downgrade
-  4.3.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
   4.3.2 Started by the customer, whose agreement it needs.
   4.3.3 Requirement 1: the instance is active. [R7, R19]
   4.3.4 It asks an executor for downgrade, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
@@ -56,7 +56,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.3.5 An AI agent may start it within its delegation. [R14]
 
 4.4 renew
-  4.4.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
   4.4.2 Only the contract's time rules do this action: no call starts it directly.
   4.4.3 Requirement 1: the instance is active or suspended. [R7, R19]
   4.4.4 Requirement 2: billed until is the same date as paid until. [R19]
@@ -66,14 +66,14 @@ A call that does not meet one of an action's requirements is refused, and the in
     4.4.6.2 If it fails, or expires, the rule for a failed invoice applies (see the answers to requests). [R33]
 
 4.5 suspend
-  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
+  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
   4.5.2 Only the contract's time rules do this action: no call starts it directly.
   4.5.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
   4.5.4 It asks an executor for suspend, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
     4.5.4.1 If it fails, or expires, the rule for a failed suspend applies (see the answers to requests). [R33]
 
 4.6 terminate
-  4.6.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+  4.6.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
   4.6.2 Only the contract's time rules do this action: no call starts it directly.
   4.6.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
   4.6.4 It asks an executor for terminate, outside the ledger, to be answered within 1 day of the call (its deadline). [R10]
@@ -133,7 +133,7 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R10] Notify PARTY asks an executor to notify that party; on a service, subscribe, upgrade, downgrade, suspend, resume, and terminate also ask an executor to do the same outside the ledger. Each is a request of its own kind, made after the action's clauses, to be answered within one day.
 [R11] A service with a recurring price in money is paid until a date, which Bo adds (paid until): subscribing sets it to the day of the call, and each payment moves it one period on. The service is due on that date, and the rules that count from its due date apply only once it is subscribed to.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
 [R24] A ledger acts only on calls, so each time rule is a function that anyone the home delegates may call: a keeper, usually a device of the home calling it on a schedule. The ledger's registration time decides: the rule applies only once its time has come, and once for each such time; an earlier call is refused, and a later one is recorded with how late it came. The rule is the contract's own word: it needs only the consents it states, not those of the parties that start the actions it does.
 [R25] A contract that names no UTC offset counts dates and days at UTC+08:00.

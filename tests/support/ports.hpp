@@ -18,7 +18,7 @@
 #include <sys/sysctl.h>
 #endif
 
-namespace cexchain::test {
+namespace kanhe::test {
 
 /// The first port of the range the system assigns from: to bind(0), and to
 /// the local end of every outgoing connection.
@@ -85,4 +85,4 @@ inline std::uint16_t fixed_port() {
     throw std::runtime_error("no free port below the ephemeral range");
 }
 
-} // namespace cexchain::test
+} // namespace kanhe::test

@@ -21,28 +21,28 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path build_dir = std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / "build";
+const std::filesystem::path build_dir = std::filesystem::path(KANHE_BO_GOLDEN_DIR) / "build";
 
 std::string read_text(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -114,7 +114,7 @@ TEST_CASE("the compiler names itself", "[bo][build]") {
     CHECK(this_compiler().edition == edition);
     CHECK(!this_compiler().release.empty());
     CHECK(parse_compiler(compiler_string()) == this_compiler());
-    CHECK(compiler_string().starts_with("cexchain-bo "));
+    CHECK(compiler_string().starts_with("kanhe-bo "));
 }
 
 TEST_CASE("compile builds the agreement, the same code from every language", "[bo][build]") {
@@ -291,7 +291,7 @@ TEST_CASE("a deploy whose source is not its code differs", "[bo][build]") {
         forged.compiler = other_release();
         const Rebuild other_r = rebuilt(forged);
         CHECK(other_r.status == RebuildStatus::other_compiler);
-        CHECK(mentions(other_r, "rebuild with cexchain-bo " + this_compiler().release + "-other"));
+        CHECK(mentions(other_r, "rebuild with kanhe-bo " + this_compiler().release + "-other"));
     }
 }
 
@@ -313,7 +313,7 @@ TEST_CASE("another compiler's output is reported as such", "[bo][build]") {
     forged.compiler = "acme-bo 2.1";
     r = rebuilt(forged);
     CHECK(r.status == RebuildStatus::other_compiler);
-    CHECK(mentions(r, "built with \"acme-bo 2.1\", which is not cexchain-bo"));
+    CHECK(mentions(r, "built with \"acme-bo 2.1\", which is not kanhe-bo"));
     CHECK(!r.deployed.has_value());
 
     // An official pack version this compiler does not carry: a newer one.
@@ -425,7 +425,7 @@ TEST_CASE("a deploy with a user's vocabulary pack carries it, and rebuilds anywh
           "[bo][build][vocab]") {
     // The example pack and contract (examples/events).
     const std::filesystem::path events =
-        std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
+        std::filesystem::path(KANHE_BO_GOLDEN_DIR) / ".." / ".." / ".." / "examples" / "events";
     VocabularyRead read = read_vocabulary_pack(read_text(events / "events.vocab"));
     REQUIRE(read.pack != nullptr);
     PackSetRead with = make_pack_set({}, Officials::current, {read.pack});

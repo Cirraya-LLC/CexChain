@@ -21,10 +21,10 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/snapshots.hpp"
@@ -32,9 +32,9 @@
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 protocol::Id id_of(const nlohmann::json& value) {
     return *protocol::to_id(hex_field(value));
@@ -165,7 +165,7 @@ struct Chain {
         return *encoded;
     }
 
-    cexchain::Result<protocol::ContractReport> verify(const Bytes& evidence) {
+    kanhe::Result<protocol::ContractReport> verify(const Bytes& evidence) {
         protocol::VerifyOptions options;
         options.expected_ledger = home.ledger().id();
         return protocol::verify_contract_evidence(provider(), evidence, options);

@@ -16,13 +16,13 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/vocab.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -33,7 +33,7 @@ namespace {
 #endif
 
 constexpr unsigned char en_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/en.pack"
 #else
 #include "en.pack.inc"
@@ -41,7 +41,7 @@ constexpr unsigned char en_bytes[] = {
 };
 
 constexpr unsigned char zh_hant_hk_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/zh-Hant-HK.pack"
 #else
 #include "zh-Hant-HK.pack.inc"
@@ -49,7 +49,7 @@ constexpr unsigned char zh_hant_hk_bytes[] = {
 };
 
 constexpr unsigned char zh_hans_cn_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/zh-Hans-CN.pack"
 #else
 #include "zh-Hans-CN.pack.inc"
@@ -59,7 +59,7 @@ constexpr unsigned char zh_hans_cn_bytes[] = {
 // Version 1 of each, from before vocabulary packs, carried so that
 // the deploys made with them rebuild (bo/packs/history/).
 constexpr unsigned char en_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/en-1.pack"
 #else
 #include "history/en-1.pack.inc"
@@ -67,7 +67,7 @@ constexpr unsigned char en_1_bytes[] = {
 };
 
 constexpr unsigned char zh_hant_hk_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hant-HK-1.pack"
 #else
 #include "history/zh-Hant-HK-1.pack.inc"
@@ -75,7 +75,7 @@ constexpr unsigned char zh_hant_hk_1_bytes[] = {
 };
 
 constexpr unsigned char zh_hans_cn_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hans-CN-1.pack"
 #else
 #include "history/zh-Hans-CN-1.pack.inc"
@@ -85,7 +85,7 @@ constexpr unsigned char zh_hans_cn_1_bytes[] = {
 // Version 2 of each, with vocabulary packs, from before temperatures and
 // field defaults.
 constexpr unsigned char en_2_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/en-2.pack"
 #else
 #include "history/en-2.pack.inc"
@@ -93,7 +93,7 @@ constexpr unsigned char en_2_bytes[] = {
 };
 
 constexpr unsigned char zh_hant_hk_2_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hant-HK-2.pack"
 #else
 #include "history/zh-Hant-HK-2.pack.inc"
@@ -101,7 +101,7 @@ constexpr unsigned char zh_hant_hk_2_bytes[] = {
 };
 
 constexpr unsigned char zh_hans_cn_2_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hans-CN-2.pack"
 #else
 #include "history/zh-Hans-CN-2.pack.inc"
@@ -109,21 +109,21 @@ constexpr unsigned char zh_hans_cn_2_bytes[] = {
 };
 
 constexpr unsigned char en_3_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/en-3.pack"
 #else
 #include "history/en-3.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hant_hk_3_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hant-HK-3.pack"
 #else
 #include "history/zh-Hant-HK-3.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hans_cn_3_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hans-CN-3.pack"
 #else
 #include "history/zh-Hans-CN-3.pack.inc"
@@ -131,21 +131,21 @@ constexpr unsigned char zh_hans_cn_3_bytes[] = {
 };
 // Version 4 of each, from before requests.
 constexpr unsigned char en_4_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/en-4.pack"
 #else
 #include "history/en-4.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hant_hk_4_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hant-HK-4.pack"
 #else
 #include "history/zh-Hant-HK-4.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hans_cn_4_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hans-CN-4.pack"
 #else
 #include "history/zh-Hans-CN-4.pack.inc"
@@ -153,21 +153,21 @@ constexpr unsigned char zh_hans_cn_4_bytes[] = {
 };
 // Version 5 of each, from before a service's periods and bills.
 constexpr unsigned char en_5_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/en-5.pack"
 #else
 #include "history/en-5.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hant_hk_5_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hant-HK-5.pack"
 #else
 #include "history/zh-Hant-HK-5.pack.inc"
 #endif
 };
 constexpr unsigned char zh_hans_cn_5_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../packs/history/zh-Hans-CN-5.pack"
 #else
 #include "history/zh-Hans-CN-5.pack.inc"
@@ -355,4 +355,4 @@ const Pack& english_pack() noexcept {
     return *pack;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

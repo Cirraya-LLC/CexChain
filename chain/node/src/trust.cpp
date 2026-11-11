@@ -7,15 +7,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/memberships.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/tokens.hpp>
-#include <cexchain/node/trust.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/tokens.hpp>
+#include <kanhe/node/trust.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -216,4 +216,4 @@ std::optional<protocol::Id> MembershipIndex::newest(const crypto::Provider& prov
     return best ? std::optional(best->second) : std::nullopt;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// cexchain::bo, the part of the compiler built with C++26 reflection and
+// kanhe::bo, the part of the compiler built with C++26 reflection and
 // contracts (GCC 16): names from the enumerators, and records (a pack's
 // facts, a tree, a checked model) written member by member.
 
@@ -11,18 +11,18 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/names.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/names.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 TEST_CASE("names come from the enumerators", "[bo][names]") {
     for (std::size_t i = 0; i < category_names.size(); ++i) {

@@ -10,14 +10,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/node/published.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/node/published.hpp>
 
-namespace node = cexchain::node;
-namespace cbor = cexchain::cbor;
-namespace protocol = cexchain::protocol;
-using cexchain::Bytes;
+namespace node = kanhe::node;
+namespace cbor = kanhe::cbor;
+namespace protocol = kanhe::protocol;
+using kanhe::Bytes;
 
 namespace {
 
@@ -28,8 +28,8 @@ protocol::Id id_of(std::uint8_t fill) {
 protocol::FieldDisclosure disclosure(std::uint8_t fill, std::uint64_t index) {
     return {Bytes(40, fill),
             index,
-            {*cexchain::crypto::Digest::from_bytes(Bytes(32, 1)),
-             *cexchain::crypto::Digest::from_bytes(Bytes(32, 2))}};
+            {*kanhe::crypto::Digest::from_bytes(Bytes(32, 1)),
+             *kanhe::crypto::Digest::from_bytes(Bytes(32, 2))}};
 }
 
 } // namespace
@@ -106,10 +106,10 @@ TEST_CASE("a token is 22 base64url characters", "[node][published]") {
 
 TEST_CASE("records are published, listed, and taken down", "[node][published]") {
     const auto dir = std::filesystem::temp_directory_path() /
-                     ("cexchain-published-test-" + std::to_string(::getpid()));
+                     ("kanhe-published-test-" + std::to_string(::getpid()));
     std::filesystem::remove_all(dir);
-    cexchain::ledger::SeededEntropy entropy(7);
-    cexchain::ledger::ManualClock clock(1'791'244'800'000);
+    kanhe::ledger::SeededEntropy entropy(7);
+    kanhe::ledger::ManualClock clock(1'791'244'800'000);
     CHECK(node::list_published(dir).empty());
 
     const auto first = node::publish_record(dir, id_of(1), {disclosure(7, 0)}, entropy, clock);
@@ -140,10 +140,10 @@ TEST_CASE("records are published, listed, and taken down", "[node][published]") 
     CHECK(node::unpublish(dir, first->token));
     const auto gone = node::load_published(dir, first->token);
     REQUIRE_FALSE(gone);
-    CHECK(gone.error().code == cexchain::Errc::not_found);
+    CHECK(gone.error().code == kanhe::Errc::not_found);
     const auto again = node::unpublish(dir, first->token);
     REQUIRE_FALSE(again);
-    CHECK(again.error().code == cexchain::Errc::not_found);
+    CHECK(again.error().code == kanhe::Errc::not_found);
     CHECK_FALSE(node::unpublish(dir, "x"));
     CHECK_FALSE(node::load_published(dir, "x"));
     CHECK(node::list_published(dir).size() == 1);

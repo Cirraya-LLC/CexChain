@@ -7,11 +7,11 @@
 #include <optional>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -262,13 +262,13 @@ Status check_state_commitment(const crypto::Provider& provider, const LedgerStat
     return check_state_commitment(provider, state, commitment, index, *root);
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol
 
 // ---------------------------------------------------------------------------
 // StateTree
 // ---------------------------------------------------------------------------
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -634,4 +634,4 @@ std::optional<crypto::Digest> StateTree::leaf_hash(const Id& id) const {
     return digest ? std::optional(*digest) : std::nullopt;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

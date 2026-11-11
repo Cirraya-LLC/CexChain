@@ -12,25 +12,25 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
 namespace {
 
-namespace crypto = cexchain::crypto;
-namespace protocol = cexchain::protocol;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace crypto = kanhe::crypto;
+namespace protocol = kanhe::protocol;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 const crypto::Provider& provider() {
     static const crypto::openssl::Provider instance;
@@ -165,7 +165,7 @@ TEST_CASE("v0.2 objects from an independent encoder", "[protocol][vectors]") {
         CHECK(checkpoint->checkpoint.tree_size == commitment_index + 1);
         CHECK(*protocol::encode_checkpoint(checkpoint->checkpoint) ==
               *checkpoint->envelope.payload);
-        cexchain::merkle::Tree tree(provider(), hash);
+        kanhe::merkle::Tree tree(provider(), hash);
         for (const auto& entry : ledger["log_entries"]) {
             REQUIRE(tree.append(hex(text(entry))));
         }

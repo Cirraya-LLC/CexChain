@@ -34,20 +34,20 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/model.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/model.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/core/cbor.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 namespace m = bo::model;
 
 const bo::Lexicon& lexicon() {

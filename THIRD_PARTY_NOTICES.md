@@ -1,36 +1,36 @@
 # Third-party notices
 
-CexChain is licensed under the [Apache License, Version 2.0](LICENSE). It is built with the
+Kanhe is licensed under the [Apache License, Version 2.0](LICENSE). It is built with the
 third-party components below, each under its own license. No third-party source code is copied
 into this repository: the build fetches the components it compiles from the sources listed,
-pinned by version and checked against a SHA-256 hash (`cmake/CexChainDependencies.cmake`,
+pinned by version and checked against a SHA-256 hash (`cmake/KanheDependencies.cmake`,
 `tools/wasm/build-openssl.sh`), or takes them from the system; test tools come from their
 package managers.
 
 Where each component ends up:
 
-- **`cexchain`**: the command-line tool and ledger server (one binary), and the Docker image
+- **`kanhe`**: the command-line tool and ledger server (one binary), and the Docker image
   that carries it.
-- **Browser verifier**: `cexchain-verify.html`, the self-contained page that
-  `tools/wasm/build.sh` builds (and its module, `cexchain-verifier.js`). The page lists these
+- **Browser verifier**: `kanhe-verify.html`, the self-contained page that
+  `tools/wasm/build.sh` builds (and its module, `kanhe-verifier.js`). The page lists these
   components, their notices, and the full MIT and Apache 2.0 license texts itself, under
   "Third-party software in this page".
 - **Build and test only**: used to build, test, fuzz, or generate test vectors; not part of
-  anything CexChain distributes.
+  anything Kanhe distributes.
 
 ## Components that ship
 
 | Component | Version | License | Source | Ships in |
 | --- | --- | --- | --- | --- |
-| OpenSSL (libcrypto, libssl) | 3.5 or later, from the system (the Docker image: Debian trixie's `libssl3t64`) | Apache-2.0 | <https://github.com/openssl/openssl> | `cexchain` (linked dynamically) |
+| OpenSSL (libcrypto, libssl) | 3.5 or later, from the system (the Docker image: Debian trixie's `libssl3t64`) | Apache-2.0 | <https://github.com/openssl/openssl> | `kanhe` (linked dynamically) |
 | OpenSSL (libcrypto only) | 3.5.9 | Apache-2.0 | <https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz> | Browser verifier (compiled in) |
-| JSON for Modern C++ (nlohmann/json) | 3.12.0 | MIT | <https://github.com/nlohmann/json> | `cexchain`, browser verifier (header-only, compiled in) |
-| Asio (standalone) | 1.38.2 | BSL-1.0 | <https://github.com/chriskohlhoff/asio> | `cexchain` (header-only, compiled in) |
-| NuRaft | 3.0.0 | Apache-2.0 | <https://github.com/eBay/NuRaft> | `cexchain` (linked statically) |
-| SQLite (amalgamation) | 3.54.1 | Public domain (notice below) | <https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip> | `cexchain` (linked statically): the search index |
-| QR Code generator library (C++) | 1.8.0 | MIT | <https://github.com/nayuki/QR-Code-generator> | `cexchain` (linked statically) |
-| p11-kit's PKCS #11 header (`pkcs11.h`) | from the system's p11-kit, at build time | Permissive (notice below) | <https://github.com/p11-glue/p11-kit> | `cexchain`, when built with PKCS #11 support (the Docker image is); the header's types and constants only |
-| GCC runtime (libstdc++, libgcc) | GCC 16 | GPL-3.0-or-later WITH GCC-exception-3.1 | <https://gcc.gnu.org/> | `cexchain` in the Docker image (linked statically); other builds link the system's C++ runtime dynamically |
+| JSON for Modern C++ (nlohmann/json) | 3.12.0 | MIT | <https://github.com/nlohmann/json> | `kanhe`, browser verifier (header-only, compiled in) |
+| Asio (standalone) | 1.38.2 | BSL-1.0 | <https://github.com/chriskohlhoff/asio> | `kanhe` (header-only, compiled in) |
+| NuRaft | 3.0.0 | Apache-2.0 | <https://github.com/eBay/NuRaft> | `kanhe` (linked statically) |
+| SQLite (amalgamation) | 3.54.1 | Public domain (notice below) | <https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip> | `kanhe` (linked statically): the search index |
+| QR Code generator library (C++) | 1.8.0 | MIT | <https://github.com/nayuki/QR-Code-generator> | `kanhe` (linked statically) |
+| p11-kit's PKCS #11 header (`pkcs11.h`) | from the system's p11-kit, at build time | Permissive (notice below) | <https://github.com/p11-glue/p11-kit> | `kanhe`, when built with PKCS #11 support (the Docker image is); the header's types and constants only |
+| GCC runtime (libstdc++, libgcc) | GCC 16 | GPL-3.0-or-later WITH GCC-exception-3.1 | <https://gcc.gnu.org/> | `kanhe` in the Docker image (linked statically); other builds link the system's C++ runtime dynamically |
 | Emscripten runtime and system libraries | 6.0.10 | MIT (or NCSA); musl libc: MIT; LLVM libc++, libc++abi, libunwind, compiler-rt: Apache-2.0 WITH LLVM-exception; dlmalloc: CC0-1.0 | <https://github.com/emscripten-core/emscripten> | Browser verifier (compiled in) |
 | Debian trixie (slim) base image and its packages (`ca-certificates`, `libssl3t64`) | trixie | Various, per package (`/usr/share/doc/*/copyright` in the image) | <https://www.debian.org/> | The Docker image only |
 
@@ -55,7 +55,7 @@ Where each component ends up:
 ### Apache License 2.0
 
 OpenSSL, NuRaft, and (build and test only) Playwright and the OpenSSL command-line tool are
-licensed under the Apache License, Version 2.0, the license of CexChain itself; its full text is
+licensed under the Apache License, Version 2.0, the license of Kanhe itself; its full text is
 in [`LICENSE`](LICENSE) and at <https://www.apache.org/licenses/LICENSE-2.0>.
 
 - **OpenSSL:** Copyright 1995-2025 The OpenSSL Project Authors. All Rights Reserved.
@@ -79,7 +79,7 @@ conditions for portions embedded in compiled code; they are listed for completen
   under CC0-1.0.
 - **QR Code generator library:** Copyright (c) Project Nayuki.
 - **Emscripten:** Copyright (c) 2010-2014 Emscripten authors (Emscripten is available under the
-  MIT License or the University of Illinois/NCSA Open Source License; CexChain uses it under the
+  MIT License or the University of Illinois/NCSA Open Source License; Kanhe uses it under the
   MIT License).
 - **musl libc** (in Emscripten): Copyright (c) 2005-2020 Rich Felker, et al.
 
@@ -176,7 +176,7 @@ PURPOSE.
 
 ### GCC runtime library exception
 
-The Docker image's `cexchain` links GCC's C++ runtime (libstdc++ and libgcc) statically. They
+The Docker image's `kanhe` links GCC's C++ runtime (libstdc++ and libgcc) statically. They
 are licensed under the GNU General Public License version 3 or later with the GCC Runtime
 Library Exception 3.1, which permits distributing the compiled program under terms of the
 distributor's choice (<https://www.gnu.org/licenses/gcc-exception-3.1.html>).

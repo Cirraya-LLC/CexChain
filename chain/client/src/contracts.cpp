@@ -5,15 +5,15 @@
 #include <format>
 #include <variant>
 
-#include <cexchain/client/contracts.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/node/contracts.hpp>
+#include <kanhe/client/contracts.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/node/contracts.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -40,7 +40,7 @@ cbor::Value parse_contract_arguments(std::string_view text, std::string_view wha
     auto parsed = cbor::parse_diagnostic(text);
     if (!parsed) {
         throw UsageError{std::string(what) + ": " + std::string(parsed.error().detail) +
-                         " (CBOR diagnostic notation; see cexchain contract call --help)"};
+                         " (CBOR diagnostic notation; see kanhe contract call --help)"};
     }
     check_contract_arguments(*parsed);
     return *parsed;
@@ -131,7 +131,7 @@ std::vector<Bytes> cite_consents(const Session& session, protocol::ContractCallB
                                  std::span<const std::string> paths) {
     std::vector<std::pair<protocol::ContractConsentRef, Bytes>> consents;
     for (const std::string& path : paths) {
-        // A consent file (.cexchain) carries the bundle; a bundle alone works too.
+        // A consent file (.kanhe) carries the bundle; a bundle alone works too.
         Bytes bundle = read_consent_input(read_file(path)).bundle;
         const protocol::Id ledger = unwrap(protocol::bundle_ledger_id(bundle), "reading " + path);
         protocol::VerifyOptions options;
@@ -436,7 +436,7 @@ Json consent_json(const protocol::Id& record, const protocol::ContractConsent& c
 }
 
 // ---------------------------------------------------------------------------
-// Proposal and consent files (.cexchain)
+// Proposal and consent files (.kanhe)
 // ---------------------------------------------------------------------------
 
 ProposalTerms check_proposal(const crypto::Provider& provider, const protocol::ExchangeFile& file) {
@@ -498,4 +498,4 @@ protocol::ExchangeFile consent_file(const protocol::ExchangeFile& proposal, Byte
     return out;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

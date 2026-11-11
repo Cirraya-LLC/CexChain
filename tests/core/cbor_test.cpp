@@ -9,17 +9,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
 
 #include "support/vectors.hpp"
 
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::from_hex;
-using cexchain::to_hex;
-namespace cbor = cexchain::cbor;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::from_hex;
+using kanhe::to_hex;
+namespace cbor = kanhe::cbor;
 using cbor::Value;
 
 namespace {
@@ -54,7 +54,7 @@ Value text(const char* s) {
 
 } // namespace
 
-// RFC 8949 Appendix A, restricted to items the CexChain profile accepts.
+// RFC 8949 Appendix A, restricted to items the Kanhe profile accepts.
 TEST_CASE("RFC 8949 appendix A integers", "[core][cbor]") {
     check_round_trip(Value::unsigned_integer(0), "00");
     check_round_trip(Value::unsigned_integer(1), "01");
@@ -554,8 +554,8 @@ struct Agreement {
 } // namespace
 
 TEST_CASE("validate decides as decode does, with the same errors", "[core][cbor][property]") {
-    using cexchain::test::hex_field;
-    using cexchain::test::load_vectors;
+    using kanhe::test::hex_field;
+    using kanhe::test::load_vectors;
     std::vector<Bytes> samples;
     for (const auto& r : load_vectors("vm-v1.json")["runs"]) {
         samples.push_back(hex_field(r["input"]));

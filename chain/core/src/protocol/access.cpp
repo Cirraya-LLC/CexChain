@@ -4,11 +4,11 @@
 #include <algorithm>
 #include <utility>
 
-#include <cexchain/core/protocol/access.hpp>
+#include <kanhe/core/protocol/access.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -192,26 +192,25 @@ Result<cbor::Value> encode_access_request(const AccessRequest& r) {
 }
 
 Result<AccessRequest> decode_access_request(const cbor::Value& metadata) {
-    CEXCHAIN_TRY(Fields f,
-                 Fields::open(metadata, {"ledger", "record", "purpose", "until", "recipient",
-                                         "fields", "attachments", "condition"}));
+    KANHE_TRY(Fields f, Fields::open(metadata, {"ledger", "record", "purpose", "until", "recipient",
+                                                "fields", "attachments", "condition"}));
     AccessRequest r;
-    CEXCHAIN_TRY(r.ledger, f.id("ledger"));
-    CEXCHAIN_TRY(r.record, f.id("record"));
-    CEXCHAIN_TRY(r.purpose, f.text("purpose"));
-    CEXCHAIN_TRY(r.until, f.time("until"));
+    KANHE_TRY(r.ledger, f.id("ledger"));
+    KANHE_TRY(r.record, f.id("record"));
+    KANHE_TRY(r.purpose, f.text("purpose"));
+    KANHE_TRY(r.until, f.time("until"));
     if (const cbor::Value* condition = f.get("condition")) {
         if (f.get("recipient") != nullptr || f.get("fields") != nullptr ||
             f.get("attachments") != nullptr) {
             return fail(Errc::malformed,
                         "a request for a condition names no key, fields, or attachments");
         }
-        CEXCHAIN_TRY(r.condition, decode_claim_condition(*condition));
+        KANHE_TRY(r.condition, decode_claim_condition(*condition));
         return r;
     }
-    CEXCHAIN_TRY(r.recipient, f.bytes("recipient", recipient_key_size));
-    CEXCHAIN_TRY(r.fields, f.names("fields"));
-    CEXCHAIN_TRY(r.attachments, f.names("attachments"));
+    KANHE_TRY(r.recipient, f.bytes("recipient", recipient_key_size));
+    KANHE_TRY(r.fields, f.names("fields"));
+    KANHE_TRY(r.attachments, f.names("attachments"));
     return r;
 }
 
@@ -235,21 +234,21 @@ Result<cbor::Value> encode_access_grant(const AccessGrant& g) {
 }
 
 Result<AccessGrant> decode_access_grant(const cbor::Value& metadata) {
-    CEXCHAIN_TRY(Fields f, Fields::open(metadata, {"ledger", "request", "record", "fields",
-                                                   "attachments", "until", "recipient"}));
+    KANHE_TRY(Fields f, Fields::open(metadata, {"ledger", "request", "record", "fields",
+                                                "attachments", "until", "recipient"}));
     AccessGrant g;
-    CEXCHAIN_TRY(g.ledger, f.id("ledger"));
-    CEXCHAIN_TRY(g.request, f.id("request"));
-    CEXCHAIN_TRY(g.record, f.id("record"));
-    CEXCHAIN_TRY(auto fields, f.names("fields"));
-    CEXCHAIN_TRY(auto attachments, f.names("attachments"));
+    KANHE_TRY(g.ledger, f.id("ledger"));
+    KANHE_TRY(g.request, f.id("request"));
+    KANHE_TRY(g.record, f.id("record"));
+    KANHE_TRY(auto fields, f.names("fields"));
+    KANHE_TRY(auto attachments, f.names("attachments"));
     if (!fields || !attachments) {
         return fail(Errc::malformed, "an access grant lists its fields and attachments");
     }
     g.fields = std::move(*fields);
     g.attachments = std::move(*attachments);
-    CEXCHAIN_TRY(g.until, f.time("until"));
-    CEXCHAIN_TRY(g.recipient, f.bytes("recipient", recipient_key_size));
+    KANHE_TRY(g.until, f.time("until"));
+    KANHE_TRY(g.recipient, f.bytes("recipient", recipient_key_size));
     return g;
 }
 
@@ -263,11 +262,11 @@ Result<cbor::Value> encode_access_receipt(const AccessReceipt& r) {
 }
 
 Result<AccessReceipt> decode_access_receipt(const cbor::Value& metadata) {
-    CEXCHAIN_TRY(Fields f, Fields::open(metadata, {"ledger", "grant", "delivery"}));
+    KANHE_TRY(Fields f, Fields::open(metadata, {"ledger", "grant", "delivery"}));
     AccessReceipt r;
-    CEXCHAIN_TRY(r.ledger, f.id("ledger"));
-    CEXCHAIN_TRY(r.grant, f.id("grant"));
-    CEXCHAIN_TRY(r.delivery, f.bytes("delivery", 32));
+    KANHE_TRY(r.ledger, f.id("ledger"));
+    KANHE_TRY(r.grant, f.id("grant"));
+    KANHE_TRY(r.delivery, f.bytes("delivery", 32));
     return r;
 }
 
@@ -287,7 +286,7 @@ Result<Bytes> encode_delivery(const Delivery& d) {
 Result<Delivery> decode_delivery(ByteView encoded) {
     cbor::DecodeOptions options;
     options.max_items = 64;
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded, options));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded, options));
     const cbor::Map* map = value.as_map();
     if (map == nullptr || map->size() != 3) {
         return fail(Errc::malformed, "a delivery is a map of three items");
@@ -327,7 +326,7 @@ Result<Bytes> encode_delivery_contents(const DeliveryContents& c) {
 Result<DeliveryContents> decode_delivery_contents(ByteView encoded) {
     cbor::DecodeOptions options;
     options.max_items = 4096;
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded, options));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded, options));
     const cbor::Map* map = value.as_map();
     if (map == nullptr || map->empty() || map->size() > 2 || (*map)[0].key.as_uint64() != 1U ||
         (*map)[0].value.as_bytes() == nullptr) {
@@ -356,8 +355,8 @@ Result<Checked<AccessRequest>> check_access_request(const crypto::Provider& prov
                                                     const Id& this_ledger, Timestamp now) {
     VerifyOptions options;
     options.expected_ledger = requester_ledger;
-    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, request_bundle, options));
-    CEXCHAIN_CHECK(require_live(report, access_request_type, "requested"));
+    KANHE_TRY(EvidenceReport report, verify_bundle(provider, request_bundle, options));
+    KANHE_CHECK(require_live(report, access_request_type, "requested"));
     auto request = decode_access_request(*report.metadata);
     if (!request) {
         return fail(Errc::verification_failed, "the access request's metadata is malformed");
@@ -380,8 +379,8 @@ Result<Checked<AccessGrant>> check_access_grant(const crypto::Provider& provider
     }
     VerifyOptions options;
     options.expected_ledger = granter_ledger;
-    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, grant_bundle, options));
-    CEXCHAIN_CHECK(require_live(report, access_grant_type, "granted"));
+    KANHE_TRY(EvidenceReport report, verify_bundle(provider, grant_bundle, options));
+    KANHE_CHECK(require_live(report, access_grant_type, "granted"));
     auto grant = decode_access_grant(*report.metadata);
     if (!grant) {
         return fail(Errc::verification_failed, "the access grant's metadata is malformed");
@@ -422,7 +421,7 @@ Result<EvidenceReport> check_delivered_record(const crypto::Provider& provider,
     VerifyOptions options;
     options.expected_ledger = granter_ledger;
     options.attachment_contents = contents.attachments;
-    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, contents.record_bundle, options));
+    KANHE_TRY(EvidenceReport report, verify_bundle(provider, contents.record_bundle, options));
     if (report.record != grant.record) {
         return fail(Errc::verification_failed, "the delivery holds another record than granted");
     }
@@ -505,13 +504,13 @@ Result<Checked<Claim>> check_claim_answer(const crypto::Provider& provider, Byte
     }
     VerifyOptions options;
     options.expected_ledger = granter_ledger;
-    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, claim_bundle, options));
-    CEXCHAIN_CHECK(require_live(report, claim_type, "confirmed"));
+    KANHE_TRY(EvidenceReport report, verify_bundle(provider, claim_bundle, options));
+    KANHE_CHECK(require_live(report, claim_type, "confirmed"));
     auto claim = decode_claim(*report.metadata);
     if (!claim) {
         return fail(Errc::verification_failed, "the claim's metadata is malformed");
     }
-    CEXCHAIN_CHECK(claim_answers(*claim, this_ledger, request_id, request));
+    KANHE_CHECK(claim_answers(*claim, this_ledger, request_id, request));
     if (claim->until && *claim->until <= now) {
         return fail(Errc::rejected, "the claim has lapsed");
     }
@@ -531,8 +530,8 @@ Result<Checked<AccessReceipt>> check_access_receipt(const crypto::Provider& prov
     }
     VerifyOptions options;
     options.expected_ledger = recipient_ledger;
-    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, receipt_bundle, options));
-    CEXCHAIN_CHECK(require_live(report, access_receipt_type, "received"));
+    KANHE_TRY(EvidenceReport report, verify_bundle(provider, receipt_bundle, options));
+    KANHE_CHECK(require_live(report, access_receipt_type, "received"));
     auto receipt = decode_access_receipt(*report.metadata);
     if (!receipt) {
         return fail(Errc::verification_failed, "the access receipt's metadata is malformed");
@@ -546,4 +545,4 @@ Result<Checked<AccessReceipt>> check_access_receipt(const crypto::Provider& prov
     return Checked<AccessReceipt>{std::move(report), std::move(*receipt)};
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

@@ -5,8 +5,8 @@
 
 #include "commands.hpp"
 
-/// The cexchain-index program's command handlers (commands_index.cpp).
-namespace cexchain::cli {
+/// The kanhe-index program's command handlers (commands_index.cpp).
+namespace kanhe::cli {
 
 int cmd_search_records(const Args& args);
 int cmd_search_instances(const Args& args);
@@ -16,4 +16,4 @@ int cmd_index_status(const Args& args);
 int cmd_index_rebuild(const Args& args);
 int cmd_index_serve(const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

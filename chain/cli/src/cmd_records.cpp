@@ -3,13 +3,13 @@
 
 #include <print>
 
-#include <cexchain/core/protocol/record_types.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -100,7 +100,7 @@ int cmd_record_show(const Args& args) {
     std::println("state:      {}{}", record.state, record.revoked ? " (REVOKED)" : "");
     std::println("issued by:  {} at {}", session.actor_name(record.registrant),
                  format_time(session.log_entry(record.registered_at_index).registered_at));
-    std::println("fields:     {} committed (values are private; see cexchain record fields)",
+    std::println("fields:     {} committed (values are private; see kanhe record fields)",
                  record.field_count);
     if (record.superseded_by) {
         std::println("superseded: by {} at {}; the latest version is {}",
@@ -112,7 +112,7 @@ int cmd_record_show(const Args& args) {
         std::println("supersedes: {}", hex_id(*record.supersedes));
     }
     if (r["versions"].get<std::size_t>() > 1) {
-        std::println("version:    {} of {} (cexchain record versions {})",
+        std::println("version:    {} of {} (kanhe record versions {})",
                      r["version"].get<std::size_t>(), r["versions"].get<std::size_t>(),
                      short_id(record.id));
     }
@@ -134,7 +134,7 @@ int cmd_record_show(const Args& args) {
         std::println("endorsed:   as {} by {} (entry #{})", e.role, session.actor_name(e.actor),
                      e.index);
     }
-    std::println("history:    {} statements (cexchain record history {})", record.history.size(),
+    std::println("history:    {} statements (kanhe record history {})", record.history.size(),
                  short_id(record.id));
     return exit_ok;
 }
@@ -410,4 +410,4 @@ int cmd_record_file_remove(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

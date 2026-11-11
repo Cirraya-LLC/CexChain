@@ -20,15 +20,15 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/ports.hpp"
@@ -36,9 +36,9 @@
 
 namespace {
 
-using namespace cexchain::test;
-namespace node = cexchain::node;
-using cexchain::Bytes;
+using namespace kanhe::test;
+namespace node = kanhe::node;
+using kanhe::Bytes;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
@@ -46,7 +46,7 @@ std::filesystem::path fresh_directory() {
     static int counter = 0;
     const auto dir =
         std::filesystem::temp_directory_path() /
-        ("cexchain-contracts-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+        ("kanhe-contracts-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -290,7 +290,7 @@ std::string text(const node::http::ClientResponse& r) {
 }
 
 std::string hex_id(const protocol::Id& id) {
-    return cexchain::to_hex(id.bytes());
+    return kanhe::to_hex(id.bytes());
 }
 
 bool eventually(const std::function<bool()>& condition, std::chrono::milliseconds limit = 60s) {
@@ -345,7 +345,7 @@ protocol::ContractAccept split_among(const std::vector<protocol::Id>& holders) {
 }
 
 protocol::Id id_from_hex(const json& text) {
-    auto bytes = cexchain::from_hex(text.get<std::string>());
+    auto bytes = kanhe::from_hex(text.get<std::string>());
     REQUIRE(bytes);
     auto id = protocol::to_id(*bytes);
     REQUIRE(id);
@@ -419,7 +419,7 @@ TEST_CASE("a registrar records a contract call once both parties consented", "[n
         protocol::contract_arguments_digest(provider(), crypto::HashAlg::sha256, arguments);
     REQUIRE(digest);
     CHECK(body_json(seen)["arguments_digest"] == hex_id(*digest));
-    CHECK(body_json(seen)["arguments"] == cexchain::to_hex(*cbor::encode(arguments)));
+    CHECK(body_json(seen)["arguments"] == kanhe::to_hex(*cbor::encode(arguments)));
     CHECK_FALSE(body_json(seen).contains("proposer"));
     CHECK(body_json(send(supplier_client, "GET", "/v1/contracts/calls"))["calls"].size() == 1);
     CHECK(send(buyer_client, "GET", "/v1/contracts/calls/" + call).status == 404);
@@ -645,7 +645,7 @@ TEST_CASE("a registrar takes many consents at once, as it would one after anothe
                 {accept("proposed " + std::to_string(i), protocol::Parties{{"supplier", s}})});
             creations.push_back(home.sign(create));
         }
-        const std::vector<cexchain::ByteView> views(creations.begin(), creations.end());
+        const std::vector<kanhe::ByteView> views(creations.begin(), creations.end());
         for (auto& r : ledger->submit_batch(views)) {
             REQUIRE(r);
             agreements.push_back(r->statement_id);
@@ -1112,8 +1112,8 @@ TEST_CASE("a cluster's registrar carries on with a pending call after a failover
                      arguments, until));
     INFO(text(recorded));
     REQUIRE(recorded.status == 201);
-    const protocol::Id call = *protocol::to_id(
-        *cexchain::from_hex(body_json(recorded)["statement_id"].get<std::string>()));
+    const protocol::Id call =
+        *protocol::to_id(*kanhe::from_hex(body_json(recorded)["statement_id"].get<std::string>()));
     for (const Member& m : members) {
         if (!m.api) {
             continue;

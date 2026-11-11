@@ -14,21 +14,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 #include "vm/internal.hpp"
 
-namespace crypto = cexchain::crypto;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex_field;
-using cexchain::test::load_vectors;
+namespace crypto = kanhe::crypto;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex_field;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -191,17 +191,17 @@ struct Choices {
     std::uint64_t below(std::uint64_t n) { return n == 0 ? 0 : next() % n; }
 };
 
-/// The smallest module in the profile: an empty cexchain_call and its memory.
+/// The smallest module in the profile: an empty kanhe_call and its memory.
 const Bytes& empty_module() {
     static const Bytes wasm =
-        cexchain::test::hex("0061736d01000000"                 // header
-                            "010401600000"                     // type 0: [] -> []
-                            "03020100"                         // function 0 has type 0
-                            "0503010001"                       // memory: 1 page, no maximum
-                            "071a02"                           // two exports:
-                            "066d656d6f72790200"               //   "memory", memory 0
-                            "0d636578636861696e5f63616c6c0000" //   "cexchain_call", function 0
-                            "0a040102000b");                   // code: no locals, end
+        kanhe::test::hex("0061736d01000000"                 // header
+                         "010401600000"                     // type 0: [] -> []
+                         "03020100"                         // function 0 has type 0
+                         "0503010001"                       // memory: 1 page, no maximum
+                         "071702"                           // two exports:
+                         "066d656d6f72790200"               //   "memory", memory 0
+                         "0a6b616e68655f63616c6c0000" //   "kanhe_call", function 0
+                         "0a040102000b");                   // code: no locals, end
     return wasm;
 }
 
@@ -293,9 +293,9 @@ TEST_CASE("vm: with less fuel, a run does all it did until an instruction costs 
     // pay for), so these limits run out at instructions anywhere in a run:
     // every limit for the small vm-v1 runs and the first instructions of one
     // run of each Bo contract, and for every run the last limits and a
-    // spread of others. CEXCHAIN_VM_SWEEP=all tries every limit of every run
+    // spread of others. KANHE_VM_SWEEP=all tries every limit of every run
     // instead, in all four ways (about ten minutes in a release build).
-    const char* sweep = std::getenv("CEXCHAIN_VM_SWEEP");
+    const char* sweep = std::getenv("KANHE_VM_SWEEP");
     const bool all = sweep != nullptr && std::string(sweep) == "all";
     Choices choices{0x5EED'F0E1};
     std::set<std::string> swept;
@@ -348,11 +348,11 @@ TEST_CASE("vm: with less fuel, a run does all it did until an instruction costs 
 }
 
 // Hidden: CTest vm_fuel_reference_runs writes the runs below, at limits
-// across each run, to CEXCHAIN_VM_FUEL_REFERENCE, and vm_fuel_reference has
+// across each run, to KANHE_VM_FUEL_REFERENCE, and vm_fuel_reference has
 // the Python reference interpreter (tools/testvectors/wasm_ref.py) run each
 // with that fuel and get the same outcome, output, fuel, and reason.
 TEST_CASE("vm: runs with less fuel, for the reference interpreter", "[.fuel-reference]") {
-    const char* path = std::getenv("CEXCHAIN_VM_FUEL_REFERENCE");
+    const char* path = std::getenv("KANHE_VM_FUEL_REFERENCE");
     REQUIRE(path != nullptr);
     Choices choices{0xF0E1'5EED};
     nlohmann::json modules = nlohmann::json::object();
@@ -470,7 +470,7 @@ void put_uleb(Bytes& out, std::uint64_t v) {
     } while (v != 0);
 }
 
-/// A module whose cexchain_call has `body` (instructions, without the final
+/// A module whose kanhe_call has `body` (instructions, without the final
 /// end) and `locals` i32 locals, with one page of memory.
 Bytes module_with(const Bytes& body, std::uint32_t locals = 0) {
     Bytes code;
@@ -483,14 +483,14 @@ Bytes module_with(const Bytes& body, std::uint32_t locals = 0) {
     }
     code.insert(code.end(), body.begin(), body.end());
     code.push_back(0x0B);
-    Bytes wasm = cexchain::test::hex("0061736d01000000"                 // header
-                                     "010401600000"                     // type 0: [] -> []
-                                     "03020100"                         // function 0: type 0
-                                     "0503010001"                       // memory: 1 page
-                                     "071a02"                           // two exports:
-                                     "066d656d6f72790200"               //   "memory"
-                                     "0d636578636861696e5f63616c6c0000" //   "cexchain_call"
-                                     "0a");                             // code section
+    Bytes wasm = kanhe::test::hex("0061736d01000000"                 // header
+                                  "010401600000"                     // type 0: [] -> []
+                                  "03020100"                         // function 0: type 0
+                                  "0503010001"                       // memory: 1 page
+                                  "071702"                           // two exports:
+                                  "066d656d6f72790200"               //   "memory"
+                                  "0a6b616e68655f63616c6c0000" //   "kanhe_call"
+                                  "0a");                             // code section
     Bytes section;
     section.push_back(0x01);
     put_uleb(section, code.size());

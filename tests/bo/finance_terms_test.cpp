@@ -4,7 +4,7 @@
 // The finance pack's standard terms (of the standard library, now a
 // vocabulary pack's): a Bo contract that uses the pack and whose actions are its
 // built-in ones gives, call by call, the states, holders, pledgees, payees,
-// quantities, consents, and refusals that CexChain's native assets gave
+// quantities, consents, and refusals that Kanhe's native assets gave
 // (spec v0.5 to v0.8, section 13). Spec v0.9 removed the native assets from
 // the protocol; their verdicts on these flows, taken from core's
 // asset rules before the removal, are kept here as goldens. And a built-in
@@ -24,15 +24,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 using protocol::Id;
 
 namespace {

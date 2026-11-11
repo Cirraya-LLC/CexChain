@@ -13,12 +13,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/messages.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/messages.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -235,4 +235,4 @@ std::string render_text(const Diagnostic& diagnostic, const Pack* language) {
 
 } // namespace
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

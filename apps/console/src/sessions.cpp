@@ -14,15 +14,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
-constexpr std::string_view token_prefix = "cxs_";
+constexpr std::string_view token_prefix = "khs_";
 constexpr std::size_t token_size = 4 + 43;
 constexpr std::string_view published_file = "sessions.json";
 constexpr std::string_view revocations_file = "revoked";
@@ -212,4 +212,4 @@ void request_revocation(const std::filesystem::path& directory, std::string_view
                                      std::filesystem::perms::owner_write);
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

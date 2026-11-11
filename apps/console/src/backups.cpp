@@ -12,27 +12,27 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/backups.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/peers.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/backups.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/peers.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
-constexpr std::string_view magic = "cexchain-sealed-backup";
-constexpr std::string_view seal_info = "CexChain sealed backup v1";
+constexpr std::string_view magic = "kanhe-sealed-backup";
+constexpr std::string_view seal_info = "Kanhe sealed backup v1";
 constexpr std::string_view status_file = "backups.json";
 constexpr protocol::Timestamp week = 7 * 24 * 60 * 60'000;
 
@@ -75,9 +75,9 @@ Parts parts_of(ByteView file) {
     return {{*ledger, *created->as_uint64()}, bytes(5), bytes(6), bytes(7)};
 }
 
-/// "cexchain-<12 hex>-": the start of a ledger's backups' names.
+/// "kanhe-<12 hex>-": the start of a ledger's backups' names.
 std::string prefix_of(const protocol::Id& ledger) {
-    return "cexchain-" + to_hex(ledger.bytes()).substr(0, 12) + "-";
+    return "kanhe-" + to_hex(ledger.bytes()).substr(0, 12) + "-";
 }
 
 std::string name_of_backup(const protocol::Id& ledger, protocol::Timestamp created) {
@@ -445,4 +445,4 @@ http::Response Console::backup_route(const http::Request& request) const {
     return json(200, backup_view());
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

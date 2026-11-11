@@ -99,10 +99,10 @@ def act(state, request):
 class Billing(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        stamp = self.headers.get("X-CexChain-Timestamp", "0")
+        stamp = self.headers.get("X-Kanhe-Timestamp", "0")
         expected = "sha256=" + hmac.new(secret, stamp.encode() + b"." + body, hashlib.sha256).hexdigest()
         fresh = stamp.isdigit() and abs(int(stamp) - time.time() * 1000) < 300000
-        if not (fresh and hmac.compare_digest(self.headers.get("X-CexChain-Signature", ""), expected)):
+        if not (fresh and hmac.compare_digest(self.headers.get("X-Kanhe-Signature", ""), expected)):
             return self.answer(401, {"reason": "bad-signature"})
         with lock:
             state = load()

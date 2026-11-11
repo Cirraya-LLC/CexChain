@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
 
 namespace {
 
@@ -24,7 +24,7 @@ void require(bool condition) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    using namespace cexchain;
+    using namespace kanhe;
     const ByteView input(data, size);
     const auto file = protocol::decode_exchange_file(input);
     if (!file) {

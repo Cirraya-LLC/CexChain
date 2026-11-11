@@ -12,15 +12,15 @@
 #include <span>
 #include <utility>
 
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/connectors.hpp>
-#include <cexchain/node/process.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/connectors.hpp>
+#include <kanhe/node/process.hpp>
 
 #include "json_cbor.hpp"
 
-namespace cexchain::node::connector {
+namespace kanhe::node::connector {
 
 namespace {
 
@@ -128,10 +128,10 @@ public:
         const std::string path = url_.base_path.empty() ? "/" : url_.base_path;
         const auto answer =
             connection_.request("POST", path, as_bytes(std::string_view(body)), "application/json",
-                                {{"X-CexChain-Request", hex(p.request)},
-                                 {"X-CexChain-Attempt", std::to_string(p.attempt)},
-                                 {"X-CexChain-Timestamp", timestamp},
-                                 {"X-CexChain-Signature", "sha256=" + *signature},
+                                {{"X-Kanhe-Request", hex(p.request)},
+                                 {"X-Kanhe-Attempt", std::to_string(p.attempt)},
+                                 {"X-Kanhe-Timestamp", timestamp},
+                                 {"X-Kanhe-Signature", "sha256=" + *signature},
                                  {"Idempotency-Key", hex(p.request)}});
         if (!answer) {
             // Nothing reached the receiver, or no answer came: try again.
@@ -451,4 +451,4 @@ int serve(const LineIo& io, std::string_view name, std::string_view version,
     return 0;
 }
 
-} // namespace cexchain::node::connector
+} // namespace kanhe::node::connector

@@ -14,12 +14,12 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/core/cbor.hpp>
 
 namespace {
 
-void same_after_round_trip(const cexchain::cbor::Value& value) {
-    const auto again = cexchain::cbor::parse_diagnostic(cexchain::cbor::diagnostic(value));
+void same_after_round_trip(const kanhe::cbor::Value& value) {
+    const auto again = kanhe::cbor::parse_diagnostic(kanhe::cbor::diagnostic(value));
     if (!again || !(*again == value)) {
         std::abort();
     }
@@ -29,15 +29,15 @@ void same_after_round_trip(const cexchain::cbor::Value& value) {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     const std::string_view text(reinterpret_cast<const char*>(data), size);
-    if (const auto parsed = cexchain::cbor::parse_diagnostic(text)) {
-        if (!cexchain::cbor::encode(*parsed)) {
+    if (const auto parsed = kanhe::cbor::parse_diagnostic(text)) {
+        if (!kanhe::cbor::encode(*parsed)) {
             std::abort();
         }
         same_after_round_trip(*parsed);
     }
-    cexchain::cbor::DecodeOptions options;
-    options.max_depth = cexchain::cbor::max_nesting_depth;
-    if (const auto decoded = cexchain::cbor::decode(cexchain::ByteView(data, size), options)) {
+    kanhe::cbor::DecodeOptions options;
+    options.max_depth = kanhe::cbor::max_nesting_depth;
+    if (const auto decoded = kanhe::cbor::decode(kanhe::ByteView(data, size), options)) {
         same_after_round_trip(*decoded);
     }
     return 0;

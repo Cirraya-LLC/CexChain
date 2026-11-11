@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""A reference interpreter for CexChain's deterministic WebAssembly profile
+"""A reference interpreter for Kanhe's deterministic WebAssembly profile
 (spec/README.md, section 14), written independently of the C++ implementation
 to produce test vectors. It favours clarity over speed. The interpreter itself
-is the independent verifier's (verifiers/python/cexchain_verify/wasm.py),
+is the independent verifier's (verifiers/python/kanhe_verify/wasm.py),
 which needs only the standard library; this tool adds the rest.
 
     load(wasm_bytes) -> Module        raises Refused for a module outside the profile
@@ -36,7 +36,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "verifiers" / "python"))
-from cexchain_verify.wasm import (  # noqa: E402,F401 (the vector tools use them as wasm_ref's)
+from kanhe_verify.wasm import (  # noqa: E402,F401 (the vector tools use them as wasm_ref's)
     _BIN, _I32_CMP, FC, FUEL, I32, I64, MASK32, MASK64, OPS, Refused, load, run)
 
 
@@ -136,7 +136,7 @@ def section(sid: int, content: bytes) -> bytes:
 
 def assemble(funcs: list[dict], imports: list[str] = (), memory=(1, 1), table=None, globals_=(),
              elems=(), data=(), data_count=False, extra_types=(), exports_extra=(),
-             entry_name="cexchain_call", raw_sections=()) -> bytes:
+             entry_name="kanhe_call", raw_sections=()) -> bytes:
     """Builds a module. Each function: {"params": [...], "results": [...],
     "locals": [...], "body": [...]}; "i32"/"i64" as types. Imports are host
     function names (indices first). The last function is exported as the
@@ -155,7 +155,7 @@ def assemble(funcs: list[dict], imports: list[str] = (), memory=(1, 1), table=No
     host_types = {"input_size": ([], ["i32"]), "input_read": (["i32"], []),
                   "output_write": (["i32", "i32"], []), "hash": (["i32", "i32", "i32"], []),
                   "abort": (["i32", "i32"], [])}
-    import_entries = [name_("cexchain") + name_(h) + b"\0" + uleb(type_of(*host_types[h])) for h in imports]
+    import_entries = [name_("kanhe") + name_(h) + b"\0" + uleb(type_of(*host_types[h])) for h in imports]
     func_entries = [uleb(type_of(f.get("params", []), f.get("results", []))) for f in funcs]
     for p, q in extra_types:
         type_of(p, q)

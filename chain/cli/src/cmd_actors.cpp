@@ -9,7 +9,7 @@
 #include "output.hpp"
 #include "requests.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -375,4 +375,4 @@ int cmd_delegation_revoke(const Args& args) {
                             "revoked delegation " + hex_id(body.delegation));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

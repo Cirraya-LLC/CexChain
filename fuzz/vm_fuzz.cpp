@@ -16,12 +16,12 @@
 #include <cstdlib>
 #include <span>
 
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "vm/internal.hpp"
 
-namespace vm = cexchain::vm;
+namespace vm = kanhe::vm;
 
 namespace {
 
@@ -43,7 +43,7 @@ bool same(const vm::Outcome& a, const vm::Outcome& b) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
+    static const kanhe::crypto::openssl::Provider provider;
     const std::span<const std::uint8_t> wasm(data, size);
     const auto module = vm::load(wasm);
     if (!module) {
@@ -53,7 +53,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         vm::detail::load(wasm, vm::detail::Translation{.fuse = false, .runs = false});
     require(plain.has_value());
     const std::span<const std::uint8_t> input = wasm.first(std::min<std::size_t>(size, 64));
-    constexpr auto sha256 = cexchain::crypto::HashAlg::sha256;
+    constexpr auto sha256 = kanhe::crypto::HashAlg::sha256;
     using vm::detail::Dispatch;
     static vm::Arena reused;
     vm::Arena fresh;

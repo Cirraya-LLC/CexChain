@@ -19,19 +19,19 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/node/executor.hpp>
-#include <cexchain/node/keeper.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/node/executor.hpp>
+#include <kanhe/node/keeper.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -278,15 +278,15 @@ http::Response Console::automation_route(const http::Request& request) const {
                 {"mcp", "--server", ledger_url, "--token-file", handed->name + ".token", "--as",
                  key_file, "--passphrase-file", handed->name + ".passphrase"});
             nlohmann::json server = nlohmann::json::object();
-            server["command"] = "cexchain";
+            server["command"] = "kanhe";
             server["args"] = args;
             nlohmann::json servers = nlohmann::json::object();
-            servers["cexchain"] = server;
+            servers["kanhe"] = server;
             out["mcp"] = nlohmann::json::object();
             out["mcp"]["mcpServers"] = servers;
         } else {
             out["config"] = node::executor::config_text(config);
-            out["command"] = "cexchain executor run --config " + handed->name + ".json --state " +
+            out["command"] = "kanhe executor run --config " + handed->name + ".json --state " +
                              handed->name + "-state --server " + ledger_url + " --token-file " +
                              handed->name + ".token --as " + key_file;
         }
@@ -328,7 +328,7 @@ Console::machine_step(const Signed& who, const nlohmann::json& intent) const {
             if (!version.empty()) {
                 profile.model_version = version;
             }
-            profile.runtime = "cexchain-mcp";
+            profile.runtime = "kanhe-mcp";
         }
         auto key = crypto::openssl::KeyPair::generate(crypto::SigAlg::ed25519);
         if (!key) {
@@ -471,4 +471,4 @@ Console::machine_step(const Signed& who, const nlohmann::json& intent) const {
     return error(400, "invalid_argument", "the console cannot prepare this action");
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

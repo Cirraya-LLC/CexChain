@@ -16,7 +16,7 @@
 
 #include "internal.hpp"
 
-namespace cexchain::bo::detail {
+namespace kanhe::bo::detail {
 
 namespace {
 
@@ -156,4 +156,4 @@ std::u32string skeleton(std::u32string_view text) {
     return out;
 }
 
-} // namespace cexchain::bo::detail
+} // namespace kanhe::bo::detail

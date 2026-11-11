@@ -11,11 +11,10 @@
 #include "registry.hpp"
 
 /// Options and option lists the programs' command tables share.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 // Options shared by many commands.
-inline const OptionSpec ledger_option{"ledger", "DIR",
-                                      "Ledger directory (default: $CEXCHAIN_LEDGER)"};
+inline const OptionSpec ledger_option{"ledger", "DIR", "Ledger directory (default: $KANHE_LEDGER)"};
 inline const OptionSpec as_option{
     "as", "KEY", "The signer's key file, or a pkcs11: URI for a key on a token", true};
 inline const OptionSpec delegation_option{
@@ -40,11 +39,11 @@ inline const OptionSpec signing_log_key_option{
 inline const std::vector<OptionSpec> client_options{
     {"server", "URL",
      "Work on the ledger this API serves, through a verified local mirror (default: "
-     "$CEXCHAIN_SERVER)"},
-    {"token-file", "FILE", "The API token for --server (default: $CEXCHAIN_TOKEN)"},
+     "$KANHE_SERVER)"},
+    {"token-file", "FILE", "The API token for --server (default: $KANHE_TOKEN)"},
     {"ca-file", "FILE", "CA certificates (PEM) to trust for --server, if not the system's"},
     {"cache", "DIR",
-     "Where --server keeps its mirror (default: $XDG_CACHE_HOME/cexchain or ~/.cache/cexchain)"},
+     "Where --server keeps its mirror (default: $XDG_CACHE_HOME/kanhe or ~/.cache/kanhe)"},
     {"ledger-id", "ID",
      "With --server: the ledger to expect there (required on first use of an http:// URL)"}};
 /// Commands that work on a ledger directory only: they administer the
@@ -57,8 +56,8 @@ inline const std::set<std::pair<std::string_view, std::string_view>> local_only_
 /// The cluster commands that talk to a member's API.
 inline std::vector<OptionSpec> cluster_api(std::vector<OptionSpec> extra) {
     std::vector<OptionSpec> options{
-        {"server", "URL", "A member's API (default: $CEXCHAIN_SERVER)"},
-        {"token-file", "FILE", "An admin API token (default: $CEXCHAIN_TOKEN)"},
+        {"server", "URL", "A member's API (default: $KANHE_SERVER)"},
+        {"token-file", "FILE", "An admin API token (default: $KANHE_TOKEN)"},
         {"ca-file", "FILE", "CA certificates (PEM) to trust for the member, if not the system's"}};
     options.insert(options.end(), extra.begin(), extra.end());
     return options;
@@ -71,7 +70,7 @@ inline const OptionSpec member_api_option{
 inline const OptionSpec reason_option{"reason", "TEXT", "Reason, recorded on the ledger"};
 inline const OptionSpec passphrase_file_option{
     "passphrase-file", "FILE",
-    "Read key passphrases from FILE (default: $CEXCHAIN_PASSPHRASE or a prompt)"};
+    "Read key passphrases from FILE (default: $KANHE_PASSPHRASE or a prompt)"};
 inline const OptionSpec vault_key_option{"vault-key", "FILE",
                                          "The vault private key (default: <ledger>/vault.key)"};
 inline const OptionSpec presence_option{
@@ -93,7 +92,7 @@ inline const OptionSpec at_option{
 inline const OptionSpec json_option{"json", "", "Print machine-readable JSON"};
 
 /// How contract commands take arguments.
-#define CEXCHAIN_ARGUMENTS_HELP                                                                    \
+#define KANHE_ARGUMENTS_HELP                                                                       \
     "Arguments are any CBOR value, written in CBOR diagnostic notation (RFC 8949, section 8),\n"   \
     "which extends JSON: 42, -1, \"text\" (JSON escapes), true, false, null, [1, 2], and\n"        \
     "{\"a\": 1} as in JSON; plus h'00ff' (a byte string, in hex), {1: \"a\"} (keys of any\n"       \
@@ -164,4 +163,4 @@ inline std::vector<OptionSpec> signing(std::vector<OptionSpec> extra) {
     return options;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

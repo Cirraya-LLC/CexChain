@@ -6,25 +6,25 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/node/connector.hpp>
-#include <cexchain/node/process.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/node/connector.hpp>
+#include <kanhe/node/process.hpp>
 
-namespace cbor = cexchain::cbor;
-namespace connector = cexchain::node::connector;
-using cexchain::Bytes;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::node::ChildProcess;
+namespace cbor = kanhe::cbor;
+namespace connector = kanhe::node::connector;
+using kanhe::Bytes;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::node::ChildProcess;
 using namespace std::chrono_literals;
 
 namespace {
 
-cexchain::protocol::Id id_of(std::uint8_t fill) {
+kanhe::protocol::Id id_of(std::uint8_t fill) {
     std::array<std::uint8_t, 32> bytes{};
     bytes.fill(fill);
-    return *cexchain::protocol::to_id(bytes);
+    return *kanhe::protocol::to_id(bytes);
 }
 
 cbor::Value text(std::string value) {
@@ -67,7 +67,7 @@ TEST_CASE("connector messages round-trip as JSON lines", "[node][connector]") {
     connector::Hello hello;
     hello.connector = "hook";
     hello.config = R"({"url":"https://example.com/hook"})";
-    hello.secrets["hook-key"] = connector::Secret{cexchain::SecureBytes(Bytes{'s', '3', 'c'})};
+    hello.secrets["hook-key"] = connector::Secret{kanhe::SecureBytes(Bytes{'s', '3', 'c'})};
     const std::string hello_line = connector::encode(connector::ToConnector(std::move(hello)));
     auto hello_back = connector::decode_to_connector(hello_line);
     REQUIRE(hello_back);
@@ -190,21 +190,21 @@ TEST_CASE("child processes run without a shell, with lines and timeouts", "[node
     REQUIRE(echoed.exit);
     CHECK(std::string(echoed.output.begin(), echoed.output.end()) == "$HOME a;b `x`\n");
 
-    // The environment loses CEXCHAIN_* variables.
-    ::setenv("CEXCHAIN_PASSPHRASE", "secret passphrase", 1);
+    // The environment loses KANHE_* variables.
+    ::setenv("KANHE_PASSPHRASE", "secret passphrase", 1);
     ::setenv("CONNECTOR_TEST_VISIBLE", "yes", 1);
     auto env = ChildProcess::start("env", {});
     REQUIRE(env);
     const auto listed = env->communicate({}, 2s, 1 << 20);
     const std::string environment(listed.output.begin(), listed.output.end());
     CHECK(environment.find("CONNECTOR_TEST_VISIBLE=yes") != std::string::npos);
-    CHECK(environment.find("CEXCHAIN_") == std::string::npos);
-    ::unsetenv("CEXCHAIN_PASSPHRASE");
+    CHECK(environment.find("KANHE_") == std::string::npos);
+    ::unsetenv("KANHE_PASSPHRASE");
 
     // Exit codes, output limits, and a program killed at its timeout.
     auto failing = ChildProcess::start("sh", {"-c", "cat > /dev/null; printf abcdef; exit 75"});
     REQUIRE(failing);
-    const auto failed = failing->communicate(cexchain::as_bytes(std::string_view("input")), 2s, 4);
+    const auto failed = failing->communicate(kanhe::as_bytes(std::string_view("input")), 2s, 4);
     REQUIRE(failed.exit);
     CHECK(failed.exit->code == 75);
     CHECK(std::string(failed.output.begin(), failed.output.end()) == "abcd");

@@ -8,12 +8,12 @@
 #include <cstdint>
 #include <limits>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
 
 #include "runtime_parts.hpp"
 
-namespace cexchain::bo::runtime::detail {
+namespace kanhe::bo::runtime::detail {
 
 namespace {
 
@@ -463,4 +463,4 @@ void define_bytes_eq(Runtime& rt, FunctionBuilder& b) {
     b.call(rt.get(Routine::bytes_cmp), {b.size(0)}).op(i32_eqz);
 }
 
-} // namespace cexchain::bo::runtime::detail
+} // namespace kanhe::bo::runtime::detail

@@ -10,8 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 namespace {
 
@@ -27,11 +27,11 @@ public:
         return value;
     }
 
-    bool digest(cexchain::crypto::Digest& out) {
+    bool digest(kanhe::crypto::Digest& out) {
         if (size_ - pos_ < 32) {
             return false;
         }
-        out = *cexchain::crypto::Digest::from_bytes(cexchain::ByteView(data_ + pos_, 32));
+        out = *kanhe::crypto::Digest::from_bytes(kanhe::ByteView(data_ + pos_, 32));
         pos_ += 32;
         return true;
     }
@@ -45,42 +45,41 @@ private:
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
-    using cexchain::crypto::HashAlg;
+    static const kanhe::crypto::openssl::Provider provider;
+    using kanhe::crypto::HashAlg;
 
     Reader reader(data, size);
     const std::uint64_t index = reader.u64();
     const std::uint64_t old_size = reader.u64();
     const std::uint64_t new_size = reader.u64();
-    cexchain::crypto::Digest leaf;
-    cexchain::crypto::Digest old_root;
-    cexchain::crypto::Digest new_root;
+    kanhe::crypto::Digest leaf;
+    kanhe::crypto::Digest old_root;
+    kanhe::crypto::Digest new_root;
     if (!reader.digest(leaf) || !reader.digest(old_root) || !reader.digest(new_root)) {
         return 0;
     }
-    std::vector<cexchain::crypto::Digest> proof;
-    cexchain::crypto::Digest element;
-    while (proof.size() <= cexchain::merkle::max_consistency_proof_length &&
-           reader.digest(element)) {
+    std::vector<kanhe::crypto::Digest> proof;
+    kanhe::crypto::Digest element;
+    while (proof.size() <= kanhe::merkle::max_consistency_proof_length && reader.digest(element)) {
         proof.push_back(element);
     }
 
-    static_cast<void>(cexchain::merkle::verify_inclusion(provider, HashAlg::sha256, leaf, index,
-                                                         new_size, proof, new_root));
-    static_cast<void>(cexchain::merkle::verify_consistency(provider, HashAlg::sha256, old_size,
-                                                           new_size, old_root, new_root, proof));
+    static_cast<void>(kanhe::merkle::verify_inclusion(provider, HashAlg::sha256, leaf, index,
+                                                      new_size, proof, new_root));
+    static_cast<void>(kanhe::merkle::verify_consistency(provider, HashAlg::sha256, old_size,
+                                                        new_size, old_root, new_root, proof));
 
     // Roots computed with a shared memo are those computed alone:
     // the proof twice, then another leaf at another index with the same
     // proof, into the same tree.
-    const auto alone = [&](const cexchain::crypto::Digest& l, std::uint64_t i) {
-        return cexchain::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i,
-                                                           new_size, proof);
+    const auto alone = [&](const kanhe::crypto::Digest& l, std::uint64_t i) {
+        return kanhe::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i, new_size,
+                                                        proof);
     };
-    cexchain::merkle::InclusionMemo memo;
-    const auto shared = [&](const cexchain::crypto::Digest& l, std::uint64_t i) {
-        return cexchain::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i,
-                                                           new_size, proof, &memo);
+    kanhe::merkle::InclusionMemo memo;
+    const auto shared = [&](const kanhe::crypto::Digest& l, std::uint64_t i) {
+        return kanhe::merkle::root_from_inclusion_proof(provider, HashAlg::sha256, l, i, new_size,
+                                                        proof, &memo);
     };
     for (const auto& [l, i] : {std::pair(leaf, index), std::pair(leaf, index),
                                std::pair(old_root, old_size), std::pair(leaf, index ^ 1U)}) {

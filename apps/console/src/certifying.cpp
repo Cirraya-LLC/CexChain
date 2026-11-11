@@ -20,27 +20,27 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/certificates.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/published.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/certificates.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/published.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
-constexpr std::string_view verifier_url = "https://cexchain.cirraya.com/verify/";
+constexpr std::string_view verifier_url = "https://kanhe.cirraya.com/verify/";
 /// How long the ledger may take to register one certificate.
 constexpr auto register_wait = std::chrono::seconds(30);
 
@@ -612,4 +612,4 @@ void Console::publish_certificate(const protocol::Id& record, const std::string&
         *services_.entropy, *services_.clock));
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

@@ -24,30 +24,30 @@
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/replica.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/replica.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-namespace node = cexchain::node;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+namespace node = kanhe::node;
+using kanhe::Bytes;
+using kanhe::Errc;
 using json = nlohmann::json;
 
 std::filesystem::path fresh_directory() {
     static int counter = 0;
     const auto dir =
         std::filesystem::temp_directory_path() /
-        ("cexchain-api-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+        ("kanhe-api-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -111,7 +111,7 @@ self_signed(const std::filesystem::path& dir, const std::string& san) {
     X509_gmtime_adj(X509_getm_notAfter(cert), 3600);
     X509_set_pubkey(cert, key);
     X509_NAME* name = X509_get_subject_name(cert);
-    const std::string cn = "cexchain test";
+    const std::string cn = "kanhe test";
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char*>(cn.c_str()), -1, -1, 0);
     X509_set_issuer_name(cert, name);
@@ -277,7 +277,7 @@ TEST_CASE("the API answers only those it should", "[node][api]") {
     CHECK(get(anonymous, "/healthz").status == 200);
     CHECK(get(anonymous, "/v1/status").status == 401);
     CHECK(get(anonymous, "/v1/consistency?old=1&new=1").status == 200);
-    CHECK(get(server.client("cxt_wrong"), "/v1/status").status == 401);
+    CHECK(get(server.client("kht_wrong"), "/v1/status").status == 401);
     // A token made while the server runs works at once, whenever the server
     // last read the tokens file (a busy tick once made a party's first
     // request fail).
@@ -385,8 +385,8 @@ TEST_CASE("statements, checkpoints, proofs, and evidence over HTTP", "[node][api
 
     const auto metrics = get(reader, "/metrics");
     const std::string text(metrics.body.begin(), metrics.body.end());
-    CHECK(text.find("cexchain_log_entries 3") != std::string::npos);
-    CHECK(text.find(R"(cexchain_statements_total{result="registered"} 1)") != std::string::npos);
+    CHECK(text.find("kanhe_log_entries 3") != std::string::npos);
+    CHECK(text.find(R"(kanhe_statements_total{result="registered"} 1)") != std::string::npos);
 }
 
 TEST_CASE("the server sees what other processes write", "[node][api]") {
@@ -484,7 +484,7 @@ TEST_CASE("many clients at once: writes commit in groups, reads run alongside",
     CHECK(parse_json(get(reader, "/v1/status"))["size"] == writers * each + 1);
     const auto metrics = get(reader, "/metrics");
     const std::string text(metrics.body.begin(), metrics.body.end());
-    CHECK(text.find(std::format(R"(cexchain_statements_total{{result="registered"}} {})",
+    CHECK(text.find(std::format(R"(kanhe_statements_total{{result="registered"}} {})",
                                 writers * each)) != std::string::npos);
 
     // Everything is durable: a fresh open sees it all.
@@ -700,7 +700,7 @@ TEST_CASE("a replica copies over HTTP and refuses a forged history", "[node][rep
         CHECK(replica->latest_checkpoint()->encoded == api->ledger().latest_checkpoint()->encoded);
 
         // A token that was revoked, or never was.
-        const auto stranger = server.client("cxt_nobody");
+        const auto stranger = server.client("kht_nobody");
         CHECK(node::sync_replica(stranger, *replica, replica_dir).error().code == Errc::rejected);
     }
     {
@@ -824,7 +824,7 @@ TEST_CASE("a record's private data arrives with it, and is kept once", "[node][a
     const auto first = record(1);
     REQUIRE(first);
     CHECK(send(first->encoded, sealed(7)).status == 201);
-    const auto file = p.dir / "vault" / "records" / (cexchain::to_hex(first->id.bytes()) + ".cbor");
+    const auto file = p.dir / "vault" / "records" / (kanhe::to_hex(first->id.bytes()) + ".cbor");
     REQUIRE(std::filesystem::exists(file));
     // A retry with the same data is fine; other data for it is refused.
     CHECK(send(first->encoded, sealed(7)).status == 200);
@@ -838,5 +838,5 @@ TEST_CASE("a record's private data arrives with it, and is kept once", "[node][a
     REQUIRE(second);
     CHECK(send(second->encoded, Bytes{0xa0}).status == 400);
     CHECK_FALSE(std::filesystem::exists(p.dir / "vault" / "records" /
-                                        (cexchain::to_hex(second->id.bytes()) + ".cbor")));
+                                        (kanhe::to_hex(second->id.bytes()) + ".cbor")));
 }

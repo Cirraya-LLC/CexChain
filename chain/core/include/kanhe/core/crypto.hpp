@@ -1,0 +1,232 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <optional>
+#include <span>
+#include <string_view>
+
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/error.hpp>
+
+/// Algorithm identifiers and the interfaces that cryptographic backends
+/// implement. The core library performs no cryptography itself.
+///
+/// Identifiers are COSE algorithm values from the IANA "COSE Algorithms"
+/// registry. Algorithms without a registered value use identifiers from the
+/// private-use range (values below -65536).
+///
+/// Wire encodings:
+///   - Ed25519 public keys are 32 bytes and signatures 64 bytes (RFC 8032).
+///   - ESP256 and SM2 public keys are uncompressed SEC 1 points (0x04 || X || Y,
+///     65 bytes). Their signatures are the fixed-size concatenation r || s
+///     (64 bytes), as COSE specifies for ECDSA, not DER.
+///   - ML-DSA public keys and signatures use the FIPS 204 encodings, with an
+///     empty context string.
+///   - SM2 uses SM3 and the GM/T 0009 default distinguishing identifier
+///     "1234567812345678".
+namespace kanhe::crypto {
+
+enum class HashAlg : std::int32_t {
+    sha256 = -16,
+    sha384 = -43,
+    sha512 = -44,
+    sm3 = -65538, ///< Private use; SM3 has no registered COSE value.
+};
+
+enum class SigAlg : std::int32_t {
+    esp256 = -9,      ///< ECDSA with P-256 and SHA-256.
+    ed25519 = -19,    ///< EdDSA with Ed25519.
+    ml_dsa_44 = -48,  ///< ML-DSA-44 (FIPS 204).
+    ml_dsa_65 = -49,  ///< ML-DSA-65 (FIPS 204).
+    ml_dsa_87 = -50,  ///< ML-DSA-87 (FIPS 204).
+    sm2_sm3 = -65537, ///< Private use; SM2 with SM3 (GB/T 32918, GM/T 0009).
+};
+
+inline constexpr std::string_view sm2_distinguishing_id = "1234567812345678";
+
+inline constexpr std::array all_hash_algs{HashAlg::sha256, HashAlg::sha384, HashAlg::sha512,
+                                          HashAlg::sm3};
+
+inline constexpr std::array all_sig_algs{SigAlg::esp256,    SigAlg::ed25519,   SigAlg::ml_dsa_44,
+                                         SigAlg::ml_dsa_65, SigAlg::ml_dsa_87, SigAlg::sm2_sm3};
+
+[[nodiscard]] constexpr std::int64_t cose_id(HashAlg alg) noexcept {
+    return static_cast<std::int64_t>(alg);
+}
+
+[[nodiscard]] constexpr std::int64_t cose_id(SigAlg alg) noexcept {
+    return static_cast<std::int64_t>(alg);
+}
+
+[[nodiscard]] std::optional<HashAlg> hash_alg_from_cose(std::int64_t id) noexcept;
+[[nodiscard]] std::optional<SigAlg> sig_alg_from_cose(std::int64_t id) noexcept;
+
+[[nodiscard]] std::string_view name(HashAlg alg) noexcept;
+[[nodiscard]] std::string_view name(SigAlg alg) noexcept;
+
+[[nodiscard]] std::size_t digest_size(HashAlg alg) noexcept;
+[[nodiscard]] std::size_t public_key_size(SigAlg alg) noexcept;
+[[nodiscard]] std::size_t signature_size(SigAlg alg) noexcept;
+
+/// True if `key` is a public key Kanhe refuses even though it decodes:
+/// an Ed25519 point of small order (for which a single signature can verify
+/// every message) or a non-canonical Ed25519 encoding (y >= p), which would
+/// give one key two identities. Expects a key of the correct size.
+[[nodiscard]] bool is_weak_public_key(SigAlg alg, ByteView key) noexcept;
+
+/// True if `signature` is in the one encoding Kanhe accepts for `alg`:
+///   - ESP256: low-S (s <= n/2). ECDSA accepts both (r, s) and (r, n - s);
+///     admitting only one makes signatures non-malleable.
+///   - Ed25519: the scalar S is reduced (S < L), as RFC 8032 requires.
+/// Other algorithms already have a single valid encoding. Expects a signature
+/// of the correct size.
+[[nodiscard]] bool is_canonical_signature(SigAlg alg, ByteView signature) noexcept;
+
+/// Rewrites an ESP256 signature into low-S form and leaves other algorithms
+/// unchanged. Every Signer implementation must apply it before returning.
+void canonicalize_signature(SigAlg alg, std::span<std::uint8_t> signature) noexcept;
+
+/// A hash output of up to 64 bytes, stored inline.
+class Digest {
+public:
+    static constexpr std::size_t max_size = 64;
+
+    Digest() noexcept = default;
+
+    /// Fails if `bytes` is empty or longer than `max_size`.
+    [[nodiscard]] static Result<Digest> from_bytes(ByteView bytes) noexcept;
+
+    [[nodiscard]] ByteView bytes() const noexcept { return {data_.data(), size_}; }
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+
+    friend bool operator==(const Digest& a, const Digest& b) noexcept;
+
+private:
+    std::array<std::uint8_t, max_size> data_{};
+    std::uint8_t size_ = 0;
+};
+// Ids and hashes fill the ledger's memory: no padding.
+static_assert(sizeof(Digest) == Digest::max_size + 1);
+
+struct PublicKey {
+    SigAlg algorithm;
+    Bytes bytes;
+
+    friend bool operator==(const PublicKey&, const PublicKey&) = default;
+};
+
+/// Holds a private key and produces signatures. Implementations may keep the
+/// key in software, an HSM, or another device.
+class Signer {
+public:
+    virtual ~Signer() = default;
+
+    [[nodiscard]] virtual SigAlg algorithm() const noexcept = 0;
+    [[nodiscard]] virtual const PublicKey& public_key() const noexcept = 0;
+
+    /// Signs `message` (not a digest of it) and returns the signature in the
+    /// algorithm's wire encoding.
+    [[nodiscard]] virtual Result<Bytes> sign(ByteView message) const = 0;
+
+protected:
+    Signer() = default;
+    Signer(const Signer&) = default;
+    Signer(Signer&&) = default;
+    Signer& operator=(const Signer&) = default;
+    Signer& operator=(Signer&&) = default;
+};
+
+/// An RFC 3161 time-stamp token, as a backend read and checked it.
+struct TimestampToken {
+    /// The authority's time (its genTime), as Unix time in milliseconds, and
+    /// the accuracy it states, in milliseconds (0 when it states none).
+    std::uint64_t time = 0;
+    std::uint64_t accuracy = 0;
+    /// The hash its message imprint names (nullopt for one not listed in
+    /// `HashAlg`), and the imprint.
+    std::optional<HashAlg> imprint_alg;
+    Bytes imprint;
+    /// Its signing certificate's subject (RFC 4514), and the SHA-256 of that
+    /// certificate's SubjectPublicKeyInfo: one authority, however many
+    /// certificates it holds for one key.
+    std::string authority;
+    Bytes authority_key;
+    /// The signing certificate chains to one of the trusted roots.
+    bool trusted = false;
+
+    friend bool operator==(const TimestampToken&, const TimestampToken&) = default;
+};
+
+/// Tokens larger than this are refused unread.
+inline constexpr std::size_t max_timestamp_token_size = 64 * 1024;
+
+/// Hashing and signature verification. Implementations must be safe to call
+/// concurrently from multiple threads.
+class Provider {
+public:
+    virtual ~Provider() = default;
+
+    [[nodiscard]] virtual bool supports(HashAlg alg) const noexcept = 0;
+    [[nodiscard]] virtual bool supports(SigAlg alg) const noexcept = 0;
+
+    /// Hashes `data`.
+    [[nodiscard]] Result<Digest> digest(HashAlg alg, ByteView data) const;
+
+    /// Hashes the concatenation of `parts` without materializing it.
+    [[nodiscard]] Result<Digest> digest(HashAlg alg, std::span<const ByteView> parts) const;
+    [[nodiscard]] Result<Digest> digest(HashAlg alg, std::initializer_list<ByteView> parts) const;
+
+    /// Verifies `signature` over `message`.
+    ///
+    /// Returns `Errc::invalid_argument` if the key is malformed or weak,
+    /// `Errc::unsupported` if the algorithm is unavailable, and
+    /// `Errc::verification_failed` if the signature is not valid or not in
+    /// canonical form.
+    [[nodiscard]] Status verify(const PublicKey& key, ByteView message, ByteView signature) const;
+
+    /// Reads an RFC 3161 TimeStampToken (DER, CMS SignedData) and checks it
+    /// as RFC 3161 and RFC 5816 require: its signature with the signing
+    /// certificate it carries, which its signing-certificate attribute names,
+    /// valid at the token's time and for time stamping (id-kp-timeStamping).
+    /// The token is trusted if that certificate also chains to one of
+    /// `trusted_roots` (DER certificates), at the token's time.
+    ///
+    /// Returns `Errc::malformed` for a token it cannot read (one without its
+    /// signing certificate among them), `Errc::verification_failed` if the
+    /// token does not verify with it, `Errc::limit_exceeded` for a token
+    /// larger than `max_timestamp_token_size`, and `Errc::unsupported` from
+    /// a backend without RFC 3161.
+    [[nodiscard]] Result<TimestampToken> read_timestamp(ByteView token,
+                                                        std::span<const Bytes> trusted_roots) const;
+
+protected:
+    Provider() = default;
+    Provider(const Provider&) = default;
+    Provider(Provider&&) = default;
+    Provider& operator=(const Provider&) = default;
+    Provider& operator=(Provider&&) = default;
+
+private:
+    /// Called only for supported algorithms.
+    [[nodiscard]] virtual Result<Digest> do_digest(HashAlg alg,
+                                                   std::span<const ByteView> parts) const = 0;
+
+    /// Called only for supported algorithms, with a key and signature whose
+    /// sizes (and, for EC keys, point format prefix) have been checked.
+    [[nodiscard]] virtual Status do_verify(const PublicKey& key, ByteView message,
+                                           ByteView signature) const = 0;
+
+    /// Called with a token of at most `max_timestamp_token_size` bytes. By
+    /// default, `Errc::unsupported`.
+    [[nodiscard]] virtual Result<TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const Bytes> trusted_roots) const;
+};
+
+} // namespace kanhe::crypto

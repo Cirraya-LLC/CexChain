@@ -11,7 +11,7 @@
 // compile yet, and the limits. A hidden case writes every run for the Python
 // reference (CTest bo_codegen_reference: wasm_ref.py --check), the runs of
 // the test blocks (bo test) included, and testvectors/bo-v1.json
-// (tools/testvectors/bo_vectors.py) pins code hashes and runs. Set CEXCHAIN_UPDATE_GOLDENS=1 to
+// (tools/testvectors/bo_vectors.py) pins code hashes and runs. Set KANHE_UPDATE_GOLDENS=1 to
 // rewrite build.txt.
 
 #include <algorithm>
@@ -36,43 +36,43 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/lower.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/lower.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 namespace {
 
-namespace bo = cexchain::bo;
-namespace cbor = cexchain::cbor;
-namespace protocol = cexchain::protocol;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::ByteView;
+namespace bo = kanhe::bo;
+namespace cbor = kanhe::cbor;
+namespace protocol = kanhe::protocol;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::ByteView;
 using protocol::ContractSigner;
 using protocol::Id;
 
-const std::filesystem::path golden_dir = std::filesystem::path(CEXCHAIN_BO_GOLDEN_DIR);
+const std::filesystem::path golden_dir = std::filesystem::path(KANHE_BO_GOLDEN_DIR);
 const std::filesystem::path build_dir = golden_dir / "build";
 const std::filesystem::path vectors_file =
-    std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR) / "bo-v1.json";
+    std::filesystem::path(KANHE_TESTVECTORS_DIR) / "bo-v1.json";
 
 bool updating_goldens() {
-    const char* value = std::getenv("CEXCHAIN_UPDATE_GOLDENS");
+    const char* value = std::getenv("KANHE_UPDATE_GOLDENS");
     return value != nullptr && std::string_view(value) == "1";
 }
 
@@ -83,8 +83,8 @@ std::string read_text(const std::filesystem::path& path) {
     return out.str();
 }
 
-const cexchain::crypto::Provider& provider() {
-    static const cexchain::crypto::openssl::Provider instance;
+const kanhe::crypto::Provider& provider() {
+    static const kanhe::crypto::openssl::Provider instance;
     return instance;
 }
 
@@ -154,7 +154,7 @@ Id ledger(const std::uint8_t fill) {
 }
 
 std::string hex(const ByteView bytes) {
-    return cexchain::to_hex(bytes);
+    return kanhe::to_hex(bytes);
 }
 
 /// A ledger id in diagnostic notation.
@@ -283,7 +283,7 @@ public:
         out.label = std::move(label);
         out.call = std::move(call);
         out.input = std::move(input);
-        auto result = vm::run(*module_, out.input, provider(), cexchain::crypto::HashAlg::sha256);
+        auto result = vm::run(*module_, out.input, provider(), kanhe::crypto::HashAlg::sha256);
         REQUIRE(result.has_value());
         out.run = std::move(*result);
         // Compiled code never traps but to refuse.
@@ -1230,7 +1230,7 @@ TEST_CASE("bo build: splitting into 16 parts at depth 7 stays within a call's fu
     // The demo's receivable: its code's size and hash, and
     // each run's fuel, kept as a golden (tests/bo/golden/build/split.txt).
     const Home home = split_scenario();
-    const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, home.code());
+    const auto digest = provider().digest(kanhe::crypto::HashAlg::sha256, home.code());
     REQUIRE(digest.has_value());
     std::string text =
         std::format("contract MultiTierReceivable (examples/multi-tier-split/multi-tier-split.bo)\n"
@@ -1265,7 +1265,7 @@ TEST_CASE("bo build: the agreement runs as the ledger runs it, with its fuel as 
     const Home home = agreement_scenario();
     const bo::Build build = build_text(read_text(build_dir / "agreement-en" / "source.bo"));
     std::string text = "contract Agreement\n";
-    const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, build.code);
+    const auto digest = provider().digest(kanhe::crypto::HashAlg::sha256, build.code);
     REQUIRE(digest.has_value());
     text += std::format("code: {} bytes, sha256 {}, codegen {}\n", build.code.size(),
                         hex(digest->bytes()), bo::wasm::codegen_version);
@@ -1593,7 +1593,7 @@ nlohmann::ordered_json call_json(const protocol::ContractInput& c) {
 } // namespace
 
 TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-reference]") {
-    const char* path = std::getenv("CEXCHAIN_BO_CODEGEN_REFERENCE");
+    const char* path = std::getenv("KANHE_BO_CODEGEN_REFERENCE");
     REQUIRE(path != nullptr);
     std::vector<Home> homes = scenarios();
     for (Home& home : vat_scenarios(nullptr)) {
@@ -1746,7 +1746,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         const bo::Build& build = *compiled.build;
         REQUIRE(hex(build.code) == code.get<std::string>());
         const auto bundle = bo::make_source_bundle(text, compiled.edition, set, provider(),
-                                                   cexchain::crypto::HashAlg::sha256);
+                                                   kanhe::crypto::HashAlg::sha256);
         REQUIRE(bundle.has_value());
         const auto bundle_bytes = bo::encode_source_bundle(*bundle);
         REQUIRE(bundle_bytes.has_value());
@@ -1798,7 +1798,7 @@ TEST_CASE("bo build: write the runs for the Python reference", "[.codegen-refere
         if (cbor::is_valid_utf8(text)) {
             error["source"] = text;
         } else {
-            error["source_hex"] = hex(cexchain::as_bytes(text));
+            error["source_hex"] = hex(kanhe::as_bytes(text));
         }
         error["errors"] = std::move(codes);
         errors.push_back(std::move(error));
@@ -1838,7 +1838,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
             const std::string text = source.at("text").get<std::string>();
             REQUIRE(doc.at("codegen") == bo::wasm::codegen_version);
             const bo::Build build = build_text(text);
-            const auto digest = provider().digest(cexchain::crypto::HashAlg::sha256, build.code);
+            const auto digest = provider().digest(kanhe::crypto::HashAlg::sha256, build.code);
             REQUIRE(digest.has_value());
             CHECK(hex(digest->bytes()) == contract.at("code_sha256").get<std::string>());
             CHECK(hex(build.code) == contract.at("code").get<std::string>());
@@ -1858,7 +1858,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
             }
             CHECK(compiled.build->interface.size() == contract.at("interface").size());
             const auto bundle = bo::make_source_bundle(text, compiled.edition, set, provider(),
-                                                       cexchain::crypto::HashAlg::sha256);
+                                                       kanhe::crypto::HashAlg::sha256);
             REQUIRE(bundle.has_value());
             CHECK(hex(*bo::encode_source_bundle(*bundle)) ==
                   contract.at("bundle").get<std::string>());
@@ -1888,10 +1888,10 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 deploy.code = earlier_code;
                 deploy.interface = compiled.build->interface;
                 deploy.compiler = earlier.at("compiler").get<std::string>();
-                deploy.source = *cexchain::from_hex(earlier.at("bundle").get<std::string>());
+                deploy.source = *kanhe::from_hex(earlier.at("bundle").get<std::string>());
                 deploy.name = compiled.name;
                 const bo::Rebuild r =
-                    bo::rebuild(deploy, provider(), cexchain::crypto::HashAlg::sha256);
+                    bo::rebuild(deploy, provider(), kanhe::crypto::HashAlg::sha256);
                 INFO(r.detail);
                 CHECK(r.status == bo::RebuildStatus::rebuilds);
                 REQUIRE(r.bundle.has_value());
@@ -1902,18 +1902,17 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
                 if (version == 1) {
                     CHECK(r.bundle->vocabulary.empty());
                 }
-                const auto digest =
-                    provider().digest(cexchain::crypto::HashAlg::sha256, earlier_code);
+                const auto digest = provider().digest(kanhe::crypto::HashAlg::sha256, earlier_code);
                 CHECK(hex(digest->bytes()) == earlier.at("code_sha256").get<std::string>());
             }
         }
-        const Bytes code = *cexchain::from_hex(contract.at("code").get<std::string>());
+        const Bytes code = *kanhe::from_hex(contract.at("code").get<std::string>());
         const auto module = vm::load(code);
         REQUIRE(module.has_value());
         for (const auto& run : contract.at("runs")) {
-            const Bytes input = *cexchain::from_hex(run.at("input").get<std::string>());
+            const Bytes input = *kanhe::from_hex(run.at("input").get<std::string>());
             const auto outcome =
-                vm::run(*module, input, provider(), cexchain::crypto::HashAlg::sha256);
+                vm::run(*module, input, provider(), kanhe::crypto::HashAlg::sha256);
             REQUIRE(outcome.has_value());
             INFO(run.at("label").get<std::string>());
             CHECK((outcome->trap ? std::string(vm::name(*outcome->trap)) : "ok") ==
@@ -1933,7 +1932,7 @@ TEST_CASE("bo build: the conformance vectors (testvectors/bo-v1.json)", "[bo][bu
         if (error.contains("source")) {
             text = error.at("source").get<std::string>();
         } else {
-            const Bytes raw = *cexchain::from_hex(error.at("source_hex").get<std::string>());
+            const Bytes raw = *kanhe::from_hex(error.at("source_hex").get<std::string>());
             text.assign(raw.begin(), raw.end());
         }
         const bo::Compiled compiled = bo::compile(text, *bo::make_pack_set({}).set);

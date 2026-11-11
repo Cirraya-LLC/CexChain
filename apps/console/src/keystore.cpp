@@ -10,16 +10,16 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
 constexpr std::string_view node_public_file = "node.pub";
-constexpr std::string_view sealed_info = "CexChain console key v1";
+constexpr std::string_view sealed_info = "Kanhe console key v1";
 constexpr std::string_view base32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 constexpr std::size_t recovery_letters = 26;
 
@@ -386,4 +386,4 @@ bool KeyStore::remove_hpke_key(std::string_view name) const {
     return std::filesystem::remove(directory_ / (std::string(name) + ".sealed"));
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

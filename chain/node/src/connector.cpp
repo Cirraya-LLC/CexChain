@@ -5,12 +5,12 @@
 #include <limits>
 #include <utility>
 
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/connector.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/connector.hpp>
 
 #include "json_cbor.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace detail {
 
@@ -234,7 +234,7 @@ Result<protocol::Id> id_field(const json& o, std::string_view name, std::string_
     return *parsed;
 }
 
-#define CEXCHAIN_TRY(var, expr)                                                                    \
+#define KANHE_TRY(var, expr)                                                                       \
     auto var##_result = (expr);                                                                    \
     if (!var##_result) {                                                                           \
         return std::unexpected(var##_result.error());                                              \
@@ -243,9 +243,9 @@ Result<protocol::Id> id_field(const json& o, std::string_view name, std::string_
 
 Result<ToConnector> hello_of(const json& o) {
     Hello hello;
-    CEXCHAIN_TRY(version, number_field(o, "protocol", "hello names its protocol version"));
+    KANHE_TRY(version, number_field(o, "protocol", "hello names its protocol version"));
     hello.protocol = version;
-    CEXCHAIN_TRY(name, text_field(o, "connector", 64, "hello names the connector"));
+    KANHE_TRY(name, text_field(o, "connector", 64, "hello names the connector"));
     if (!is_name(name)) {
         return fail(Errc::malformed, "hello names the connector");
     }
@@ -273,14 +273,14 @@ Result<ToConnector> hello_of(const json& o) {
 
 Result<ToConnector> perform_of(const json& o) {
     Perform p;
-    CEXCHAIN_TRY(request, id_field(o, "id", "perform names its request (64 hex digits)"));
+    KANHE_TRY(request, id_field(o, "id", "perform names its request (64 hex digits)"));
     p.request = request;
-    CEXCHAIN_TRY(kind, text_field(o, "kind", 64, "perform names a request kind"));
+    KANHE_TRY(kind, text_field(o, "kind", 64, "perform names a request kind"));
     if (!protocol::is_request_kind(kind)) {
         return fail(Errc::malformed, "perform names a request kind");
     }
     p.kind = std::move(kind);
-    CEXCHAIN_TRY(params_hex, text_field(o, "params_cbor", 2 * 8192, "perform carries params_cbor"));
+    KANHE_TRY(params_hex, text_field(o, "params_cbor", 2 * 8192, "perform carries params_cbor"));
     const auto params_bytes = from_hex(params_hex);
     if (!params_bytes) {
         return fail(Errc::malformed, "perform carries params_cbor");
@@ -290,34 +290,33 @@ Result<ToConnector> perform_of(const json& o) {
         return fail(Errc::malformed, "params_cbor is not CBOR");
     }
     p.params = std::move(*params);
-    CEXCHAIN_TRY(deadline, number_field(o, "deadline", "perform has a deadline"));
+    KANHE_TRY(deadline, number_field(o, "deadline", "perform has a deadline"));
     p.deadline = deadline;
-    CEXCHAIN_TRY(asked_at, number_field(o, "asked_at", "perform has asked_at"));
+    KANHE_TRY(asked_at, number_field(o, "asked_at", "perform has asked_at"));
     p.asked_at = asked_at;
-    CEXCHAIN_TRY(home, id_field(o, "home", "perform names the home ledger"));
+    KANHE_TRY(home, id_field(o, "home", "perform names the home ledger"));
     p.home = home;
-    CEXCHAIN_TRY(contract, id_field(o, "contract", "perform names the contract"));
+    KANHE_TRY(contract, id_field(o, "contract", "perform names the contract"));
     p.contract = contract;
-    CEXCHAIN_TRY(instance, id_field(o, "instance", "perform names the instance"));
+    KANHE_TRY(instance, id_field(o, "instance", "perform names the instance"));
     p.instance = instance;
-    CEXCHAIN_TRY(reply, text_field(o, "reply", 64, "perform names the reply"));
+    KANHE_TRY(reply, text_field(o, "reply", 64, "perform names the reply"));
     p.reply = std::move(reply);
-    CEXCHAIN_TRY(attempt, number_field(o, "attempt", "perform counts its attempt"));
+    KANHE_TRY(attempt, number_field(o, "attempt", "perform counts its attempt"));
     if (attempt == 0 || attempt > std::numeric_limits<std::uint32_t>::max()) {
         return fail(Errc::malformed, "perform counts its attempt");
     }
     p.attempt = static_cast<std::uint32_t>(attempt);
-    CEXCHAIN_TRY(timeout, number_field(o, "timeout_ms", "perform has timeout_ms"));
+    KANHE_TRY(timeout, number_field(o, "timeout_ms", "perform has timeout_ms"));
     p.timeout_ms = timeout;
     return p;
 }
 
 Result<FromConnector> outcome_of(const json& o) {
     Outcome out;
-    CEXCHAIN_TRY(request, id_field(o, "id", "an outcome names its request (64 hex digits)"));
+    KANHE_TRY(request, id_field(o, "id", "an outcome names its request (64 hex digits)"));
     out.request = request;
-    CEXCHAIN_TRY(status,
-                 text_field(o, "status", 8, "an outcome's status is done, failed, or retry"));
+    KANHE_TRY(status, text_field(o, "status", 8, "an outcome's status is done, failed, or retry"));
     if (status == "done") {
         out.status = OutcomeStatus::done;
     } else if (status == "failed") {
@@ -339,15 +338,15 @@ Result<FromConnector> outcome_of(const json& o) {
         out.result = std::move(*converted);
     }
     if (field(o, "reason") != nullptr) {
-        CEXCHAIN_TRY(reason, text_field(o, "reason", 64, "a reason is a code like a request kind"));
+        KANHE_TRY(reason, text_field(o, "reason", 64, "a reason is a code like a request kind"));
         if (!protocol::is_request_kind(reason)) {
             return fail(Errc::malformed, "a reason is a code like a request kind");
         }
         out.reason = std::move(reason);
     }
     if (field(o, "response") != nullptr) {
-        CEXCHAIN_TRY(text, text_field(o, "response", (max_response * 4 + 2) / 3,
-                                      "a response is unpadded base64url, at most 512 KiB"));
+        KANHE_TRY(text, text_field(o, "response", (max_response * 4 + 2) / 3,
+                                   "a response is unpadded base64url, at most 512 KiB"));
         auto bytes = from_base64url(text);
         if (!bytes) {
             return fail(Errc::malformed, "a response is unpadded base64url, at most 512 KiB");
@@ -355,7 +354,7 @@ Result<FromConnector> outcome_of(const json& o) {
         out.response = std::move(*bytes);
     }
     if (field(o, "retry_after_ms") != nullptr) {
-        CEXCHAIN_TRY(after, number_field(o, "retry_after_ms", "retry_after_ms is a number"));
+        KANHE_TRY(after, number_field(o, "retry_after_ms", "retry_after_ms is a number"));
         out.retry_after_ms = after;
     }
     return out;
@@ -363,15 +362,15 @@ Result<FromConnector> outcome_of(const json& o) {
 
 Result<FromConnector> ready_of(const json& o) {
     Ready ready;
-    CEXCHAIN_TRY(version_number, number_field(o, "protocol", "ready names its protocol version"));
+    KANHE_TRY(version_number, number_field(o, "protocol", "ready names its protocol version"));
     ready.protocol = version_number;
-    CEXCHAIN_TRY(name, text_field(o, "name", 64, "ready names the connector"));
+    KANHE_TRY(name, text_field(o, "name", 64, "ready names the connector"));
     if (!is_name(name)) {
         return fail(Errc::malformed, "ready names the connector");
     }
     ready.name = std::move(name);
     if (field(o, "version") != nullptr) {
-        CEXCHAIN_TRY(version, text_field(o, "version", 64, "a version is at most 64 bytes"));
+        KANHE_TRY(version, text_field(o, "version", 64, "a version is at most 64 bytes"));
         ready.version = std::move(version);
     }
     if (const json* kinds = field(o, "kinds")) {
@@ -391,7 +390,7 @@ Result<FromConnector> ready_of(const json& o) {
 
 Result<FromConnector> log_of(const json& o) {
     Log log;
-    CEXCHAIN_TRY(level, text_field(o, "level", 8, "a log's level is debug, info, warn, or error"));
+    KANHE_TRY(level, text_field(o, "level", 8, "a log's level is debug, info, warn, or error"));
     if (level == "debug") {
         log.level = LogLevel::debug;
     } else if (level == "info") {
@@ -403,17 +402,17 @@ Result<FromConnector> log_of(const json& o) {
     } else {
         return fail(Errc::malformed, "a log's level is debug, info, warn, or error");
     }
-    CEXCHAIN_TRY(message, text_field(o, "message", max_log_message,
-                                     "a log's message is text of at most 1,024 bytes"));
+    KANHE_TRY(message, text_field(o, "message", max_log_message,
+                                  "a log's message is text of at most 1,024 bytes"));
     log.message = std::move(message);
     if (field(o, "id") != nullptr) {
-        CEXCHAIN_TRY(request, id_field(o, "id", "a log names a request by its id"));
+        KANHE_TRY(request, id_field(o, "id", "a log names a request by its id"));
         log.request = request;
     }
     return log;
 }
 
-#undef CEXCHAIN_TRY
+#undef KANHE_TRY
 
 } // namespace
 
@@ -612,4 +611,4 @@ Result<cbor::Value> json_to_cbor(std::string_view text) {
 
 } // namespace connector
 
-} // namespace cexchain::node
+} // namespace kanhe::node

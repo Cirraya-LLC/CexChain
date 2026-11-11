@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 bool is_ledger_hash(crypto::HashAlg alg) noexcept {
     return alg == crypto::HashAlg::sha256 || alg == crypto::HashAlg::sm3;
@@ -53,4 +53,4 @@ Result<Id> to_id(ByteView bytes) {
     return crypto::Digest::from_bytes(bytes);
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

@@ -12,7 +12,7 @@
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "CEXCHAIN_WARNINGS_AS_ERRORS": "ON"
+                "KANHE_WARNINGS_AS_ERRORS": "ON"
             }
         },
         {
@@ -22,7 +22,7 @@
             "cacheVariables": {
                 "CMAKE_CXX_COMPILER": "g++-16",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CEXCHAIN_BO": "ON"
+                "KANHE_BO": "ON"
             }
         },
         {
@@ -32,7 +32,7 @@
             "cacheVariables": {
                 "CMAKE_CXX_COMPILER": "g++-16",
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CEXCHAIN_BO": "ON"
+                "KANHE_BO": "ON"
             }
         },
         {
@@ -40,7 +40,7 @@
             "displayName": "GCC 16, Debug, AddressSanitizer + UndefinedBehaviorSanitizer (the Bo compiler)",
             "inherits": "gcc-debug",
             "cacheVariables": {
-                "CEXCHAIN_SANITIZERS": "address;undefined"
+                "KANHE_SANITIZERS": "address;undefined"
             }
         },
         {
@@ -57,7 +57,7 @@
             "displayName": "Clang, Debug, AddressSanitizer + UndefinedBehaviorSanitizer",
             "inherits": "clang-debug",
             "cacheVariables": {
-                "CEXCHAIN_SANITIZERS": "address;undefined"
+                "KANHE_SANITIZERS": "address;undefined"
             }
         },
         {
@@ -65,7 +65,7 @@
             "displayName": "Clang, Debug, ThreadSanitizer",
             "inherits": "clang-debug",
             "cacheVariables": {
-                "CEXCHAIN_SANITIZERS": "thread"
+                "KANHE_SANITIZERS": "thread"
             }
         },
         {
@@ -74,14 +74,14 @@
             "inherits": "clang-asan",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CEXCHAIN_BUILD_FUZZERS": "ON"
+                "KANHE_BUILD_FUZZERS": "ON"
             }
         }
     ],
     "buildPresets": [
         { "name": "gcc-debug", "configurePreset": "gcc-debug" },
         { "name": "gcc-release", "configurePreset": "gcc-release" },
-        { "name": "gcc-asan", "configurePreset": "gcc-asan", "targets": ["cexchain_bo_tests", "bo_build_fuzz"] },
+        { "name": "gcc-asan", "configurePreset": "gcc-asan", "targets": ["kanhe_bo_tests", "bo_build_fuzz"] },
         { "name": "clang-debug", "configurePreset": "clang-debug" },
         { "name": "clang-asan", "configurePreset": "clang-asan" },
         { "name": "clang-tsan", "configurePreset": "clang-tsan" },

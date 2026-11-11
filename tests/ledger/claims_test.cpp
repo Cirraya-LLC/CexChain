@@ -10,15 +10,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
 
 #include "support/ledger_world.hpp"
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
-namespace cbor = cexchain::cbor;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
+namespace cbor = kanhe::cbor;
 
 namespace {
 

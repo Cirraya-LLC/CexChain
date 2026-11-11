@@ -10,16 +10,16 @@ const path = require("node:path");
 
 const [moduleJs, apiJs, dir] = process.argv.slice(2);
 const factory = require(path.resolve(moduleJs));
-const { createCexChainVerifier } = require(path.resolve(apiJs));
+const { createKanheVerifier } = require(path.resolve(apiJs));
 const read = (name) => new Uint8Array(fs.readFileSync(path.join(dir, name)));
 const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
 
 (async () => {
-  const verifier = await createCexChainVerifier(factory);
+  const verifier = await createKanheVerifier(factory);
   const bundle = read("bundle.cbor");
   const ledgerId = text("ledger-id");
 
-  // Same report as `cexchain verify --json`, field for field.
+  // Same report as `kanhe verify --json`, field for field.
   const report = verifier.verify(bundle, { ledgerId, attachments: { "report.pdf": read("report.pdf") } });
   assert.equal(report.verified, true, report.error);
   assert.equal(typeof report.text, "string");
@@ -62,7 +62,7 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
   assert.equal(verifier.verify(lastByte, { ledgerId, attachments }).verified, false);
   assert.equal(verifier.verify(new Uint8Array(0)).verified, false);
 
-  // A time-stamp authority's token (v0.11): the same report as `cexchain
+  // A time-stamp authority's token (v0.11): the same report as `kanhe
   // verify --tsa-root`, and without the root, nothing relied on.
   const stamped = read("stamped.cbor");
   const stampedReport = verifier.verify(stamped, {
@@ -89,7 +89,7 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
 
   // A contract instance's evidence: the contract is run again on every call,
   // here by the interpreter compiled to WebAssembly, and the report is the
-  // same as `cexchain contract verify`, in JSON and in text.
+  // same as `kanhe contract verify`, in JSON and in text.
   const contract = read("contract.cbor");
   const contractLedger = text("contract-ledger-id");
   const contractReport = verifier.verify(contract, { ledgerId: contractLedger });
@@ -129,7 +129,7 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
 
   // A tier-3 part of a receivable (v0.7): its subject is no statement id but
   // derived from the call that created it, and its ancestors' calls are run
-  // again too. The same report as `cexchain contract verify`.
+  // again too. The same report as `kanhe contract verify`.
   const part = read("part.cbor");
   const partReport = verifier.verify(part, { ledgerId: contractLedger });
   assert.equal(partReport.kind, "contract");
@@ -157,7 +157,7 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
 
   // Requests and answers (v0.8): every request the calls made, each answer
   // with its status and lateness, and the open ones, one overdue at the
-  // checkpoint. The same report as `cexchain contract verify`.
+  // checkpoint. The same report as `kanhe contract verify`.
   const asking = read("requests.cbor");
   const askingLedger = text("requests-ledger-id");
   const askingReport = verifier.verify(asking, { ledgerId: askingLedger });

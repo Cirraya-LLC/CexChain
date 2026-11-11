@@ -6,11 +6,11 @@
 # on a ledger directory and through a server (--server, submission key 4 and
 # /v1/vault/files). A kept copy is checked against the record when it is
 # opened or added, kept once, and taken into backups.
-# Usage: files.sh CEXCHAIN
+# Usage: files.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -20,15 +20,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="files test"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="files test"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -42,7 +42,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -123,7 +123,7 @@ run token create --ledger local ops --scope read,submit,admin --out ops.token > 
 run token create --ledger local writer --scope read,submit --out writer.token > /dev/null
 start_server server.json --ledger local --log-key log.key --checkpoint-interval 0 --max-body 1048576
 URL="$(json 'd["url"]' < server.json)"
-export CEXCHAIN_SERVER="$URL" CEXCHAIN_TOKEN="$(cat writer.token)"
+export KANHE_SERVER="$URL" KANHE_TOKEN="$(cat writer.token)"
 CACHE="$WORK/cache"
 run status --cache "$CACHE" --ledger-id "$LEDGER_ID" > /dev/null
 REMOTE="$(run record issue --cache "$CACHE" --as root.key --type example.org.photo/1 --field place=Peak \
@@ -135,7 +135,7 @@ run record file get --cache "$CACHE" "$REMOTE" photo.jpg --out remote.jpg \
 cmp remote.jpg photo.jpg || fail "a kept file through the server"
 # Removing needs the admin scope; adding again goes through PUT.
 expect_exit 2 record file remove --cache "$CACHE" "$REMOTE" photo.jpg
-CEXCHAIN_TOKEN="$(cat ops.token)" run record file remove --cache "$CACHE" "$REMOTE" photo.jpg > /dev/null
+KANHE_TOKEN="$(cat ops.token)" run record file remove --cache "$CACHE" "$REMOTE" photo.jpg > /dev/null
 run record file list --cache "$CACHE" "$REMOTE" | contains 'not kept'
 expect_exit 2 record file add --cache "$CACHE" "$REMOTE" forged.jpg --name photo.jpg --vault-key local/vault/vault.key
 run record file add --cache "$CACHE" "$REMOTE" photo.jpg --vault-key local/vault/vault.key > /dev/null

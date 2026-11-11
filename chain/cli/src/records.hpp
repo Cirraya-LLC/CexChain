@@ -5,12 +5,12 @@
 
 #include <filesystem>
 
-#include <cexchain/client/records.hpp>
+#include <kanhe/client/records.hpp>
 
 #include "support.hpp"
 
 /// The vault's keys from options and passphrases.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// Loads the vault private key from --vault-key (default <ledger>/vault.key)
 /// and checks that it matches the ledger's vault public key.
@@ -24,4 +24,4 @@ namespace cexchain::cli {
 [[nodiscard]] Vault read_vault(const client::Session& session, const protocol::Id& record,
                                const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

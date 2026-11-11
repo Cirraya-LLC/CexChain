@@ -11,14 +11,14 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/node/http.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/node/http.hpp>
 
 /// The queries of the routes for executors and keepers. GET
 /// /v1/requests (spec v0.8): the query an executor sends to learn of
 /// requests. What the route answers is a hint: an executor checks a request
 /// in the instance's evidence before acting on it (spec section 15).
-namespace cexchain::node::detail {
+namespace kanhe::node::detail {
 
 /// An executor's lease lasts this long after its last poll by default; 5 to
 /// 300 seconds.
@@ -90,4 +90,4 @@ inline constexpr std::uint64_t max_due_grace = 31'622'400;
 /// start, and limit; anything else is refused.
 [[nodiscard]] std::variant<DueQuery, QueryError> parse_due_query(const http::Request& r);
 
-} // namespace cexchain::node::detail
+} // namespace kanhe::node::detail

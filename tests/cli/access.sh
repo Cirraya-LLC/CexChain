@@ -8,11 +8,11 @@
 # files, then online through each other's servers, where they also witness
 # each other's ledgers. Then the bank asks only whether a condition holds in
 # it (spec v0.15), and the factory answers with a claim.
-# Usage: access.sh CEXCHAIN
+# Usage: access.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -22,15 +22,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="access test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="access test"
+unset KANHE_LEDGER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -44,7 +44,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json; json.load(open('$out'))" 2> /dev/null; then
@@ -94,7 +94,7 @@ f access grant request.cbor --fields result --attach report.txt=report.txt \
     --as f-root.key --log-key f-log.key --out delivery.cbor --json > grant.json
 json 'd["fields"]' < grant.json | contains -x "\['result'\]"
 GRANT="$(json 'd["grant"]' < grant.json)"
-f record show "$GRANT" | contains 'cexchain.access-grant/1'
+f record show "$GRANT" | contains 'kanhe.access-grant/1'
 
 # The bank checks it all, gets the value and the file, and acknowledges.
 b access accept delivery.cbor --as b-root.key --log-key b-log.key --save-dir received \

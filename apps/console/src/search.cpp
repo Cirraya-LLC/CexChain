@@ -10,13 +10,13 @@
 #include <string>
 #include <variant>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/search/index.hpp>
-#include <cexchain/search/query.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/search/index.hpp>
+#include <kanhe/search/query.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 http::Response Console::search_route(const http::Request& request) const {
     auto who = authenticate(request);
@@ -95,4 +95,4 @@ http::Response Console::search_route(const http::Request& request) const {
     return report(index->report(s.filter, s.report), "things");
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

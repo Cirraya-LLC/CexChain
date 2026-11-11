@@ -22,14 +22,14 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/cbor.hpp>
 
 #include "internal.hpp"
 #include "shape.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -44,42 +44,42 @@ using detail::quote;
 #endif
 
 constexpr unsigned char commerce_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/commerce.vocab"
 #else
 #include "commerce.vocab.inc"
 #endif
 };
 constexpr unsigned char finance_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/finance.vocab"
 #else
 #include "finance.vocab.inc"
 #endif
 };
 constexpr unsigned char services_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/services.vocab"
 #else
 #include "services.vocab.inc"
 #endif
 };
 constexpr unsigned char commerce_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/history/commerce-1.vocab"
 #else
 #include "history/commerce-1.vocab.inc"
 #endif
 };
 constexpr unsigned char finance_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/history/finance-1.vocab"
 #else
 #include "history/finance-1.vocab.inc"
 #endif
 };
 constexpr unsigned char services_1_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/history/services-1.vocab"
 #else
 #include "history/services-1.vocab.inc"
@@ -88,14 +88,14 @@ constexpr unsigned char services_1_bytes[] = {
 // Version 2 of commerce and services, from before a service's periods and
 // bills.
 constexpr unsigned char commerce_2_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/history/commerce-2.vocab"
 #else
 #include "history/commerce-2.vocab.inc"
 #endif
 };
 constexpr unsigned char services_2_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../vocab/history/services-2.vocab"
 #else
 #include "history/services-2.vocab.inc"
@@ -1034,4 +1034,4 @@ void merge_vocabulary(Pack& language, const VocabularyPack& pack) {
 
 } // namespace detail
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

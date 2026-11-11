@@ -7,12 +7,12 @@
 #include <system_error>
 #include <utility>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 std::optional<SealedBox> parse_sealed_box(ByteView file) {
     const auto value = cbor::decode(file);
@@ -160,4 +160,4 @@ Result<std::vector<SealedFile>> decode_sealed_files(const cbor::Value& value, st
     return out;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

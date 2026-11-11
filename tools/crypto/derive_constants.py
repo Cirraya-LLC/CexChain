@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""Derives the curve constants that CexChain hard-codes, from first principles.
+"""Derives the curve constants that Kanhe hard-codes, from first principles.
 
 Run this to re-check the constants in chain/core/src/crypto.cpp:
   - the y-coordinates of Ed25519's small-order (torsion) points, used to reject weak keys;

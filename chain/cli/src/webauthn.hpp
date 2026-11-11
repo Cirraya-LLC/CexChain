@@ -11,7 +11,7 @@
 /// browser, and waits for the page to post back the authenticator's
 /// response. The page's address carries a random token, so other sites cannot
 /// reach it.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 inline constexpr std::string_view local_rp_id = "localhost";
 
@@ -23,9 +23,9 @@ inline constexpr std::string_view local_rp_id = "localhost";
 ///   title, summary  shown to the person
 /// Returns the page's response; throws CommandError if the person cancels or
 /// nothing arrives within three minutes. Unless `open_browser` is false (or
-/// CEXCHAIN_NO_BROWSER is set), the page is opened in the default browser;
+/// KANHE_NO_BROWSER is set), the page is opened in the default browser;
 /// its address is always printed to stderr.
 [[nodiscard]] nlohmann::json run_webauthn_ceremony(const nlohmann::json& request,
                                                    bool open_browser);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

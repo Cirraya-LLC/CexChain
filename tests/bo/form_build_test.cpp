@@ -14,18 +14,18 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/form.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/form.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
 std::string read_text(const std::filesystem::path& path) {

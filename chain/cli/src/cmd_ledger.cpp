@@ -5,13 +5,13 @@
 #include <print>
 #include <span>
 
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/core/cbor.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -74,8 +74,8 @@ int cmd_init(const Args& args) {
     if (const auto file = args.get("vault-public-key")) {
         vault_public = decode_vault_public_key(read_file(*file));
         if (!vault_public) {
-            throw CommandError{
-                *file + " is not a vault public key (create one with cexchain vault keygen)"};
+            throw CommandError{*file +
+                               " is not a vault public key (create one with kanhe vault keygen)"};
         }
     } else {
         vault_secret = passphrase(args, (directory / "vault.key").string(), true);
@@ -130,7 +130,7 @@ int cmd_status(const Args& args) {
                          : std::format(" ({} newer entries not yet checkpointed)",
                                        s["unchecked_entries"].get<std::uint64_t>()));
     } else {
-        std::println("checkpoint:    none yet (cexchain checkpoint create)");
+        std::println("checkpoint:    none yet (kanhe checkpoint create)");
     }
     if (const auto& c = session.ledger().state_commitment()) {
         std::println("state:         committed at entry #{} (root {})", c->tree_size,
@@ -443,8 +443,7 @@ int cmd_ledger_genesis(const Args& args) {
     } else {
         std::println("wrote the genesis entry of ledger {} to {}",
                      hex_id(session.state().ledger_id()), out.string());
-        std::println("A witness starts from it: cexchain witness add-log --genesis {}",
-                     out.string());
+        std::println("A witness starts from it: kanhe witness add-log --genesis {}", out.string());
     }
     return exit_ok;
 }
@@ -458,7 +457,7 @@ int cmd_ledger_rotate_log_key(const Args& args) {
         args, session, id, {{"log_key", public_key_json(key)}, {"signs_from_size", index + 1}},
         std::format(
             "rotated the log key at index {}: the new key signs every checkpoint, receipt, "
-            "and state commitment from now on.\nCheckpoint with it (cexchain checkpoint "
+            "and state commitment from now on.\nCheckpoint with it (kanhe checkpoint "
             "create --log-key NEW), and give it to serve (--log-key may be repeated to hold "
             "both across the switch).",
             index));
@@ -499,7 +498,7 @@ int cmd_ledger_snapshot_create(const Args& args) {
     Session session(args);
     require_local(session);
     unwrap(session.ledger().write_snapshot(),
-           "writing a snapshot (right after a checkpoint: cexchain checkpoint create)");
+           "writing a snapshot (right after a checkpoint: kanhe checkpoint create)");
     const auto written = session.ledger().snapshot();
     if (args.json()) {
         print_json(snapshot_json(written));
@@ -544,4 +543,4 @@ int cmd_ledger_snapshot_remove(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

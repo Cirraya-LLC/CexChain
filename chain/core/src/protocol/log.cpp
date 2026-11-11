@@ -4,14 +4,14 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/core/cose.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/log.hpp>
+#include <kanhe/core/cose.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/log.hpp>
 
 #include "envelope.hpp"
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -38,7 +38,7 @@ std::optional<std::int64_t> vds_for(crypto::HashAlg alg) {
 }
 
 Result<SignedCheckpoint> to_signed_checkpoint(detail::Envelope envelope, ByteView encoded) {
-    CEXCHAIN_TRY(Checkpoint checkpoint, decode_checkpoint(*envelope.message.payload));
+    KANHE_TRY(Checkpoint checkpoint, decode_checkpoint(*envelope.message.payload));
     return SignedCheckpoint{
         .encoded = Bytes(encoded.begin(), encoded.end()),
         .envelope = std::move(envelope.message),
@@ -51,10 +51,10 @@ Result<SignedCheckpoint> sign_checkpoint_as(const crypto::Signer& signer,
                                             const crypto::Provider& provider,
                                             const Checkpoint& checkpoint,
                                             std::string_view content_type) {
-    CEXCHAIN_TRY(Bytes payload, encode_checkpoint(checkpoint));
-    CEXCHAIN_TRY(Bytes encoded, detail::sign_envelope(signer, provider, checkpoint.tree_hash,
-                                                      payload, content_type));
-    CEXCHAIN_TRY(detail::Envelope envelope, detail::parse_envelope(encoded, content_type));
+    KANHE_TRY(Bytes payload, encode_checkpoint(checkpoint));
+    KANHE_TRY(Bytes encoded,
+              detail::sign_envelope(signer, provider, checkpoint.tree_hash, payload, content_type));
+    KANHE_TRY(detail::Envelope envelope, detail::parse_envelope(encoded, content_type));
     return to_signed_checkpoint(std::move(envelope), encoded);
 }
 
@@ -80,20 +80,20 @@ Result<Bytes> encode_log_entry(const LogEntry& log_entry) {
 }
 
 Result<LogEntry> decode_log_entry(ByteView encoded) {
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
     LogEntry log_entry;
-    CEXCHAIN_TRY(log_entry.statement_id, reader.need_id(1));
-    CEXCHAIN_TRY(log_entry.registered_at, reader.need_uint(2));
-    CEXCHAIN_TRY(std::optional<Bytes> statement, reader.opt_bytes(3));
-    CEXCHAIN_TRY(std::optional<Bytes> commitment, reader.opt_bytes(4));
+    KANHE_TRY(log_entry.statement_id, reader.need_id(1));
+    KANHE_TRY(log_entry.registered_at, reader.need_uint(2));
+    KANHE_TRY(std::optional<Bytes> statement, reader.opt_bytes(3));
+    KANHE_TRY(std::optional<Bytes> commitment, reader.opt_bytes(4));
     if (statement.has_value() == commitment.has_value() || (statement && statement->empty()) ||
         (commitment && commitment->empty())) {
         return fail(Errc::malformed, "a log entry holds exactly one statement or state commitment");
     }
     log_entry.statement = statement.value_or(Bytes{});
     log_entry.state_commitment = commitment.value_or(Bytes{});
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_CHECK(reader.finish());
     return log_entry;
 }
 
@@ -123,23 +123,23 @@ Result<Bytes> encode_checkpoint(const Checkpoint& checkpoint) {
 }
 
 Result<Checkpoint> decode_checkpoint(ByteView encoded) {
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
     Checkpoint checkpoint;
-    CEXCHAIN_TRY(checkpoint.ledger_id, reader.need_id(1));
-    CEXCHAIN_TRY(std::int64_t hash_id, reader.need_int(2));
-    CEXCHAIN_TRY(checkpoint.tree_hash, decode_ledger_hash(hash_id));
-    CEXCHAIN_TRY(checkpoint.tree_size, reader.need_uint(3));
+    KANHE_TRY(checkpoint.ledger_id, reader.need_id(1));
+    KANHE_TRY(std::int64_t hash_id, reader.need_int(2));
+    KANHE_TRY(checkpoint.tree_hash, decode_ledger_hash(hash_id));
+    KANHE_TRY(checkpoint.tree_size, reader.need_uint(3));
     if (checkpoint.tree_size == 0) {
         return fail(Errc::malformed, "a checkpoint covers at least the genesis entry");
     }
-    CEXCHAIN_TRY(Bytes root, reader.need_bytes(4));
+    KANHE_TRY(Bytes root, reader.need_bytes(4));
     if (root.size() != crypto::digest_size(checkpoint.tree_hash)) {
         return fail(Errc::malformed, "checkpoint root has the wrong size");
     }
-    CEXCHAIN_TRY(checkpoint.root, crypto::Digest::from_bytes(root));
-    CEXCHAIN_TRY(checkpoint.timestamp, reader.need_uint(5));
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_TRY(checkpoint.root, crypto::Digest::from_bytes(root));
+    KANHE_TRY(checkpoint.timestamp, reader.need_uint(5));
+    KANHE_CHECK(reader.finish());
     return checkpoint;
 }
 
@@ -150,8 +150,7 @@ Result<SignedCheckpoint> sign_checkpoint(const crypto::Signer& log_key,
 }
 
 Result<SignedCheckpoint> parse_checkpoint(ByteView encoded) {
-    CEXCHAIN_TRY(detail::Envelope envelope,
-                 detail::parse_envelope(encoded, checkpoint_content_type));
+    KANHE_TRY(detail::Envelope envelope, detail::parse_envelope(encoded, checkpoint_content_type));
     return to_signed_checkpoint(std::move(envelope), encoded);
 }
 
@@ -168,8 +167,7 @@ Result<SignedCheckpoint> cosign_checkpoint(const crypto::Signer& witness_key,
 }
 
 Result<SignedCheckpoint> parse_cosignature(ByteView encoded) {
-    CEXCHAIN_TRY(detail::Envelope envelope,
-                 detail::parse_envelope(encoded, cosignature_content_type));
+    KANHE_TRY(detail::Envelope envelope, detail::parse_envelope(encoded, cosignature_content_type));
     return to_signed_checkpoint(std::move(envelope), encoded);
 }
 
@@ -205,34 +203,34 @@ Result<Bytes> encode_state_commitment(const StateCommitment& c) {
 }
 
 Result<StateCommitment> decode_state_commitment(ByteView encoded) {
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
     StateCommitment c;
-    CEXCHAIN_TRY(c.ledger_id, reader.need_id(1));
-    CEXCHAIN_TRY(std::int64_t hash_id, reader.need_int(2));
-    CEXCHAIN_TRY(c.tree_hash, decode_ledger_hash(hash_id));
-    CEXCHAIN_TRY(c.tree_size, reader.need_uint(3));
+    KANHE_TRY(c.ledger_id, reader.need_id(1));
+    KANHE_TRY(std::int64_t hash_id, reader.need_int(2));
+    KANHE_TRY(c.tree_hash, decode_ledger_hash(hash_id));
+    KANHE_TRY(c.tree_size, reader.need_uint(3));
     if (c.tree_size == 0) {
         return fail(Errc::malformed, "a state commitment follows at least the genesis entry");
     }
-    CEXCHAIN_TRY(Bytes root, reader.need_bytes(4));
+    KANHE_TRY(Bytes root, reader.need_bytes(4));
     if (root.size() != crypto::digest_size(c.tree_hash)) {
         return fail(Errc::malformed, "state root has the wrong size");
     }
-    CEXCHAIN_TRY(c.state_root, crypto::Digest::from_bytes(root));
-    CEXCHAIN_TRY(c.timestamp, reader.need_uint(5));
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_TRY(c.state_root, crypto::Digest::from_bytes(root));
+    KANHE_TRY(c.timestamp, reader.need_uint(5));
+    KANHE_CHECK(reader.finish());
     return c;
 }
 
 Result<SignedStateCommitment> parse_state_commitment(const crypto::Provider& provider,
                                                      ByteView encoded) {
-    CEXCHAIN_TRY(detail::Envelope envelope,
-                 detail::parse_envelope(encoded, state_commitment_content_type));
-    CEXCHAIN_TRY(StateCommitment commitment, decode_state_commitment(*envelope.message.payload));
-    CEXCHAIN_TRY(Bytes to_be_signed, cose::sig_structure(envelope.message.protected_bytes, {},
-                                                         *envelope.message.payload));
-    CEXCHAIN_TRY(Id id, provider.digest(commitment.tree_hash, to_be_signed));
+    KANHE_TRY(detail::Envelope envelope,
+              detail::parse_envelope(encoded, state_commitment_content_type));
+    KANHE_TRY(StateCommitment commitment, decode_state_commitment(*envelope.message.payload));
+    KANHE_TRY(Bytes to_be_signed,
+              cose::sig_structure(envelope.message.protected_bytes, {}, *envelope.message.payload));
+    KANHE_TRY(Id id, provider.digest(commitment.tree_hash, to_be_signed));
     return SignedStateCommitment{
         .encoded = Bytes(encoded.begin(), encoded.end()),
         .envelope = std::move(envelope.message),
@@ -245,9 +243,9 @@ Result<SignedStateCommitment> parse_state_commitment(const crypto::Provider& pro
 Result<SignedStateCommitment> sign_state_commitment(const crypto::Signer& log_key,
                                                     const crypto::Provider& provider,
                                                     const StateCommitment& commitment) {
-    CEXCHAIN_TRY(Bytes payload, encode_state_commitment(commitment));
-    CEXCHAIN_TRY(Bytes encoded, detail::sign_envelope(log_key, provider, commitment.tree_hash,
-                                                      payload, state_commitment_content_type));
+    KANHE_TRY(Bytes payload, encode_state_commitment(commitment));
+    KANHE_TRY(Bytes encoded, detail::sign_envelope(log_key, provider, commitment.tree_hash, payload,
+                                                   state_commitment_content_type));
     return parse_state_commitment(provider, encoded);
 }
 
@@ -268,16 +266,16 @@ Result<ReceiptSeal> seal_receipts(const crypto::Signer& log_key, const crypto::P
     if (!vds) {
         return fail(Errc::unsupported, "tree hash must be SHA-256 or SM3");
     }
-    CEXCHAIN_TRY(Id kid, key_id(provider, tree_hash, log_key.public_key()));
-    CEXCHAIN_TRY(
+    KANHE_TRY(Id kid, key_id(provider, tree_hash, log_key.public_key()));
+    KANHE_TRY(
         Bytes protected_bytes,
         cbor::encode(cbor::Value::map({
             entry(cose::label_alg, cbor::Value::integer(crypto::cose_id(log_key.algorithm()))),
             entry(cose::label_kid, cbor::Value::bytes(kid.bytes())),
             entry(label_vds, cbor::Value::integer(*vds)),
         })));
-    CEXCHAIN_TRY(Bytes to_be_signed, cose::sig_structure(protected_bytes, {}, root.bytes()));
-    CEXCHAIN_TRY(Bytes signature, log_key.sign(to_be_signed));
+    KANHE_TRY(Bytes to_be_signed, cose::sig_structure(protected_bytes, {}, root.bytes()));
+    KANHE_TRY(Bytes signature, log_key.sign(to_be_signed));
     return ReceiptSeal{std::move(protected_bytes), std::move(signature)};
 }
 
@@ -289,10 +287,10 @@ Result<Bytes> issue_receipt(const ReceiptSeal& seal, const InclusionProof& proof
     for (const crypto::Digest& node : proof.path) {
         path.push_back(cbor::Value::bytes(node.bytes()));
     }
-    CEXCHAIN_TRY(Bytes proof_bytes,
-                 cbor::encode(cbor::Value::array({cbor::Value::unsigned_integer(proof.tree_size),
-                                                  cbor::Value::unsigned_integer(proof.leaf_index),
-                                                  cbor::Value::array(std::move(path))})));
+    KANHE_TRY(Bytes proof_bytes,
+              cbor::encode(cbor::Value::array({cbor::Value::unsigned_integer(proof.tree_size),
+                                               cbor::Value::unsigned_integer(proof.leaf_index),
+                                               cbor::Value::array(std::move(path))})));
     // As cose::sign lays out a detached COSE_Sign1.
     return cbor::encode(cbor::Value::tagged(
         cose::tag_sign1,
@@ -313,12 +311,12 @@ Result<Bytes> issue_receipt(const crypto::Signer& log_key, const crypto::Provide
     if (proof.leaf_index >= proof.tree_size) {
         return fail(Errc::invalid_argument, "leaf index is outside the tree");
     }
-    CEXCHAIN_TRY(ReceiptSeal seal, seal_receipts(log_key, provider, tree_hash, root));
+    KANHE_TRY(ReceiptSeal seal, seal_receipts(log_key, provider, tree_hash, root));
     return issue_receipt(seal, proof);
 }
 
 Result<Receipt> parse_receipt(ByteView encoded) {
-    CEXCHAIN_TRY(cose::Sign1 message, cose::parse(encoded));
+    KANHE_TRY(cose::Sign1 message, cose::parse(encoded));
     if (message.payload) {
         return fail(Errc::malformed, "receipt payload must be detached");
     }
@@ -332,7 +330,7 @@ Result<Receipt> parse_receipt(ByteView encoded) {
     if (kid_value == nullptr || vds_value == nullptr || kid_value->as_bytes() == nullptr) {
         return fail(Errc::malformed, "receipt protected header must be exactly {alg, kid, vds}");
     }
-    CEXCHAIN_TRY(Id kid, to_id(*kid_value->as_bytes()));
+    KANHE_TRY(Id kid, to_id(*kid_value->as_bytes()));
     const auto vds = vds_value->as_int64();
     crypto::HashAlg tree_hash{};
     if (vds == vds_rfc9162_sha256) {
@@ -359,24 +357,24 @@ Result<Receipt> parse_receipt(ByteView encoded) {
         return fail(Errc::malformed, "a receipt carries exactly one inclusion proof");
     }
 
-    CEXCHAIN_TRY(cbor::Value proof_value, cbor::decode(*(*proof_list)[0].as_bytes()));
+    KANHE_TRY(cbor::Value proof_value, cbor::decode(*(*proof_list)[0].as_bytes()));
     const cbor::Array* parts = proof_value.as_array();
     if (parts == nullptr || parts->size() != 3) {
         return fail(Errc::malformed, "inclusion proof must be [tree size, leaf index, path]");
     }
     InclusionProof proof;
-    CEXCHAIN_TRY(proof.tree_size, detail::as_uint((*parts)[0]));
-    CEXCHAIN_TRY(proof.leaf_index, detail::as_uint((*parts)[1]));
-    CEXCHAIN_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
+    KANHE_TRY(proof.tree_size, detail::as_uint((*parts)[0]));
+    KANHE_TRY(proof.leaf_index, detail::as_uint((*parts)[1]));
+    KANHE_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
     if (path->size() > merkle::max_inclusion_proof_length) {
         return fail(Errc::malformed, "inclusion path is too long");
     }
     for (const cbor::Value& node : *path) {
-        CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
+        KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
         if (bytes.size() != crypto::digest_size(tree_hash)) {
             return fail(Errc::malformed, "inclusion path node has the wrong size");
         }
-        CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+        KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
         proof.path.push_back(digest);
     }
     if (proof.leaf_index >= proof.tree_size) {
@@ -394,7 +392,7 @@ Result<Receipt> parse_receipt(ByteView encoded) {
 
 Result<crypto::Digest> receipt_root(const crypto::Provider& provider, const Receipt& receipt,
                                     ByteView entry_bytes, merkle::InclusionMemo* memo) {
-    CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, receipt.tree_hash, entry_bytes));
+    KANHE_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, receipt.tree_hash, entry_bytes));
     return merkle::root_from_inclusion_proof(provider, receipt.tree_hash, leaf,
                                              receipt.proof.leaf_index, receipt.proof.tree_size,
                                              receipt.proof.path, memo);
@@ -402,7 +400,7 @@ Result<crypto::Digest> receipt_root(const crypto::Provider& provider, const Rece
 
 Status verify_receipt_signature(const crypto::Provider& provider, const Receipt& receipt,
                                 const crypto::Digest& root, const crypto::PublicKey& log_key) {
-    CEXCHAIN_TRY(Id expected_kid, key_id(provider, receipt.tree_hash, log_key));
+    KANHE_TRY(Id expected_kid, key_id(provider, receipt.tree_hash, log_key));
     if (expected_kid != receipt.kid) {
         return fail(Errc::verification_failed, "key does not match the kid in the receipt");
     }
@@ -411,9 +409,9 @@ Status verify_receipt_signature(const crypto::Provider& provider, const Receipt&
 
 Result<crypto::Digest> verify_receipt(const crypto::Provider& provider, const Receipt& receipt,
                                       ByteView entry_bytes, const crypto::PublicKey& log_key) {
-    CEXCHAIN_TRY(crypto::Digest root, receipt_root(provider, receipt, entry_bytes));
-    CEXCHAIN_CHECK(verify_receipt_signature(provider, receipt, root, log_key));
+    KANHE_TRY(crypto::Digest root, receipt_root(provider, receipt, entry_bytes));
+    KANHE_CHECK(verify_receipt_signature(provider, receipt, root, log_key));
     return root;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

@@ -12,7 +12,7 @@
 // are reached only through a relay (a public witness's server): each adds
 // the witness and chooses to be reached through it, their codes carry the
 // relay and no address, and everything between them goes through it.
-// Usage: node console_parties_test.js CEXCHAIN [SOURCE_DIR] [--relay]
+// Usage: node console_parties_test.js KANHE [SOURCE_DIR] [--relay]
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -22,17 +22,17 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
 const viaRelay = process.argv.includes("--relay");
 const source = path.resolve(process.argv[3] && process.argv[3] !== "--relay" ? process.argv[3]
                                                                              : path.join(__dirname, "..", ".."));
 const lending = path.join(source, "examples", "lending", "lending.bo");
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-parties-"));
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-parties-"));
 
 function freePort() {
   return new Promise((resolve) => {
@@ -48,15 +48,15 @@ function freePort() {
 async function person(browser, name) {
   const ledger = path.join(work, name.toLowerCase(), "ledger");
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1",
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1",
                 HOME: path.dirname(ledger) };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
   const port = await freePort();
-  const process_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const process_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300; i++) {
     try {
-      if (JSON.parse(run("cexchain-console", "status", "--json")).running) break;
+      if (JSON.parse(run("kanhe-console", "status", "--json")).running) break;
     } catch {
       // Not yet.
     }
@@ -91,7 +91,7 @@ async function person(browser, name) {
 async function startWitness() {
   const witnessDir = path.join(work, "witness");
   fs.mkdirSync(witnessDir, { recursive: true });
-  const witnessEnv = { ...process.env, CEXCHAIN_PASSPHRASE: "witness test" };
+  const witnessEnv = { ...process.env, KANHE_PASSPHRASE: "witness test" };
   const w = (...args) => execFileSync(...programOf(args), { cwd: witnessDir, env: witnessEnv,
                                                         encoding: "utf8" });
   for (const k of ["root", "log", "witness"]) w("key", "generate", "--out", `${k}.key`);
@@ -165,7 +165,7 @@ async function tap(page, what) {
     await a.getByLabel("Their name here").first().fill("bob");
     await a.getByRole("button", { name: "Make an invitation code" }).click();
     const invitation = await a.getByLabel("The invitation for bob:").inputValue();
-    assert.match(invitation, /^cxp_/);
+    assert.match(invitation, /^khp_/);
     current = bob;
     await b.getByRole("link", { name: "Parties" }).click();
     await b.getByLabel("Their code").fill(invitation);
@@ -256,7 +256,7 @@ async function tap(page, what) {
     witness?.process.kill();
     for (const p of people) {
       try {
-        p.run("cexchain-console", "stop");
+        p.run("kanhe-console", "stop");
       } catch {
         // Not running: nothing to stop.
       }

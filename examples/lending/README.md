@@ -43,5 +43,5 @@ the narrated run.
 ```sh
 bo test examples/lending/lending.bo        # its three tests
 bo explain examples/lending/lending.bo     # the contract text the parties read
-examples/lending/lending.sh [CEXCHAIN] [DIR]        # the whole story (CTest: demo_lending)
+examples/lending/lending.sh [KANHE] [DIR]        # the whole story (CTest: demo_lending)
 ```

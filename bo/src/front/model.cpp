@@ -16,11 +16,11 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/values.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/values.hpp>
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -1226,4 +1226,4 @@ std::string dump(const Checked& checked, const Pack* language) {
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

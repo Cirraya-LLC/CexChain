@@ -7,15 +7,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
 #include "support/ledger_world.hpp"
 
 // Checks that a ledger's state survives a snapshot: written whole and read
 // back, it is the same state; and the ledger opened from a snapshot is the
 // same ledger as one that replays its whole log.
-namespace cexchain::test {
+namespace kanhe::test {
 
 /// The code of the deploy statement at `index` of `ledger`'s log.
 inline Result<Bytes> deploy_code(const ledger::Ledger& ledger, std::uint64_t index) {
@@ -68,4 +68,4 @@ inline void check_snapshot(World& w) {
     CHECK(verified);
 }
 
-} // namespace cexchain::test
+} // namespace kanhe::test

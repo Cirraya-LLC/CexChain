@@ -10,21 +10,21 @@
 #include <openssl/encoder.h>
 #include <openssl/evp.h>
 
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace crypto = cexchain::crypto;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::hex_field;
-using cexchain::test::load_vectors;
+namespace crypto = kanhe::crypto;
 using crypto::HashAlg;
 using crypto::SigAlg;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::hex_field;
+using kanhe::test::load_vectors;
 
 namespace {
 Bytes to_bytes(std::string_view text) {
@@ -52,7 +52,7 @@ Errc expected_error(const nlohmann::json& vector) {
 
 } // namespace
 
-TEST_CASE("OpenSSL provider supports every CexChain algorithm", "[crypto][openssl]") {
+TEST_CASE("OpenSSL provider supports every Kanhe algorithm", "[crypto][openssl]") {
     for (const auto alg : crypto::all_hash_algs) {
         INFO(crypto::name(alg));
         CHECK(provider().supports(alg));
@@ -162,7 +162,7 @@ TEST_CASE("generated keys sign and verify", "[crypto][openssl]") {
     CHECK(key->public_key().algorithm == alg);
     CHECK(key->public_key().bytes.size() == crypto::public_key_size(alg));
 
-    const auto message = as_bytes("CexChain");
+    const auto message = as_bytes("Kanhe");
     const auto signature = key->sign(message);
     REQUIRE(signature);
     CHECK(signature->size() == crypto::signature_size(alg));
@@ -271,7 +271,7 @@ TEST_CASE("passphrase-protected PKCS #8 round trip", "[crypto][openssl]") {
 TEST_CASE("encrypted keys decode through OpenSSL's generic decoder", "[crypto][openssl]") {
     // The path other tools take (the openssl command line among them): format
     // detection, then decryption with the passphrase. The key files are
-    // standard PKCS #8, not readable only by CexChain.
+    // standard PKCS #8, not readable only by Kanhe.
     const SigAlg alg =
         GENERATE(SigAlg::ed25519, SigAlg::esp256, SigAlg::sm2_sm3, SigAlg::ml_dsa_65);
     INFO(crypto::name(alg));
@@ -303,7 +303,7 @@ TEST_CASE("encrypted keys decode through OpenSSL's generic decoder", "[crypto][o
     OSSL_ENCODER_CTX_free(encoder);
     EVP_PKEY_free(pkey);
     REQUIRE(encoded == 1);
-    const auto reloaded = KeyPair::from_pkcs8(cexchain::ByteView(plain, plain_length));
+    const auto reloaded = KeyPair::from_pkcs8(kanhe::ByteView(plain, plain_length));
     OPENSSL_free(plain);
     REQUIRE(reloaded);
     CHECK(reloaded->public_key() == key->public_key());
@@ -315,7 +315,7 @@ TEST_CASE("HPKE seals to a public key and opens only with its private key",
     const auto key = HpkeKey::generate();
     REQUIRE(key);
     REQUIRE(key->public_key().size() == crypto::openssl::hpke_public_key_size);
-    const Bytes info = to_bytes("CexChain test");
+    const Bytes info = to_bytes("Kanhe test");
     const Bytes aad = to_bytes("record 1");
     const Bytes message = to_bytes("result = pass");
 

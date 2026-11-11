@@ -1,15 +1,17 @@
-# CexChain
+# Kanhe
 
 **Register, move, and prove anything, under rules you define.**
 
-CexChain keeps a verifiable history of anything you choose to keep: a document, a photo, a
+Kanhe was called CexChain until November 2026; the repository's old addresses lead here.
+
+Kanhe keeps a verifiable history of anything you choose to keep: a document, a photo, a
 camera lent to a friend, an approval, a membership, a debt. You decide what a thing is, the
 rules it follows, and whose agreement each step needs. Every step is signed by the person,
 AI agent, or device that took it, and anyone can verify the whole history offline, without
 trusting your database or any platform. It runs for one person on one computer, and for
 organizations on servers and clusters, with ledgers that work with each other's.
 
-Like a spreadsheet, CexChain knows nothing of what you keep in it: there are no built-in
+Like a spreadsheet, Kanhe knows nothing of what you keep in it: there are no built-in
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
@@ -18,7 +20,7 @@ purchase orders, invoices, or certificates. Those are things you define, and the
 > to be made again with a later one. The code has not been audited yet; see
 > [Security](#security) for how to report a vulnerability and the known open items.
 >
-> The specification: [the protocol in prose](spec/README.md), [`spec/cexchain.cddl`](spec/cexchain.cddl); the contract language: [`spec/bo.md`](spec/bo.md). What is not built yet: [Known limits](#known-limits).
+> The specification: [the protocol in prose](spec/README.md), [`spec/kanhe.cddl`](spec/kanhe.cddl); the contract language: [`spec/bo.md`](spec/bo.md). What is not built yet: [Known limits](#known-limits).
 
 ## What is here
 
@@ -26,10 +28,10 @@ Four parts, each a program, and each its own directory:
 
 | Part | Program | What it is |
 |---|---|---|
-| [The chain](chain/README.md) | `cexchain` | The protocol and everything that keeps, serves, and verifies a ledger: records, actors and delegations, contracts, witnesses, evidence, servers, replicas, clusters, and other organizations' ledgers |
+| [The chain](chain/README.md) | `kanhe` | The protocol and everything that keeps, serves, and verifies a ledger: records, actors and delegations, contracts, witnesses, evidence, servers, replicas, clusters, and other organizations' ledgers |
 | [The Bo language](bo/README.md) | `bo` | The language contracts are written in, and its compiler: it builds contracts, writes their contract text in three languages, runs their tests, and rebuilds deployed ones from their source |
-| [The web console](apps/console/README.md) | `cexchain-console` | A ledger in a browser, for a person or a company: setup, documents, rules, things, parties, people, each statement approved with a passkey |
-| [The search index](apps/index/README.md) | `cexchain-index` | Searches and reports over a ledger, from an index kept beside it |
+| [The web console](apps/console/README.md) | `kanhe-console` | A ledger in a browser, for a person or a company: setup, documents, rules, things, parties, people, each statement approved with a passkey |
+| [The search index](apps/index/README.md) | `kanhe-index` | Searches and reports over a ledger, from an index kept beside it |
 
 The chain needs none of the others: it runs a contract's code and keeps its source, whatever
 the language. Bo uses only the chain's verification layer, and the applications are built on
@@ -84,7 +86,7 @@ vectors (`testvectors/`), the [examples](examples/), the tests, and the tools. B
   passkey or a USB key for proof of presence; evidence is a file you hand over. Today you use
   it from the command line, or from a local web console (in progress); installers are planned.
 - **An organization.** Staff, AI agents, and devices act with rights the organization's root
-  key delegates, which can only narrow. `cexchain serve` runs a ledger over HTTP with API
+  key delegates, which can only narrow. `kanhe serve` runs a ledger over HTTP with API
   tokens; replicas, backups, and Raft clusters keep it available; a Docker image runs it.
 - **Several parties.** Each keeps its own ledger. They pin each other's ledgers, ask for and
   grant access to records, consent to each other's contract calls, and witness each other's
@@ -119,13 +121,13 @@ Packages are built by the Release workflow on a version tag, with their SHA-256 
 hand with `tools/package/linux.sh` (in the `gcc:16-trixie` image) and `tools/package/macos.sh`.
 On Linux there are two, each a tarball, a `.deb`, and an `.rpm`:
 
-- **`cexchain`**, what a server needs: the `cexchain` and `cexchain-index` programs, and a ledger
-  server unit for companies (`cexchain.service`, not enabled; its options in
-  `/etc/cexchain/serve.env`).
-- **`cexchain-console`**, which needs `cexchain` of the same version: the `cexchain-console` and
+- **`kanhe`**, what a server needs: the `kanhe` and `kanhe-index` programs, and a ledger
+  server unit for companies (`kanhe.service`, not enabled; its options in
+  `/etc/kanhe/serve.env`).
+- **`kanhe-console`**, which needs `kanhe` of the same version: the `kanhe-console` and
   `bo` programs, a menu entry for the console, and a unit for a company's console
-  (`cexchain-console.service`, not enabled, instead of `cexchain.service`; its options in
-  `/etc/cexchain/console.env`).
+  (`kanhe-console.service`, not enabled, instead of `kanhe.service`; its options in
+  `/etc/kanhe/console.env`).
 
 On macOS, a `.pkg` installs all four programs in `/usr/local/bin`. Every program comes with its
 shell completion. Removing a package keeps every ledger, console, and backup. Updates come the
@@ -138,28 +140,28 @@ A ledger of your own, and a photo registered on it as a record of a type you nam
 
 ```sh
 # Private keys are encrypted (PKCS #8, scrypt + AES-256). Passphrases come from
-# a prompt, --passphrase-file, or $CEXCHAIN_PASSPHRASE.
-cexchain key generate --out root.key
-cexchain key generate --out log.key
-export CEXCHAIN_LEDGER=./ledger
-cexchain init --name "Alice" --root-key root.key --log-key log.key
+# a prompt, --passphrase-file, or $KANHE_PASSPHRASE.
+kanhe key generate --out root.key
+kanhe key generate --out log.key
+export KANHE_LEDGER=./ledger
+kanhe init --name "Alice" --root-key root.key --log-key log.key
 
 # The root key registers who acts: you with an everyday key (keep the root key
 # offline), and in an organization its staff, AI agents, and devices.
-cexchain key generate --out alice.key && cexchain key public alice.key --out alice.pub
-cexchain actor add --as root.key --kind person --name "Alice" --key alice.pub
-cexchain delegation grant --as root.key --to <alice-id> \
+kanhe key generate --out alice.key && kanhe key public alice.key --out alice.pub
+kanhe actor add --as root.key --kind person --name "Alice" --key alice.pub
+kanhe delegation grant --as root.key --to <alice-id> \
     --allow record-register,record-endorse --record-types example.org.photo/1 --days 30
 
 # Register the photo; field values stay private until disclosed.
-cexchain record issue --as alice.key --type example.org.photo/1 \
+kanhe record issue --as alice.key --type example.org.photo/1 \
     --field place="Victoria Harbour" --field taken=2026-10-16 --attach photo.jpg
-cexchain record history <record-id>
+kanhe record history <record-id>
 
 # Checkpoint, export evidence with one field disclosed, and verify it anywhere.
-cexchain checkpoint create --log-key log.key
-cexchain export <record-id> --log-key log.key --disclose taken --with-attachments --out evidence.cbor
-cexchain verify evidence.cbor --ledger-id <ledger-id> --attachment photo.jpg=photo.jpg
+kanhe checkpoint create --log-key log.key
+kanhe export <record-id> --log-key log.key --disclose taken --with-attachments --out evidence.cbor
+kanhe verify evidence.cbor --ledger-id <ledger-id> --attachment photo.jpg=photo.jpg
 ```
 
 The verification report shows every event in the record's history, who performed it (person or
@@ -215,10 +217,10 @@ register a camera (with the `bo` program, [below](#the-bo-language)):
 bo test lending.bo           # the tests the contract carries
 bo explain lending.bo        # the contract text the parties read, in English or Chinese
 bo build lending.bo --out lending.boc
-cexchain contract deploy lending.boc --as root.key
-cexchain contract create <contract> create --as root.key \
+kanhe contract deploy lending.boc --as root.key
+kanhe contract create <contract> create --as root.key \
     --args "{\"fields\": {\"name\": \"Camera X100\"}, \"parties\": {\"owner\": h'<ledger-id>'}}"
-cexchain contract call <camera> lend --args "{\"counterparty\": h'<friend-ledger-id>'}" \
+kanhe contract call <camera> lend --args "{\"counterparty\": h'<friend-ledger-id>'}" \
     --dry-run --as root.key           # the contract needs the friend's consent
 ```
 
@@ -228,7 +230,7 @@ back, and anyone verifies the history.
 
 ## Command line
 
-The `cexchain` tool controls every part of a ledger:
+The `kanhe` tool controls every part of a ledger:
 
 | Area | Commands |
 |---|---|
@@ -255,13 +257,13 @@ The `cexchain` tool controls every part of a ledger:
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
 | Keepers | `keeper add`, `keeper list`, `keeper show`, `keeper revoke`, `keeper due`, `keeper run`; `serve --keeper-key` |
 
-The other programs have their own: `bo` the [Bo language's](bo/README.md), `cexchain-console`
-the [web console's](apps/console/README.md), and `cexchain-index` the
+The other programs have their own: `bo` the [Bo language's](bo/README.md), `kanhe-console`
+the [web console's](apps/console/README.md), and `kanhe-index` the
 [search index's](apps/index/README.md). In all four:
 
 - Every command takes `--help`, and `--json` for scripting.
-- `cexchain help --json` describes every command and option in machine-readable form.
-- `source <(cexchain completion bash)` (or `zsh`) enables tab completion.
+- `kanhe help --json` describes every command and option in machine-readable form.
+- `source <(kanhe completion bash)` (or `zsh`) enables tab completion.
 - IDs can be shortened to any unique prefix of 8 or more hex digits.
 - Exit codes: 0 for success, 1 for a usage error, 2 for a failure, and 3 when evidence or a ledger fails verification.
 
@@ -275,35 +277,35 @@ the vault private key can read it. The vault private key can be kept off the led
 
 ## Proof of presence
 
-A signature shows that a key was used, not that a person was there. CexChain therefore attributes
+A signature shows that a key was used, not that a person was there. Kanhe therefore attributes
 actions to machines by default, and treats an action as a person's only when it carries proof of
 presence: a WebAuthn assertion from the person's passkey (Touch ID, Windows Hello, a phone, or a
 security key) that approves exactly that statement.
 
 ```sh
 # The person: create a passkey; only its public data goes into the file.
-cexchain presence enroll --out alice.passkey --name "Alice"
+kanhe presence enroll --out alice.passkey --name "Alice"
 # The ledger's owner: register it. (A stolen signing key cannot enroll a thief's passkey.)
-cexchain actor set-presence <alice-id> --as root.key --credential alice.passkey
+kanhe actor set-presence <alice-id> --as root.key --credential alice.passkey
 # Require presence for what matters...
-cexchain delegation grant --as root.key --to <alice-id> --allow record-endorse --require-presence
+kanhe delegation grant --as root.key --to <alice-id> --allow record-endorse --require-presence
 # ...and confirm with the passkey when acting.
-cexchain record endorse <record-id> --as alice.key --role approver --presence
+kanhe record endorse <record-id> --as alice.key --role approver --presence
 ```
 
 USB keys (UKey) and smart cards work too, through PKCS #11: the token's key signs the statement's
 presence challenge after the person enters the PIN. Hardware keys may use any signature algorithm
-CexChain supports, SM2 included.
+Kanhe supports, SM2 included.
 
 ```sh
 # Generate a key on the token and enroll it (or enroll a key the vendor's tools created).
-cexchain key generate --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
+kanhe key generate --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
     --alg esp256 --out alice-ukey.pub
-cexchain presence enroll --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
+kanhe presence enroll --pkcs11 "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so" \
     --label "Alice's UKey" --out alice.ukey
-cexchain actor set-presence <alice-id> --as root.key --credential alice.ukey
-# Confirm with the token when acting; the PIN comes from a prompt or $CEXCHAIN_PKCS11_PIN.
-cexchain record endorse <record-id> --as alice.key --role approver \
+kanhe actor set-presence <alice-id> --as root.key --credential alice.ukey
+# Confirm with the token when acting; the PIN comes from a prompt or $KANHE_PKCS11_PIN.
+kanhe record endorse <record-id> --as alice.key --role approver \
     --presence-key "pkcs11:token=UKey;object=alice-presence?module-path=/path/to/vendor.so"
 ```
 
@@ -328,12 +330,12 @@ after the rotation; older checkpoints stay valid under the key that signed them.
 carry the rotations, and verifiers, witnesses, and replicas follow them.
 
 ```sh
-cexchain ledger keys                                         # both histories, with log indices
-cexchain ledger rotate-log-key --as root.key --new-key log2.key
-cexchain checkpoint create --log-key log2.key                # the old key no longer checkpoints
-cexchain ledger rotate-root-key --as root.key --new-key root2.key
+kanhe ledger keys                                         # both histories, with log indices
+kanhe ledger rotate-log-key --as root.key --new-key log2.key
+kanhe checkpoint create --log-key log2.key                # the old key no longer checkpoints
+kanhe ledger rotate-root-key --as root.key --new-key root2.key
 # A server can hold both log keys across the switch.
-cexchain serve --log-key log.key --log-key log2.key
+kanhe serve --log-key log.key --log-key log2.key
 ```
 
 ## Witnesses
@@ -346,18 +348,18 @@ old (the C2SP witness model).
 
 ```sh
 # The operator, once: the genesis entry, which fixes the ledger id and its first keys.
-cexchain ledger genesis --out genesis.entry
+kanhe ledger genesis --out genesis.entry
 # The witness, once: follow the ledger, checked against the id learned from the operator.
 # (From the genesis entry, the witness follows key rotations too.)
-cexchain witness add-log --dir witness --genesis genesis.entry --ledger-id <ledger-id>
+kanhe witness add-log --dir witness --genesis genesis.entry --ledger-id <ledger-id>
 # The operator, after each checkpoint:
-cexchain checkpoint cosign-request --witness witness.pub --out request.cbor
+kanhe checkpoint cosign-request --witness witness.pub --out request.cbor
 # The witness: check consistency, then cosign. A forked or rewritten ledger is refused.
-cexchain witness cosign request.cbor --dir witness --key witness.key --out cosignature.cbor
+kanhe witness cosign request.cbor --dir witness --key witness.key --out cosignature.cbor
 # The operator: store it. Exported evidence now carries it.
-cexchain checkpoint add-cosignature cosignature.cbor --witness witness.pub
+kanhe checkpoint add-cosignature cosignature.cbor --witness witness.pub
 # Anyone: require witnesses they trust.
-cexchain verify evidence.cbor --witness witness.pub --min-witnesses 1
+kanhe verify evidence.cbor --witness witness.pub --min-witnesses 1
 ```
 
 **Public witnesses.** A witness can also serve anyone who asks, with no token
@@ -369,16 +371,16 @@ and time; never statements, records, fields, parties, or files.
 
 ```sh
 # The witness's operator: serve it, with TLS of its own (quotas see callers' addresses).
-cexchain serve --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem \
+kanhe serve --listen 0.0.0.0:443 --tls-cert cert.pem --tls-key key.pem \
     --witness-dir witness --witness-key witness.key --witness-public --witness-name example
 # A ledger: register with it, pinning the key its operator publishes.
-cexchain witness register https://witness.example.org --witness-key witness.pub
-cexchain witness registered            # what each witness cosigned
-cexchain witness unregister example    # stop asking; what it cosigned stays valid
+kanhe witness register https://witness.example.org --witness-key witness.pub
+kanhe witness registered            # what each witness cosigned
+kanhe witness unregister example    # stop asking; what it cosigned stays valid
 ```
 
 In the web console, Parties lists the public witnesses a ledger asks and adds one by its address
-and key. A build can offer known witnesses (`-DCEXCHAIN_PUBLIC_WITNESSES=name|url|keyhex,...`);
+and key. A build can offer known witnesses (`-DKANHE_PUBLIC_WITNESSES=name|url|keyhex,...`);
 none is used unless someone chooses it.
 
 **Relays.** A ledger that no party reaches directly, such as a console on a laptop, is reached
@@ -388,11 +390,11 @@ its own API as if it had come directly (the peer token decides, as always), and 
 answer back. The relay learns who writes to whom, when, and how much; never what.
 
 ```sh
-cexchain relay key init --out relay.key
-cexchain relay use https://witness.example.org --relay-key relay.key --witness-key witness.pub
-cexchain serve --log-key log.key --relay-key relay.key   # answers what waits at the relay
-cexchain peer invite bank                                # the code carries the relay
-cexchain access fetch --peer factory --request ID --out d.cbor --log-key log.key
+kanhe relay key init --out relay.key
+kanhe relay use https://witness.example.org --relay-key relay.key --witness-key witness.pub
+kanhe serve --log-key log.key --relay-key relay.key   # answers what waits at the relay
+kanhe peer invite bank                                # the code carries the relay
+kanhe access fetch --peer factory --request ID --out d.cbor --log-key log.key
 ```
 
 Commands that reach a party take `--log-key` to reach it through its relay (what goes there is
@@ -404,23 +406,23 @@ a relay; new invitation codes then carry it instead of a local address.
 A SHA-256 ledger can also be witnessed by the witnesses of open transparency networks, such as
 the [witness network](https://witness-network.org), that follow C2SP's specifications
 ([tlog-witness](https://c2sp.org/tlog-witness), [tlog-cosignature](https://c2sp.org/tlog-cosignature)).
-They know nothing of CexChain: they cosign its checkpoints as text notes under a name derived
-from the ledger id, `cirraya.com/cexchain/<ledger id>`, each time checking that the new history
+They know nothing of Kanhe: they cosign its checkpoints as text notes under a name derived
+from the ledger id, `cirraya.com/kanhe/<ledger id>`, each time checking that the new history
 extends the one they cosigned before. Exports carry their cosignatures, and a verifier that trusts
 a witness by its verifier key counts it as it counts its own witnesses.
 
 ```sh
 # Once: a note key (Ed25519; keep and back it up as the log key: networks never update it),
 # and the ledger's entry for the network's list of logs, to send to its maintainers yourself.
-cexchain key generate --out note.key
-cexchain witness network-entry --note-key note.key --contact "ops@example.org"
+kanhe key generate --out note.key
+kanhe witness network-entry --note-key note.key --contact "ops@example.org"
 # The witnesses to ask, by the add-checkpoint URL and verifier key their about pages give.
-cexchain witness register https://witness.example.org/add-checkpoint --vkey 'example.org/w+1a2b3c4d+B...'
+kanhe witness register https://witness.example.org/add-checkpoint --vkey 'example.org/w+1a2b3c4d+B...'
 # Ask now, or let the server ask after each new checkpoint (at most --network-interval apart).
-cexchain checkpoint network-cosign --note-key note.key
-cexchain serve --log-key log.key --note-key note.key --network-interval 3600
+kanhe checkpoint network-cosign --note-key note.key
+kanhe serve --log-key log.key --note-key note.key --network-interval 3600
 # Anyone: count them.
-cexchain verify evidence.cbor --witness-vkey 'example.org/w+1a2b3c4d+B...' --min-witnesses 1
+kanhe verify evidence.cbor --witness-vkey 'example.org/w+1a2b3c4d+B...' --min-witnesses 1
 ```
 
 `checkpoint note` prints a checkpoint's note, and `checkpoint network-cosignatures` what the
@@ -437,12 +439,12 @@ a commercial one) gives an outsider a bound on *when*: it signs, at its own time
 checkpoint, so whoever trusts it knows that everything the checkpoint covers existed by then.
 
 ```sh
-cexchain checkpoint timestamp --tsa https://tsa.example.com/tsr   # the latest checkpoint, stamped
-cexchain checkpoint timestamps --tsa-root tsa-root.pem            # what is kept, and whom you trust
-cexchain serve --log-key log.key --tsa https://tsa.example.com/tsr   # stamps by itself, every hour
+kanhe checkpoint timestamp --tsa https://tsa.example.com/tsr   # the latest checkpoint, stamped
+kanhe checkpoint timestamps --tsa-root tsa-root.pem            # what is kept, and whom you trust
+kanhe serve --log-key log.key --tsa https://tsa.example.com/tsr   # stamps by itself, every hour
 
 # A verifier that trusts the authority's root: when the record existed by, from outside the ledger.
-cexchain verify evidence.cbor --ledger-id <ledger-id> --tsa-root tsa-root.pem --min-timestamps 1
+kanhe verify evidence.cbor --ledger-id <ledger-id> --tsa-root tsa-root.pem --min-timestamps 1
 ```
 
 Tokens are kept beside the checkpoints, never in the log, and replicas, clusters, and backups keep
@@ -456,8 +458,8 @@ The browser verifier takes the authority's root certificate as it takes witness 
 
 ## Browser verifier
 
-Anyone can check evidence without installing anything. `cexchain-verify.html` is one self-contained
-page: the same verification code as `cexchain verify` and `contract verify`, compiled to
+Anyone can check evidence without installing anything. `kanhe-verify.html` is one self-contained
+page: the same verification code as `kanhe verify` and `contract verify`, compiled to
 WebAssembly together with OpenSSL and the contract interpreter. It takes a record's evidence bundle
 or a contract instance's evidence, which it checks by running the contract again on every call. It
 runs entirely in the browser and uploads nothing. It works offline, even opened from disk, and it
@@ -468,13 +470,13 @@ server, executors, the MCP server) also remember the signatures they have verifi
 genesis, checkpoints, and receipts are verified once, not for every bundle that carries them.
 
 ```sh
-tools/wasm/build.sh            # needs Emscripten; writes build/wasm/cexchain-verify.html
+tools/wasm/build.sh            # needs Emscripten; writes build/wasm/kanhe-verify.html
 ```
 
 Publish a record's evidence bundle, then print a QR code on the document, or beside the photo:
 
 ```sh
-cexchain qr <record-id> --bundle-url https://example.com/evidence/photo-1016.cbor \
+kanhe qr <record-id> --bundle-url https://example.com/evidence/photo-1016.cbor \
     --verifier-url https://example.com/verify.html --out photo-1016-qr.svg
 ```
 
@@ -491,29 +493,29 @@ revoked or replaced since included, publish the record at a private address its 
 for anyone, with only the fields on the paper disclosed:
 
 ```sh
-cexchain record publish <record-id> --disclose name,degree --url https://ledger.example.com
+kanhe record publish <record-id> --disclose name,degree --url https://ledger.example.com
 # published 3f2a9c01 at https://ledger.example.com/c/4kq0... (name, degree)
-cexchain qr <record-id> --bundle-url https://ledger.example.com/c/4kq0... \
+kanhe qr <record-id> --bundle-url https://ledger.example.com/c/4kq0... \
     --verifier-url https://example.com/verify.html --out diploma-qr.svg
-cexchain record unpublish 4kq0...    # takes the address down; the record stays
+kanhe record unpublish 4kq0...    # takes the address down; the record stays
 ```
 
 For certificates in bulk, issued from a table and printed with their QR codes, see
-`cexchain-console certificate` in [the console's README](apps/console/README.md).
+`kanhe-console certificate` in [the console's README](apps/console/README.md).
 
 ## Claims
 
 A claim confirms a condition on a record's fields without disclosing them: "the monthly salary
 is above HKD 30,000.00", not the salary; "born before 2008-11-10", not the birth date. The issuer
-checks the condition against the record's private data and registers a `cexchain.claim/1`
+checks the condition against the record's private data and registers a `kanhe.claim/1`
 record that names the record, the condition, and the answer. Its evidence shows the condition
 in words and whether the record was revoked or replaced since, and nothing of its fields.
 
 ```sh
-cexchain claim issue <payslip-id> --as hr.key --if 'monthly_salary > HKD 30000.00' \
+kanhe claim issue <payslip-id> --as hr.key --if 'monthly_salary > HKD 30000.00' \
     --subject "Chan Tai Man" --until 2026-12-31
 # issued claim 7c41...: holds: monthly_salary is above HKD 30,000.00
-cexchain record publish <claim-id> --url https://ledger.example.com   # a QR code's address
+kanhe record publish <claim-id> --url https://ledger.example.com   # a QR code's address
 ```
 
 Conditions compare numbers, money (`HKD 30000.00`), dates, and text with `>`, `>=`, `<`, `<=`,
@@ -524,21 +526,21 @@ hold gets no claim unless `--allow-no`, so that asking reveals nothing more than
 
 A ledger's id says which ledger issued a record, not who runs it: the organization name in its
 genesis is its own word. A trust node is any ledger that checks who runs other ledgers and says
-so in a `cexchain.membership/1` record: "ledger 1a2b... is Kowloon Example School, company
+so in a `kanhe.membership/1` record: "ledger 1a2b... is Kowloon Example School, company
 12345678, Hong Kong, checked". The member fetches its proof and its evidence carries it from then
 on. A verifier believes the trust nodes it chose, named by its own list and never by the
 evidence, and sees whether the membership was active when the record was issued:
 
 ```sh
 # The trust node:
-cexchain trust member add <school-ledger-id> --name "Kowloon Example School" --verified \
+kanhe trust member add <school-ledger-id> --name "Kowloon Example School" --verified \
     --registration 12345678 --jurisdiction HK --as checker.key
-cexchain serve --log-key log.key ...          # serves the proof at /m/<school-ledger-id>
+kanhe serve --log-key log.key ...          # serves the proof at /m/<school-ledger-id>
 # The school, once:
-cexchain trust node add hktrust --ledger-id <trust-node-ledger-id> --url https://trust.example.org
-cexchain trust node fetch                      # again from time to time
+kanhe trust node add hktrust --ledger-id <trust-node-ledger-id> --url https://trust.example.org
+kanhe trust node fetch                      # again from time to time
 # Anyone:
-cexchain verify diploma.cbor --trust-node "<trust-node-ledger-id>=HK Trust"
+kanhe verify diploma.cbor --trust-node "<trust-node-ledger-id>=HK Trust"
 #   Member       per HK Trust (trust node 3f9a...), which you trust
 #                Kowloon Example School: an organization, checked by the trust node, ...
 ```
@@ -556,13 +558,13 @@ verifiers the same evidence: valid, damaged, and forged at the specification's e
 agree.
 
 ```sh
-PYTHONPATH=verifiers/python python3 -m cexchain_verify evidence.cbor --ledger-id <ledger-id>
-PYTHONPATH=verifiers/python python3 -m cexchain_verify contract deal.cbor --ledger-id <home-id>
+PYTHONPATH=verifiers/python python3 -m kanhe_verify evidence.cbor --ledger-id <ledger-id>
+PYTHONPATH=verifiers/python python3 -m kanhe_verify contract deal.cbor --ledger-id <home-id>
 ```
 
 ## Running a ledger as a service
 
-`cexchain serve` exposes a ledger over HTTP (API v1, described by `cexchain serve --help`). Signed
+`kanhe serve` exposes a ledger over HTTP (API v1, described by `kanhe serve --help`). Signed
 statements are the authorization: the server only checks API tokens, which gate access because
 statements reveal metadata. The server holds the ledger's lock only while it writes (groups
 back to back keep it until the writer runs out of work), so every other command keeps working on
@@ -575,24 +577,24 @@ lock, one sync, and signatures checked and contract calls run on every core (a c
 only if its input is still the same when the call's turn comes). The next group is validated while
 one syncs, and readers wait only while a statement is applied, never for a group's contract runs or
 its sync. Readers only ever see durable entries, and nothing is answered before it is durable.
-`cexchain-bench http` measures it.
+`kanhe-bench http` measures it.
 
 ```sh
-cexchain token create app --scope submit,read --out app.token   # shown once; only its hash is kept
-cexchain token create replica --scope read --out replica.token
-cexchain serve --listen 0.0.0.0:8080 --log-key log.key --tls-cert cert.pem --tls-key key.pem
+kanhe token create app --scope submit,read --out app.token   # shown once; only its hash is kept
+kanhe token create replica --scope read --out replica.token
+kanhe serve --listen 0.0.0.0:8080 --log-key log.key --tls-cert cert.pem --tls-key key.pem
 
 # Elsewhere: a replica copies the ledger and re-validates every entry and checkpoint it copies.
-CEXCHAIN_TOKEN=$(cat replica.token) cexchain replica init --from https://ledger.example.com \
+KANHE_TOKEN=$(cat replica.token) kanhe replica init --from https://ledger.example.com \
     --ledger-id LEDGER_ID --ledger ./replica
-cexchain replica sync --ledger ./replica --follow
-cexchain serve --ledger ./replica --listen 0.0.0.0:8080       # read-only, for verifiers and reports
+kanhe replica sync --ledger ./replica --follow
+kanhe serve --ledger ./replica --listen 0.0.0.0:8080       # read-only, for verifiers and reports
 
 # Backups: one file, re-validated on restore. Sign them with the log key: a restore takes what no
 # checkpoint covers (the newest entries, tokens, the vault) only from a signed backup.
-cexchain backup create --ledger ./replica --out ledger.cxb --log-key log.key
-cexchain backup verify ledger.cxb
-cexchain backup restore ledger.cxb --ledger ./restored
+kanhe backup create --ledger ./replica --out ledger.khb --log-key log.key
+kanhe backup verify ledger.khb
+kanhe backup restore ledger.khb --ledger ./restored
 ```
 
 **Snapshots.** Opening a ledger replays and re-validates its whole log, which takes minutes for
@@ -601,7 +603,7 @@ millions of entries. After a checkpoint, once the log has grown 100,000 entries 
 opens start from the newest one that checks against the log (its leaves, roots, and state
 commitment), replaying only what follows. The integrity check is not dropped, only moved: a server
 opened from a snapshot replays the whole log on a thread of its own and stops serving if the state
-differs, and `cexchain audit` does the same. A snapshot never leaves its machine; replicas,
+differs, and `kanhe audit` does the same. A snapshot never leaves its machine; replicas,
 restores, and cluster members validate every entry they take, and make their own (`ledger snapshot
 create|show|remove`).
 
@@ -609,27 +611,27 @@ A replica copies only what the log key signed: each checkpoint is checked first,
 it covers must lead to its root before any is taken, so a replica trails its primary by the
 checkpoint interval. It stops (exit 3) at the first entry that does not validate, and refuses
 histories that were rolled back, so a compromised primary cannot rewrite a replica's copy. If the primary is lost,
-stop it for good and run `cexchain replica promote`; witnesses would detect two primaries signing.
+stop it for good and run `kanhe replica promote`; witnesses would detect two primaries signing.
 Operations: `GET /healthz`, Prometheus metrics at `GET /metrics`, an access log in JSON lines on
 stderr, automatic checkpoints (`--checkpoint-interval`), and graceful shutdown on SIGTERM. The
 `Dockerfile` builds a small image that runs as a non-root user with the ledger in `/data`.
 
-**A web console.** `cexchain-console run` serves the ledger with a web console beside its API,
+**A web console.** `kanhe-console run` serves the ledger with a web console beside its API,
 for one person on their computer or a company on its server: setting a ledger up, signing people
 in with passkeys, documents and their proof, rules written and deployed, things under them,
 parties, machines and AI agents, and backups, each statement approved with a passkey. It is an
 application on the chain, in [`apps/console/`](apps/console/README.md).
 
-**A search index.** `cexchain-index serve` serves a ledger read-only, beside its primary or on a
+**A search index.** `kanhe-index serve` serves a ledger read-only, beside its primary or on a
 replica, with searches and reports over its records and things (`GET /v1/records`,
-`/v1/instances`, `/v1/reports/...`), from an index it keeps beside the ledger; `cexchain-index
+`/v1/instances`, `/v1/reports/...`), from an index it keeps beside the ledger; `kanhe-index
 search` and `report` read the same index on the command line. It is an application too, in
 [`apps/index/`](apps/index/README.md).
 
 ## Working through a server
 
 Most commands also run against a server instead of a ledger directory: pass `--server URL` (or set
-`$CEXCHAIN_SERVER`) with an API token (`--token-file`, or `$CEXCHAIN_TOKEN`). The client keeps a
+`$KANHE_SERVER`) with an API token (`--token-file`, or `$KANHE_TOKEN`). The client keeps a
 mirror of the ledger in its cache and brings it up to date first, re-validating every entry and
 checkpoint, so everything it shows was verified on this machine; a server that rolls back or forks
 what the client saw before is refused. Statements are signed here and sent to the server, so keys
@@ -637,11 +639,11 @@ never leave the client. A record's private data is sealed here to the server's v
 with the record.
 
 ```sh
-export CEXCHAIN_SERVER=https://ledger.example.com CEXCHAIN_TOKEN=$(cat app.token)
-cexchain status --ledger-id LEDGER_ID        # the first use pins the ledger the URL serves
-cexchain record issue --as alice.key --type example.org.photo/1 --field taken=2026-10-16
-cexchain checkpoint create                    # the server signs (admin token); the client checks
-cexchain export RECORD --disclose taken --vault-key vault.key --out evidence.cbor
+export KANHE_SERVER=https://ledger.example.com KANHE_TOKEN=$(cat app.token)
+kanhe status --ledger-id LEDGER_ID        # the first use pins the ledger the URL serves
+kanhe record issue --as alice.key --type example.org.photo/1 --field taken=2026-10-16
+kanhe checkpoint create                    # the server signs (admin token); the client checks
+kanhe export RECORD --disclose taken --vault-key vault.key --out evidence.cbor
 ```
 
 The ledger id must be given on first use of an `http://` URL. Commands that administer the server's
@@ -657,14 +659,14 @@ seconds, and no acknowledged write is lost. Followers serve reads and send write
 
 ```sh
 # The founder, from a fully checkpointed ledger:
-cexchain cluster init --ledger ./node1 --id 1 --raft node1:7001 --api https://node1:8443
-cexchain serve --cluster --ledger ./node1 --log-key log.key --listen 0.0.0.0:8443 ...
+kanhe cluster init --ledger ./node1 --id 1 --raft node1:7001 --api https://node1:8443
+kanhe serve --cluster --ledger ./node1 --log-key log.key --listen 0.0.0.0:8443 ...
 # Each other member copies the ledger, runs, and is added by the leader:
-cexchain cluster join --ledger ./node2 --from https://node1:8443 --id 2 --raft node2:7001 \
+kanhe cluster join --ledger ./node2 --from https://node1:8443 --id 2 --raft node2:7001 \
     --api https://node2:8443 --secret-file secret
-cexchain serve --cluster --ledger ./node2 --log-key log.key --listen 0.0.0.0:8443 ...
-cexchain cluster add --server https://node1:8443 --id 2 --raft node2:7001 --api https://node2:8443
-cexchain cluster status --server https://node2:8443
+kanhe serve --cluster --ledger ./node2 --log-key log.key --listen 0.0.0.0:8443 ...
+kanhe cluster add --server https://node1:8443 --id 2 --raft node2:7001 --api https://node2:8443
+kanhe cluster status --server https://node2:8443
 ```
 
 Members authenticate every Raft message with the cluster's shared secret. Each member holds the log
@@ -683,26 +685,26 @@ reviewer asks another organization for one of its records:
 # inviter's name, the URL of its API, and a token issued for the invited party: one code each
 # way, sent to that party only, and the fingerprint (the id's first 20 hex digits) compared by
 # voice. Accepting adds the peer, its token kept owner-only.
-cexchain peer invite reviewer --url https://ledger.holder.example      # on the holder: a cxp_ code
-cexchain peer accept cxp_... --name holder                              # on the reviewer
-cexchain peer invite holder --url https://ledger.reviewer.example      # and back
-cexchain peer accept cxp_... --name reviewer                            # on the holder
-# Or by hand: cexchain peer add holder --ledger-id <id> --url <url> --token-file holder.token
+kanhe peer invite reviewer --url https://ledger.holder.example      # on the holder: a khp_ code
+kanhe peer accept khp_... --name holder                              # on the reviewer
+kanhe peer invite holder --url https://ledger.reviewer.example      # and back
+kanhe peer accept khp_... --name reviewer                            # on the holder
+# Or by hand: kanhe peer add holder --ledger-id <id> --url <url> --token-file holder.token
 
 # The reviewer asks (a request record on its own ledger, with a key made for this request).
-cexchain access request --peer holder --record <id> --purpose "annual review" \
+kanhe access request --peer holder --record <id> --purpose "annual review" \
     --fields result --attachments report.pdf --as reviewer.key --log-key log.key --send
 
 # The holder sees who asked and under whose authority, and grants (a grant record on its ledger);
 # a file kept with the record serves without --attach. Or dismisses it: nothing is recorded.
-cexchain access inbox
-cexchain access grant <request> --as approver.key --log-key log.key --attach report.pdf=report.pdf
-cexchain access dismiss <request>
+kanhe access inbox
+kanhe access grant <request> --as approver.key --log-key log.key --attach report.pdf=report.pdf
+kanhe access dismiss <request>
 
 # The reviewer fetches and checks everything against the holder's ledger, then acknowledges
 # (a receipt record on its ledger, sent back).
-cexchain access fetch --peer holder --request <request> --out delivery.cbor
-cexchain access accept delivery.cbor --as reviewer.key --log-key log.key --save-dir received --send
+kanhe access fetch --peer holder --request <request> --out delivery.cbor
+kanhe access accept delivery.cbor --as reviewer.key --log-key log.key --save-dir received --send
 ```
 
 Each step is a record on the acting party's own ledger, so delegations decide who may request,
@@ -720,19 +722,19 @@ whether a salary is above an amount, and never sees the salary. The holder's ans
 record, with that condition, and acknowledges it as it acknowledges a delivery.
 
 ```sh
-cexchain access request --peer holder --record <id> --purpose "eligibility check" \
+kanhe access request --peer holder --record <id> --purpose "eligibility check" \
     --if 'monthly_salary > HKD 30000' --as reviewer.key --log-key log.key --send
-cexchain access answer <request> --as approver.key --log-key log.key   # on the holder
-cexchain access fetch --peer holder --request <request> --out answer.cbor
-cexchain access accept answer.cbor --as reviewer.key --log-key log.key --send
+kanhe access answer <request> --as approver.key --log-key log.key   # on the holder
+kanhe access fetch --peer holder --request <request> --out answer.cbor
+kanhe access accept answer.cbor --as reviewer.key --log-key log.key --send
 ```
 
 If the condition does not hold, nothing is answered unless the holder chooses to say so
 (`--allow-no`), so a refusal looks like silence.
 
-Two parties can also witness each other's ledgers. `cexchain serve --witness-dir DIR
+Two parties can also witness each other's ledgers. `kanhe serve --witness-dir DIR
 --witness-key KEY` cosigns a peer's checkpoints online, and the peer runs
-`cexchain checkpoint cosign-request --peer NAME --send`. `peer invite --witness-key PUB` puts the
+`kanhe checkpoint cosign-request --peer NAME --send`. `peer invite --witness-key PUB` puts the
 witness's key in the code, and the witness follows the peer's ledger from its genesis entry
 (`witness add-log --genesis FILE`; a peer reads it at `GET /v1/genesis`), so it follows the peer's
 key rotations too. No third party is needed for neither side to be able to rewrite its history
@@ -750,24 +752,24 @@ browser included, reaches the same result. A home and parties on other ledgers:
 ```sh
 # The home deploys a contract written in Bo and creates an instance, naming the parties.
 bo build rules.bo --out rules.boc
-cexchain contract deploy rules.boc --as root.key
-cexchain contract create <contract> create --args '{"fields": {...}, "parties": {...}}' --as clerk.key
+kanhe contract deploy rules.boc --as root.key
+kanhe contract create <contract> create --args '{"fields": {...}, "parties": {...}}' --as clerk.key
 
 # Its registrar records calls that need other parties' consents: a device with a delegation
 # for calls on this contract only.
-cexchain delegation grant --as root.key --to <registrar> --allow contract-call --contracts <contract>
-cexchain serve --log-key log.key --registrar-key registrar.key ...
+kanhe delegation grant --as root.key --to <registrar> --allow contract-call --contracts <contract>
+kanhe serve --log-key log.key --registrar-key registrar.key ...
 
 # Another party proposes a call; the contract names whose consents it needs. Each party sees
 # the call's terms and consents on its own ledger; the last consent gets the call recorded.
-cexchain contract propose <instance> sign --peer home
-cexchain contract pending --peer home
-cexchain contract consent --peer home --call <call> --as approver.key --log-key log.key --send
+kanhe contract propose <instance> sign --peer home
+kanhe contract pending --peer home
+kanhe contract consent --peer home --call <call> --as approver.key --log-key log.key --send
 
 # Anyone: verify the instance offline, every call run again and every consent checked; and
 # rebuild the contract's code from the Bo source its deploy carries.
-cexchain contract fetch --peer home --instance <instance> --out instance.cbor
-cexchain contract verify instance.cbor --ledger-id <home-ledger-id> --deploy-out rules.boc
+kanhe contract fetch --peer home --instance <instance> --out instance.cbor
+kanhe contract verify instance.cbor --ledger-id <home-ledger-id> --deploy-out rules.boc
 bo rebuild rules.boc
 ```
 
@@ -775,13 +777,13 @@ Arguments are written in CBOR diagnostic notation: JSON without floating point, 
 (`h'00ff'`), keys of any type, and tags (`--args-cbor FILE` takes them encoded). `contract call
 --dry-run` shows what the contract would do. A consent names exact terms, among them the instance's
 *head* and a digest of the arguments, so it applies to one call, once. Without a registrar, or
-between ledgers that do not reach each other's APIs, consents travel as files (`.cexchain`, by any
+between ledgers that do not reach each other's APIs, consents travel as files (`.kanhe`, by any
 channel): the home writes a *proposal* with the call's terms and the instance's evidence
-(`contract proposal <instance> sign --args ... --out sign.cexchain`); each party checks it offline
-(`contract file show sign.cexchain`) and consents on its own ledger, which writes the *consent*
-file to send back (`contract consent --proposal sign.cexchain --out ok.cexchain`); and the home
+(`contract proposal <instance> sign --args ... --out sign.kanhe`); each party checks it offline
+(`contract file show sign.kanhe`) and consents on its own ledger, which writes the *consent*
+file to send back (`contract consent --proposal sign.kanhe --out ok.kanhe`); and the home
 records the call with the consent files, its arguments taken from them (`contract call
-<instance> sign --consent ok.cexchain`). `contract verify` shows each call, its outcome, and who consented: a
+<instance> sign --consent ok.kanhe`). `contract verify` shows each call, its outcome, and who consented: a
 person who proved presence, a key alone, or an AI agent and its model. The browser verifier shows
 the same report. Delegations can be limited to contracts (`delegation grant --contracts`), and
 `contract retire` stops new instances while existing ones carry on. `contract deploy WASM
@@ -796,12 +798,12 @@ fetch its evidence, which carries its ancestors' calls up to each division, cons
 whoever takes a part three generations down verifies its whole chain offline:
 
 ```sh
-cexchain contract propose <instance> split --peer home \
+kanhe contract propose <instance> split --peer home \
     --args "{\"parts\": [600, 400], \"recipients\": [h'<ledger A>', h'<ledger B>']}"
-cexchain contract instances --parent <instance>      # the parts its calls created
-cexchain contract instance <part>                    # its parent, depth, position, and ancestors
-cexchain contract fetch --peer home --instance <part> --out part.cbor
-cexchain contract verify part.cbor --ledger-id <home-ledger-id>   # its ancestors first, then its own calls
+kanhe contract instances --parent <instance>      # the parts its calls created
+kanhe contract instance <part>                    # its parent, depth, position, and ancestors
+kanhe contract fetch --peer home --instance <part> --out part.cbor
+kanhe contract verify part.cbor --ledger-id <home-ledger-id>   # its ancestors first, then its own calls
 ```
 
 The ledger refuses a call that creates parts on a retired contract or at depth 8; `--dry-run` and
@@ -816,12 +818,12 @@ reply functions, answering requests of some kinds only (scope keys 7 to 9), so i
 nothing else:
 
 ```sh
-cexchain executor add Notifier --contract <contract> --kinds notify --key-out notifier.key --as root.key
-cexchain request list --open                      # what contracts asked for, and what is overdue
-cexchain request answer <request> --done --args '{"ref": "N-1"}' --as notifier.key
-cexchain request answer <request> --failed --reason unavailable --as clerk.key   # by hand
-cexchain request cancel <request> --as clerk.key  # answered failed, reason cancelled
-cexchain contract verify instance.cbor --ledger-id <home-ledger-id> --require-answered
+kanhe executor add Notifier --contract <contract> --kinds notify --key-out notifier.key --as root.key
+kanhe request list --open                      # what contracts asked for, and what is overdue
+kanhe request answer <request> --done --args '{"ref": "N-1"}' --as notifier.key
+kanhe request answer <request> --failed --reason unavailable --as clerk.key   # by hand
+kanhe request cancel <request> --as clerk.key  # answered failed, reason cancelled
+kanhe contract verify instance.cbor --ledger-id <home-ledger-id> --require-answered
 ```
 
 `contract verify` shows each call's requests and the answer it gives (who gave it, under which
@@ -836,22 +838,22 @@ connectors serve, verifies each request open in the instance's evidence, journal
 before every outside action), hands it to the connector its config routes the contract and kind
 to, and signs and sends the answer. A connector is a child process that speaks JSON lines over
 stdin and stdout, in any language, and never sees the signing key
-([`spec/connectors.md`](spec/connectors.md)); two ship with CexChain. `webhook` POSTs each request
+([`spec/connectors.md`](spec/connectors.md)); two ship with Kanhe. `webhook` POSTs each request
 to a URL, signed with HMAC-SHA-256, and `command` runs a program per request, without a shell,
 with the request on its stdin:
 
 ```sh
-cexchain executor add Notifier --contract <contract> --kinds notify,http.post \
+kanhe executor add Notifier --contract <contract> --kinds notify,http.post \
     --key-out notifier.key --config-out notifier.json --as root.key
-printf '%s' "$HOOK_KEY" | cexchain executor secret set hook-key --state notifier-state
-cexchain executor connector add notices --config notifier.json --type webhook --kinds notify \
+printf '%s' "$HOOK_KEY" | kanhe executor secret set hook-key --state notifier-state
+kanhe executor connector add notices --config notifier.json --type webhook --kinds notify \
     --url https://hooks.example.com/ledger --secret hook-key
-cexchain executor connector add poster --config notifier.json --type command --kinds http.post \
+kanhe executor connector add poster --config notifier.json --type command --kinds http.post \
     --program /usr/local/bin/post-request --timeout 60
-cexchain executor check --config notifier.json --state notifier-state
-cexchain executor run --config notifier.json --state notifier-state \
+kanhe executor check --config notifier.json --state notifier-state
+kanhe executor run --config notifier.json --state notifier-state \
     --server https://ledger.example.com --token-file executor.token --as notifier.key
-cexchain executor journal list --state notifier-state   # what it did, and why
+kanhe executor journal list --state notifier-state   # what it did, and why
 ```
 
 It works several requests at once (`--concurrency`, by default one per core), never two of one
@@ -887,26 +889,26 @@ runs the code and keeps the source. The language and its compiler are in
 
 ## AI agents (MCP)
 
-`cexchain mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
+`kanhe mcp --ledger DIR --as AGENT_KEY` runs a Model Context Protocol server over stdio
 (revision 2026-07-28, with fallback to earlier revisions). The agent can look up its identity and
 delegations, query and issue records, endorse, move records through their lifecycle, read
 contract instances, and verify evidence from others. Every action is signed with the agent's own key, refused by the ledger if
 its delegation does not cover it, and recorded with provenance: its model, a hash of the inputs it
 acted on, and the digest of the tool it used. Verification reports show all of this. MCP clients
 start the server without a terminal, so give it the agent key's passphrase with
-`--passphrase-file` or `CEXCHAIN_PASSPHRASE`.
+`--passphrase-file` or `KANHE_PASSPHRASE`.
 
 Agents take part in contracts too. On their own organization's ledger they create and call
-instances (`cexchain_call_contract`): the contract runs first, and the result says what it decided,
+instances (`kanhe_call_contract`): the contract runs first, and the result says what it decided,
 whether it accepted the call, whose consents it still needs, or why it refuses. With another
 organization's registrar they review the calls it holds and the instance itself
-(`cexchain_list_pending_calls`, `cexchain_fetch_instance`), propose calls
-(`cexchain_propose_contract_call`), and consent on their own ledger
-(`cexchain_consent_contract_call`). A consent travels as evidence, so start the server with the
+(`kanhe_list_pending_calls`, `kanhe_fetch_instance`), propose calls
+(`kanhe_propose_contract_call`), and consent on their own ledger
+(`kanhe_consent_contract_call`). A consent travels as evidence, so start the server with the
 ledger's `--log-key` to let the agent consent. Arguments are CBOR diagnostic notation, as on the
 command line. An agent can also be an executor: it lists the requests contracts made
-(`cexchain_list_requests`, `cexchain_get_request`) and answers those its delegation covers
-(`cexchain_answer_request`), each answer recorded with its provenance. `cexchain mcp --help`
+(`kanhe_list_requests`, `kanhe_get_request`) and answers those its delegation covers
+(`kanhe_answer_request`), each answer recorded with its provenance. `kanhe mcp --help`
 lists every tool.
 
 With `--server URL` (and `--token-file`, `--ledger-id`, as for every command in client mode), the
@@ -918,7 +920,7 @@ other organizations need a ledger directory's peers, so they are refused in clie
 
 [`examples/`](examples/) holds complete stories built on the generic core. Each is a Bo contract
 with its tests, a script that runs the story on one computer, narrated step by step, each party
-with a ledger of its own, and a short README. They are examples, not features: CexChain knows none
+with a ledger of its own, and a short README. They are examples, not features: Kanhe knows none
 of these things, and every one of them can be changed or written anew.
 
 | Example | What it shows |
@@ -944,7 +946,7 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   restart it with another member's address.
 - **MCP through a server** (`mcp --server`) works on the home ledger only: its tools that reach
   other organizations' ledgers need their peers, which belong to a ledger directory.
-- **Connectors:** `webhook` and `command` ship with CexChain; a connector for another system is
+- **Connectors:** `webhook` and `command` ship with Kanhe; a connector for another system is
   a program of its own, on the same protocol ([`spec/connectors.md`](spec/connectors.md)).
 - **Opening from a snapshot** still reads the log's file, decodes the state, and rebuilds the two
   Merkle trees, on every core: about eleven times faster than a full replay (3.9 s against 43 s
@@ -952,14 +954,14 @@ What the chain does not do yet, as of this version (the Bo language's own are in
   disk an entry, twice (two files).
 - **Time-stamp authorities** are trusted through their certificate chains at the token's time;
   revocation (CRL, OCSP) is not checked. Tokens signed with SM2 verify where OpenSSL verifies
-  them. The web console has no screen for them yet: `cexchain-console run --tsa URL` stamps, and the
+  them. The web console has no screen for them yet: `kanhe-console run --tsa URL` stamps, and the
   command line lists them.
 - **The independent verifier** checks the code a contract runs, not the Bo source it was built
   from (`--deploy-out` writes the deploy for `bo rebuild`); it is slow on heavy contracts.
 - **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
   ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
   of a cluster's member does not hold them.
-- **`CEXCHAIN_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
+- **`KANHE_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
   `--allow-clock-offset`); a ledger keeps the later times it recorded.
 
 ## Security
@@ -1007,19 +1009,19 @@ ctest --preset gcc-debug
 
 Other presets: `gcc-release`, `gcc-asan` (the Bo compiler's tests with AddressSanitizer + UndefinedBehaviorSanitizer), `clang-debug`, `clang-asan` (AddressSanitizer + UndefinedBehaviorSanitizer), and `clang-fuzz` (libFuzzer targets).
 
-The Bo compiler (`bo/`) needs GCC 16 for C++26 static reflection and contracts. `CEXCHAIN_BO`
+The Bo compiler (`bo/`) needs GCC 16 for C++26 static reflection and contracts. `KANHE_BO`
 chooses: `AUTO` (the default) builds it when the compiler can, `ON` (the GCC presets) requires
 it, `OFF` leaves it out. Clang builds everything else, the compiler's front end included, so
 that libFuzzer can fuzz what reads untrusted source.
 
 The browser verifier is tested against evidence from the native tool. A Node.js test requires its
-report to match `cexchain verify --json` (and `contract verify --json`) exactly, and a Chromium
+report to match `kanhe verify --json` (and `contract verify --json`) exactly, and a Chromium
 test drives the page:
 
 ```sh
 tools/wasm/build.sh
 (cd tests/browser && npm ci && npx playwright install chromium)
-tests/browser/run.sh build/gcc-debug/bin/cexchain build/wasm
+tests/browser/run.sh build/gcc-debug/bin/kanhe build/wasm
 ```
 
 `tests/cli/serve.sh` runs a server, a replica, and backups end to end; `tests/node/` covers the
@@ -1035,7 +1037,7 @@ cmake --preset clang-fuzz && cmake --build --preset clang-fuzz
 
 The Bo compiler's lowering is GCC-only and libFuzzer is Clang-only, so its fuzzer, `bo_build_fuzz`, is a GCC program that drives itself: it generates contracts from random bytes, compiles them written in English and in mixed languages (which must give the same bytes), and runs the code on generated calls (`build/gcc-asan/tests/bo_build_fuzz -max_total_time=120`).
 
-Test vectors in `testvectors/` come from implementations independent of CexChain. `tools/testvectors/generate.py` regenerates them; `tools/testvectors/bo_vectors.py` writes the Bo compiler's from a GCC build.
+Test vectors in `testvectors/` come from implementations independent of Kanhe. `tools/testvectors/generate.py` regenerates them; `tools/testvectors/bo_vectors.py` writes the Bo compiler's from a GCC build.
 
 `tools/ci-local.sh` runs the Linux jobs of the CI workflow in CI's container image under Podman (or Docker), with logs in `build/ci-local/`.
 

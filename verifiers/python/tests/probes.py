@@ -8,7 +8,7 @@ A probe either has an expected verdict, which the specification decides
 and the probe records what each verifier does. Open probes that the two
 verifiers decide differently are questions for the specification.
 
-Usage: python3 probes.py CEXCHAIN [--list]
+Usage: python3 probes.py KANHE [--list]
 Exit status 1 if a decided probe fails in either verifier.
 """
 
@@ -29,19 +29,19 @@ sys.path.insert(0, str(HERE))
 
 from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: E402
 
-from cexchain_verify import cbor, crypto, merkle, statetree  # noqa: E402
+from kanhe_verify import cbor, crypto, merkle, statetree  # noqa: E402
 from vector_bundles import inclusion_path, smt_proof  # noqa: E402
 
 T0 = 1_800_000_000_000  # 2027-01-15
 MINUTE = 60_000
 DAY = 86_400_000
-STATEMENT_TYPE = "application/cexchain-statement+cbor"
-CHECKPOINT_TYPE = "application/cexchain-checkpoint+cbor"
-STATE_TYPE = "application/cexchain-state+cbor"
+STATEMENT_TYPE = "application/kanhe-statement+cbor"
+CHECKPOINT_TYPE = "application/kanhe-checkpoint+cbor"
+STATE_TYPE = "application/kanhe-state+cbor"
 
 
 def _key(name: str):
-    return ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(f"CexChain probe key: {name}".encode()).digest())
+    return ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(f"Kanhe probe key: {name}".encode()).digest())
 
 
 class Forge:
@@ -161,7 +161,7 @@ def webauthn(credential: str, rp_id: str = "localhost", origin: str = "http://lo
     """A WebAuthn assertion over the statement's challenge, by the Ed25519
     credential key `credential`."""
     def make(forge: Forge, signer: str, payload: dict) -> dict:
-        challenge = forge.h(b"CexChain presence v1" + forge.kid(signer) + cbor.encode(payload))
+        challenge = forge.h(b"Kanhe presence v1" + forge.kid(signer) + cbor.encode(payload))
         auth = hashlib.sha256(rp_id.encode()).digest() + bytes([flags]) + (1).to_bytes(4, "big")
         b64 = base64.urlsafe_b64encode(challenge).decode().rstrip("=")
         client = ('{"type":"webauthn.get","challenge":"' + b64 + '","origin":"' + origin + '"' + tail).encode()
@@ -385,8 +385,8 @@ def cases():
             f = Forge()
             return f.bundle(f.record("root", f.ledger_id, kind=kind, fields=fields, extra=extra))
         case(name, expect, build)
-    record_case(True, "a type that starts with Cexchain. in another case", kind="Cexchain.note/1")
-    record_case(False, "an invented cexchain. type", kind="cexchain.note/1")
+    record_case(True, "a type that starts with Kanhe. in another case", kind="Kanhe.note/1")
+    record_case(False, "an invented kanhe. type", kind="kanhe.note/1")
     record_case(None, "a record with no fields (count 0, the empty tree's root)", fields={})
     two = [["a.txt", "text/plain", 1, bytes(32)], ["a.txt", "text/plain", 2, bytes(32)]]
     record_case(None, "two attachments with one name", extra={4: two})
@@ -408,8 +408,8 @@ def cases():
             return f.bundle(record)
         case(name, expect, build)
     lifecycle("example.org.probe/1", (18, {2: "registered", 3: "done"}), False, "a transition on a user's type")
-    lifecycle("cexchain.contract-consent/1", (17, {2: "witness"}), False, "an endorsement of a mechanism type")
-    lifecycle("cexchain.contract-consent/1", (18, {2: "given", 3: "withdrawn"}), True, "a consent withdrawn")
+    lifecycle("kanhe.contract-consent/1", (17, {2: "witness"}), False, "an endorsement of a mechanism type")
+    lifecycle("kanhe.contract-consent/1", (18, {2: "given", 3: "withdrawn"}), True, "a consent withdrawn")
 
     def chain(length):
         def build():
@@ -430,7 +430,7 @@ def cases():
         f.add(7, "root", f.ledger_id, {1: person, 2: [{2: b"ukey", 3: f.pub("ukey"), 5: 2}]}, touches=[person])
 
         def proof(forge, signer, payload):
-            challenge = forge.h(b"CexChain presence v1" + forge.kid(signer) + cbor.encode(payload))
+            challenge = forge.h(b"Kanhe presence v1" + forge.kid(signer) + cbor.encode(payload))
             return {1: b"ukey", 4: _key("ukey").sign(challenge)}
         return f.bundle(f.add(16, "person", person, one_field(f), delegation,
                               creates=3, presence=proof))
@@ -558,7 +558,7 @@ def cases():
             meta = {"source": target if source is None else source, "condition": condition, "holds": True,
                     "as_of": f.time - 1000}
             meta.update(extra(f) if extra is not None else {})
-            return f.bundle(f.record(signer, actor, delegation, kind="cexchain.claim/1", extra={5: meta}))
+            return f.bundle(f.record(signer, actor, delegation, kind="kanhe.claim/1", extra={5: meta}))
         return build
     x_above_0 = [["x", ">", "number", 0]]
     case("a claim on a live record", True, claim_probe(x_above_0))
@@ -567,7 +567,7 @@ def cases():
     case("a claim whose metadata has a key the CDDL does not list", False,
          claim_probe(x_above_0, extra=lambda f: {"note": "hello"}))
     case("a claim by a delegate whose scope lists claims, not the source's type", None,
-         claim_probe(x_above_0, signer="person", scope={1: [16], 2: ["cexchain.claim/1"]}))
+         claim_probe(x_above_0, signer="person", scope={1: [16], 2: ["kanhe.claim/1"]}))
     case("a claim whose until is after its as_of and before its registration", None,
          claim_probe(x_above_0, extra=lambda f: {"until": f.time - 500}))
     case("a claim: between two texts", None, claim_probe([["x", "between", "text", ["a", "b"]]]))
@@ -592,7 +592,7 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
-    cexchain = argv[1]
+    kanhe = argv[1]
     failures, open_differ = 0, 0
     env = dict(os.environ, PYTHONPATH=str(HERE.parent))
     with tempfile.TemporaryDirectory() as tmp:
@@ -600,13 +600,13 @@ def main(argv: list[str]) -> int:
             path = os.path.join(tmp, "probe.cbor")
             with open(path, "wb") as f:
                 f.write(build())
-            py = subprocess.run([sys.executable, "-m", "cexchain_verify", path, "--json"], capture_output=True,
+            py = subprocess.run([sys.executable, "-m", "kanhe_verify", path, "--json"], capture_output=True,
                                 text=True, env=env)
             try:
                 py_report = json.loads(py.stdout)
             except ValueError:
                 py_report = {"error": py.stderr.strip()[-200:]}
-            bb_code, bb_report = _run([cexchain, "verify", path, "--json"])
+            bb_code, bb_report = _run([kanhe, "verify", path, "--json"])
             py_ok, bb_ok = py.returncode == 0, bb_code == 0
 
             def verdict(ok, report):
@@ -620,7 +620,7 @@ def main(argv: list[str]) -> int:
                 tag = "WRONG"
                 failures += 1
             print(f"  {tag}: {name}\n      python: {verdict(py_ok, py_report)}\n"
-                  f"      cexchain verify: {verdict(bb_ok, bb_report)}")
+                  f"      kanhe verify: {verdict(bb_ok, bb_report)}")
     print(f"probes: {failures} decided probe(s) failed; {open_differ} open probe(s) on which the verifiers differ")
     return 1 if failures else 0
 

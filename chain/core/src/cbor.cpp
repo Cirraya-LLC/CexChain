@@ -9,9 +9,9 @@
 #include <type_traits>
 #include <utility>
 
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/core/cbor.hpp>
 
-namespace cexchain::cbor {
+namespace kanhe::cbor {
 
 namespace {
 
@@ -838,4 +838,4 @@ bool is_valid_utf8(std::string_view text) noexcept {
     return true;
 }
 
-} // namespace cexchain::cbor
+} // namespace kanhe::cbor

@@ -2,7 +2,7 @@ Test "signed by all three, then closed": passed
   Step 1 (line 29) passed: we create at 2026-10-12 with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
     Result: accepted, and the instance is proposed.
   Step 2 (line 30) passed: we sign -> signed
-    Result: accepted with the consent of the supplier and the bank, and the instance is signed.
+    Result: accepted with the consent of the bank and the supplier, and the instance is signed.
   Step 3 (line 31) passed: we close at 2026-12-01 -> closed
     Result: accepted with the consent of the supplier, and the instance is closed; it is final and takes no more calls.
 

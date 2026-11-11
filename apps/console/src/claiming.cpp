@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // Claims on the console (spec v0.14): "Confirm a condition" on a record's
-// page drafts a cexchain.claim/1 registration, its conditions checked here
+// page drafts a kanhe.claim/1 registration, its conditions checked here
 // against the record's private data; the person approves it with a tap, as
 // any registration. A condition that does not hold gets no claim unless the
 // person asks for one that says so. A party's request that asks whether a
@@ -20,23 +20,23 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/access.hpp>
-#include <cexchain/client/claims.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/client/access.hpp>
+#include <kanhe/client/claims.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -352,4 +352,4 @@ void Console::answer_questions() const {
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

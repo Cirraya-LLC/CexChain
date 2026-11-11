@@ -10,9 +10,9 @@
 #include <span>
 #include <utility>
 
-#include <cexchain/bo/cost.hpp>
+#include <kanhe/bo/cost.hpp>
 
-namespace cexchain::bo::wasm {
+namespace kanhe::bo::wasm {
 
 std::uint64_t add_saturating(const std::uint64_t a, const std::uint64_t b) noexcept {
     return std::min(unbounded, a >= unbounded || b >= unbounded ? unbounded : a + b);
@@ -122,4 +122,4 @@ Size Size::max(const Size& a, const Size& b) {
     return Size(std::make_shared<const Node>(Node{Node::Kind::max, 0, a.node_, b.node_}));
 }
 
-} // namespace cexchain::bo::wasm
+} // namespace kanhe::bo::wasm

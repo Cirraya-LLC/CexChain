@@ -7,7 +7,7 @@
 // challenge itself, so a tampered answer cannot obtain a tap for something
 // else. A registration's fields and files are recomputed from what the
 // person typed and chose. Exported as plain C functions; strings are JSON,
-// freed with cexchain_free.
+// freed with kanhe_free.
 
 #include <algorithm>
 #include <cstdint>
@@ -19,24 +19,24 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/verifier/report.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 using verifier::Json;
 
 const crypto::openssl::Provider& provider() {
@@ -274,8 +274,7 @@ std::optional<protocol::Nonce> salt_of(const std::string& text) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE char* cexchain_describe_payload(const std::uint8_t* payload,
-                                                     std::size_t size) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_describe_payload(const std::uint8_t* payload, std::size_t size) {
     const auto statement = protocol::decode_payload(ByteView(payload, size));
     if (!statement) {
         return to_c_string({{"ok", false}, {"error", statement.error().detail}});
@@ -285,9 +284,9 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_describe_payload(const std::uint8_t* payload
 
 /// The presence challenge of a payload signed with the key `kid` on a ledger
 /// whose hash is `hash` (its COSE id), as base64url.
-EMSCRIPTEN_KEEPALIVE char* cexchain_presence_challenge(const std::uint8_t* payload,
-                                                       std::size_t size, const std::uint8_t* kid,
-                                                       std::size_t kid_size, int hash) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_presence_challenge(const std::uint8_t* payload, std::size_t size,
+                                                    const std::uint8_t* kid, std::size_t kid_size,
+                                                    int hash) {
     const auto statement = protocol::decode_payload(ByteView(payload, size));
     const auto alg = crypto::hash_alg_from_cose(hash);
     const auto id = protocol::to_id(ByteView(kid, kid_size));
@@ -305,7 +304,7 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_presence_challenge(const std::uint8_t* paylo
 /// the console chose: {"hash": COSE id, "fields": [{"name", "value",
 /// "salt"}]}, values as text. So the page knows the registration commits to
 /// exactly what it shows.
-EMSCRIPTEN_KEEPALIVE char* cexchain_field_root(const char* request, std::size_t size) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_field_root(const char* request, std::size_t size) {
     const auto j = Json::parse(request, request + size, nullptr, false);
     const auto alg = j.is_object() && j.contains("hash") && j["hash"].is_number_integer()
                          ? crypto::hash_alg_from_cose(j["hash"].get<int>())
@@ -337,10 +336,9 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_field_root(const char* request, std::size_t 
 }
 
 /// An attachment's commitment over the file's bytes and its salt.
-EMSCRIPTEN_KEEPALIVE char* cexchain_attachment_commitment(const std::uint8_t* content,
-                                                          std::size_t size,
-                                                          const std::uint8_t* salt,
-                                                          std::size_t salt_size, int hash) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_attachment_commitment(const std::uint8_t* content,
+                                                       std::size_t size, const std::uint8_t* salt,
+                                                       std::size_t salt_size, int hash) {
     const auto alg = crypto::hash_alg_from_cose(hash);
     protocol::Nonce nonce{};
     if (!alg || salt_size != nonce.size()) {
@@ -355,27 +353,26 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_attachment_commitment(const std::uint8_t* co
     return to_c_string({{"ok", true}, {"commitment", to_hex(digest->bytes())}});
 }
 
-/// Verifying a proof, as `cexchain verify` and the standalone page do: the
+/// Verifying a proof, as `kanhe verify` and the standalone page do: the
 /// files it may check, given one by one since the last reset, then the
 /// proof, a record's evidence or a contract instance's.
 namespace {
 protocol::VerifyOptions proof_options;
 } // namespace
 
-EMSCRIPTEN_KEEPALIVE void cexchain_proof_reset() {
+EMSCRIPTEN_KEEPALIVE void kanhe_proof_reset() {
     proof_options = {};
 }
 
-EMSCRIPTEN_KEEPALIVE void cexchain_proof_attachment(const std::uint8_t* name, std::size_t name_size,
-                                                    const std::uint8_t* data, std::size_t size) {
+EMSCRIPTEN_KEEPALIVE void kanhe_proof_attachment(const std::uint8_t* name, std::size_t name_size,
+                                                 const std::uint8_t* data, std::size_t size) {
     proof_options.attachment_contents[std::string(reinterpret_cast<const char*>(name), name_size)] =
         Bytes(data, data + size);
 }
 
 /// `ledger` is the expected ledger id in hex, or empty.
-EMSCRIPTEN_KEEPALIVE char* cexchain_proof_verify(const std::uint8_t* bundle, std::size_t size,
-                                                 const std::uint8_t* ledger,
-                                                 std::size_t ledger_size) {
+EMSCRIPTEN_KEEPALIVE char* kanhe_proof_verify(const std::uint8_t* bundle, std::size_t size,
+                                              const std::uint8_t* ledger, std::size_t ledger_size) {
     try {
         protocol::VerifyOptions options = proof_options;
         if (ledger_size > 0) {
@@ -415,7 +412,7 @@ EMSCRIPTEN_KEEPALIVE char* cexchain_proof_verify(const std::uint8_t* bundle, std
     }
 }
 
-EMSCRIPTEN_KEEPALIVE void cexchain_free(char* text) {
+EMSCRIPTEN_KEEPALIVE void kanhe_free(char* text) {
     std::free(text);
 }
 

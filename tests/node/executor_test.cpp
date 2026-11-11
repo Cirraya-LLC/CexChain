@@ -24,25 +24,25 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/connectors.hpp>
-#include <cexchain/node/executor.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/connectors.hpp>
+#include <kanhe/node/executor.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-namespace node = cexchain::node;
-namespace executor = cexchain::node::executor;
-namespace connector = cexchain::node::connector;
-using cexchain::Bytes;
+using namespace kanhe::test;
+namespace node = kanhe::node;
+namespace executor = kanhe::node::executor;
+namespace connector = kanhe::node::connector;
+using kanhe::Bytes;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
@@ -50,7 +50,7 @@ std::filesystem::path fresh_directory() {
     static int counter = 0;
     const auto dir =
         std::filesystem::temp_directory_path() /
-        ("cexchain-executor-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+        ("kanhe-executor-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -356,7 +356,7 @@ private:
 };
 
 std::string hex_id(const protocol::Id& id) {
-    return cexchain::to_hex(id.bytes());
+    return kanhe::to_hex(id.bytes());
 }
 
 /// A request's status on the server's ledger (nullopt: open), and an
@@ -560,8 +560,8 @@ TEST_CASE("an executor resumes from its journal without acting twice, and takes 
     const protocol::Id third = *protocol::request_id(
         provider(), crypto::HashAlg::sha256,
         *protocol::to_id(
-            *cexchain::from_hex(json::parse(asked->body.begin(), asked->body.end())["statement_id"]
-                                    .get<std::string>())),
+            *kanhe::from_hex(json::parse(asked->body.begin(), asked->body.end())["statement_id"]
+                                 .get<std::string>())),
         0);
     recorder.decide = [&](const connector::Perform& p) {
         protocol::ContractCallBody answer;
@@ -714,13 +714,13 @@ TEST_CASE("an executor's config is checked", "[node][executor]") {
 }
 
 TEST_CASE("an executor's sealed secrets and cursor are read strictly", "[node][executor]") {
-    namespace openssl = cexchain::crypto::openssl;
+    namespace openssl = kanhe::crypto::openssl;
     const auto key = openssl::HpkeKey::generate();
     REQUIRE(key.has_value());
     const std::string_view value = "hook-secret";
-    const auto sealed = openssl::hpke_seal(
-        key->public_key(), cexchain::as_bytes(executor::secret_info),
-        cexchain::as_bytes(std::string_view("hook-key")), cexchain::as_bytes(value));
+    const auto sealed =
+        openssl::hpke_seal(key->public_key(), kanhe::as_bytes(executor::secret_info),
+                           kanhe::as_bytes(std::string_view("hook-key")), kanhe::as_bytes(value));
     REQUIRE(sealed.has_value());
     const Bytes file = executor::encode_sealed_secret(*sealed);
     const auto parsed = executor::parse_sealed_secret(file);
@@ -836,7 +836,7 @@ TEST_CASE("an executor works requests at once, one per instance, each once acros
                            home.sign(home.org, home.id, std::nullopt, create), "application/cose");
         REQUIRE(made);
         REQUIRE(made->status == 201);
-        const protocol::Id instance = *protocol::to_id(*cexchain::from_hex(
+        const protocol::Id instance = *protocol::to_id(*kanhe::from_hex(
             json::parse(made->body.begin(), made->body.end())["statement_id"].get<std::string>()));
         for (std::uint64_t position = 0; position < 4; ++position) {
             const auto id =

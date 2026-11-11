@@ -21,14 +21,14 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/core/cbor.hpp>
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -36,13 +36,13 @@ namespace m = model;
 using protocol::ContractSigner;
 using protocol::Id;
 
-constexpr std::string_view ledger_prefix = "cexchain-bo-test ledger ";
-constexpr std::string_view contract_seed = "cexchain-bo-test contract";
-constexpr std::string_view actor_seed = "cexchain-bo-test actor";
-constexpr std::string_view instance_seed = "cexchain-bo-test instance";
+constexpr std::string_view ledger_prefix = "kanhe-bo-test ledger ";
+constexpr std::string_view contract_seed = "kanhe-bo-test contract";
+constexpr std::string_view actor_seed = "kanhe-bo-test actor";
+constexpr std::string_view instance_seed = "kanhe-bo-test instance";
 /// A call's statement id, which request ids derive from: this prefix,
 /// the instance's id in hex, a space, and its head before the call.
-constexpr std::string_view call_prefix = "cexchain-bo-test call ";
+constexpr std::string_view call_prefix = "kanhe-bo-test call ";
 /// More rounds than a call can need: it asks for at most 16 consents.
 constexpr std::size_t max_rounds = 18;
 
@@ -1528,4 +1528,4 @@ std::string dump(const m::Model& model, const TestResults& results) {
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

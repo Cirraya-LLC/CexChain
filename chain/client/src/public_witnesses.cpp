@@ -5,20 +5,20 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/public_witness.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/keys.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/node/client.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/public_witness.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/keys.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/node/client.hpp>
 
-#ifndef CEXCHAIN_PUBLIC_WITNESSES
-#define CEXCHAIN_PUBLIC_WITNESSES ""
+#ifndef KANHE_PUBLIC_WITNESSES
+#define KANHE_PUBLIC_WITNESSES ""
 #endif
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -137,7 +137,7 @@ WitnessInfo fetch_witness_info(const std::string& url) {
 Bytes register_with_witness(const ledger::Ledger& ledger, const std::string& url,
                             const crypto::PublicKey& key) {
     if (!ledger.latest_checkpoint()) {
-        throw ActionError{"the ledger has no checkpoint yet (cexchain checkpoint create)"};
+        throw ActionError{"the ledger has no checkpoint yet (kanhe checkpoint create)"};
     }
     const protocol::CosignRequest request = unwrap(
         ledger.cosign_request(last_cosigned_size(ledger, key)), "building the cosign request");
@@ -212,7 +212,7 @@ Registered register_witness(const ledger::Ledger& ledger, const std::filesystem:
 
 std::vector<UsedWitness> built_in_public_witnesses() {
     std::vector<UsedWitness> out;
-    std::string_view list = CEXCHAIN_PUBLIC_WITNESSES;
+    std::string_view list = KANHE_PUBLIC_WITNESSES;
     while (!list.empty()) {
         const std::string_view item = list.substr(0, list.find(','));
         list.remove_prefix(std::min(list.size(), item.size() + 1));
@@ -275,4 +275,4 @@ std::vector<WitnessAsked> ask_used_witnesses(const ledger::Ledger& ledger,
     return out;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

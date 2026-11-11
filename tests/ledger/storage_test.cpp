@@ -9,19 +9,19 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/record_log.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/record_log.hpp>
+#include <kanhe/ledger/storage.hpp>
 
 #include "crc32c.hpp"
 #include "support/crashing_fs.hpp"
 
-namespace ledger = cexchain::ledger;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::Status;
+namespace ledger = kanhe::ledger;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::Status;
 
 namespace {
 
@@ -35,7 +35,7 @@ Bytes record_bytes(std::uint64_t n, ledger::SeededEntropy& entropy) {
 } // namespace
 
 TEST_CASE("CRC-32C matches the standard check value", "[ledger][storage]") {
-    using cexchain::ledger::detail::crc32c;
+    using kanhe::ledger::detail::crc32c;
     CHECK(crc32c(as_bytes("123456789")) == 0xe3069283U);
     CHECK(crc32c({}) == 0U);
     // RFC 3720, B.4.
@@ -110,7 +110,7 @@ TEST_CASE("crash at any point keeps every acknowledged record", "[ledger][storag
 
         // Run until the simulated process dies.
         {
-            cexchain::test::CrashingFileSystem fs(memory, entropy.below(40));
+            kanhe::test::CrashingFileSystem fs(memory, entropy.below(40));
             auto log = ledger::RecordLog::open(fs, "log");
             REQUIRE(log);
             for (int round = 0; round < 20; ++round) {
@@ -158,7 +158,7 @@ TEST_CASE("a whole record never acknowledged is cut off, and refresh agrees", "[
         auto raw = memory.open("log");
         REQUIRE(raw);
         const Bytes payload{'l', 'o', 's', 't'};
-        const std::uint32_t crc = cexchain::ledger::detail::crc32c(payload);
+        const std::uint32_t crc = kanhe::ledger::detail::crc32c(payload);
         Bytes frame{0,
                     0,
                     0,
@@ -214,7 +214,7 @@ TEST_CASE("damage to acknowledged records refuses to open", "[ledger][storage]")
 
 TEST_CASE("record log works on a POSIX directory", "[ledger][storage]") {
     const auto directory = std::filesystem::temp_directory_path() /
-                           ("cexchain-test-" + std::to_string(ledger::SystemClock{}.now()));
+                           ("kanhe-test-" + std::to_string(ledger::SystemClock{}.now()));
     {
         auto fs = ledger::PosixFileSystem::open_directory(directory);
         REQUIRE(fs);
@@ -234,7 +234,7 @@ TEST_CASE("record log works on a POSIX directory", "[ledger][storage]") {
 
 TEST_CASE("POSIX files lend mapped views that see later appends", "[ledger][storage]") {
     const auto directory = std::filesystem::temp_directory_path() /
-                           ("cexchain-view-test-" + std::to_string(ledger::SystemClock{}.now()));
+                           ("kanhe-view-test-" + std::to_string(ledger::SystemClock{}.now()));
     {
         auto fs = ledger::PosixFileSystem::open_directory(directory);
         REQUIRE(fs);
@@ -280,7 +280,7 @@ TEST_CASE("POSIX files lend mapped views that see later appends", "[ledger][stor
 
 TEST_CASE("only one process at a time holds a ledger directory", "[ledger][storage]") {
     const auto directory = std::filesystem::temp_directory_path() /
-                           ("cexchain-lock-" + std::to_string(ledger::SystemClock{}.now()));
+                           ("kanhe-lock-" + std::to_string(ledger::SystemClock{}.now()));
     std::filesystem::create_directories(directory);
     {
         auto first = ledger::DirectoryLock::acquire(directory);

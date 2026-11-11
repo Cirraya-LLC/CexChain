@@ -7,33 +7,33 @@
 #include <memory>
 #include <string_view>
 
-#include <cexchain/core/error.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/core/error.hpp>
+#include <kanhe/ledger/storage.hpp>
 
-namespace cexchain::test {
+namespace kanhe::test {
 
 /// Wraps a file system so that the process "dies" after a fixed number of
 /// appends and syncs: every later operation fails, as if nothing after that
 /// point ever reached the kernel.
-class CrashingFileSystem final : public cexchain::ledger::FileSystem {
+class CrashingFileSystem final : public kanhe::ledger::FileSystem {
 public:
-    CrashingFileSystem(cexchain::ledger::FileSystem& inner, std::uint64_t budget)
+    CrashingFileSystem(kanhe::ledger::FileSystem& inner, std::uint64_t budget)
         : inner_(inner), budget_(std::make_shared<std::uint64_t>(budget)) {}
 
-    Result<std::unique_ptr<cexchain::ledger::AppendFile>> open(std::string_view name) override {
+    Result<std::unique_ptr<kanhe::ledger::AppendFile>> open(std::string_view name) override {
         auto file = inner_.open(name);
         if (!file) {
             return file;
         }
-        return std::unique_ptr<cexchain::ledger::AppendFile>(
+        return std::unique_ptr<kanhe::ledger::AppendFile>(
             std::make_unique<CrashingFile>(std::move(*file), budget_));
     }
     bool exists(std::string_view name) const override { return inner_.exists(name); }
 
 private:
-    class CrashingFile final : public cexchain::ledger::AppendFile {
+    class CrashingFile final : public kanhe::ledger::AppendFile {
     public:
-        CrashingFile(std::unique_ptr<cexchain::ledger::AppendFile> inner,
+        CrashingFile(std::unique_ptr<kanhe::ledger::AppendFile> inner,
                      std::shared_ptr<std::uint64_t> budget)
             : inner_(std::move(inner)), budget_(std::move(budget)) {}
         std::uint64_t size() const override { return inner_->size(); }
@@ -62,12 +62,12 @@ private:
             --*budget_;
             return true;
         }
-        std::unique_ptr<cexchain::ledger::AppendFile> inner_;
+        std::unique_ptr<kanhe::ledger::AppendFile> inner_;
         std::shared_ptr<std::uint64_t> budget_;
     };
 
-    cexchain::ledger::FileSystem& inner_;
+    kanhe::ledger::FileSystem& inner_;
     std::shared_ptr<std::uint64_t> budget_;
 };
 
-} // namespace cexchain::test
+} // namespace kanhe::test

@@ -20,19 +20,19 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/activity.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/console/activity.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -698,4 +698,4 @@ Console::person_step(const Signed& who, const nlohmann::json& intent) const {
     return error(400, "invalid_argument", "the console cannot prepare this action");
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

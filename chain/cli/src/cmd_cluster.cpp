@@ -4,25 +4,25 @@
 // Clusters: several nodes keep one ledger with Raft, and a new
 // leader takes over within seconds if the leader fails.
 //
-//   cexchain cluster init     the first member (on a fully checkpointed ledger)
-//   cexchain cluster join     copy the cluster's ledger, ready to be added
-//   cexchain serve --cluster  run a member
-//   cexchain cluster add      the leader adds a running node
-//   cexchain cluster status | remove | step-down
+//   kanhe cluster init     the first member (on a fully checkpointed ledger)
+//   kanhe cluster join     copy the cluster's ledger, ready to be added
+//   kanhe serve --cluster  run a member
+//   kanhe cluster add      the leader adds a running node
+//   kanhe cluster status | remove | step-down
 
 #include <array>
 #include <charconv>
 #include <cstdlib>
 #include <print>
 
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/replica.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/replica.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -64,12 +64,12 @@ std::string api_url(const Args& args) {
 node::Client cluster_client(const Args& args) {
     std::optional<std::string> url = args.get("server");
     if (!url) {
-        if (const char* env = std::getenv("CEXCHAIN_SERVER"); env != nullptr && *env != '\0') {
+        if (const char* env = std::getenv("KANHE_SERVER"); env != nullptr && *env != '\0') {
             url = env;
         }
     }
     if (!url) {
-        throw UsageError{"name a member's API: --server URL (or $CEXCHAIN_SERVER)"};
+        throw UsageError{"name a member's API: --server URL (or $KANHE_SERVER)"};
     }
     return client_for(*url, args, args.get("ca-file"));
 }
@@ -114,7 +114,7 @@ int cmd_cluster_init(const Args& args) {
         // brings them the rest. So the cluster starts from a checkpoint.
         const auto latest = session.ledger().latest_checkpoint();
         if (!latest || latest->checkpoint.tree_size != session.ledger().size()) {
-            throw CommandError{"checkpoint the whole log first (cexchain checkpoint create)"};
+            throw CommandError{"checkpoint the whole log first (kanhe checkpoint create)"};
         }
     }
     Bytes secret;
@@ -136,7 +136,7 @@ int cmd_cluster_init(const Args& args) {
     }
     std::println("this ledger founds a cluster as member {} (Raft at {})", self.id,
                  self.raft_endpoint);
-    std::println("Run it with: cexchain serve --cluster --ledger {} ...", dir.string());
+    std::println("Run it with: kanhe serve --cluster --ledger {} ...", dir.string());
     std::println("Copy {} to every other member, privately: it authenticates the members.",
                  secret_path.string());
     return exit_ok;
@@ -199,8 +199,8 @@ int cmd_cluster_join(const Args& args) {
         return exit_ok;
     }
     std::println("copied the cluster's ledger ({} entries) to {}", size, dir.string());
-    std::println("Run it with: cexchain serve --cluster --ledger {} ...", dir.string());
-    std::println("then add it: cexchain cluster add --server {} --id {} --raft {} --api {}", url,
+    std::println("Run it with: kanhe serve --cluster --ledger {} ...", dir.string());
+    std::println("then add it: kanhe cluster add --server {} --id {} --raft {} --api {}", url,
                  self.id, self.raft_endpoint, self.api_url);
     return exit_ok;
 }
@@ -263,4 +263,4 @@ int cmd_cluster_status(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

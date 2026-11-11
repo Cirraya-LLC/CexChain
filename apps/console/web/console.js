@@ -6,8 +6,8 @@
 // sessionStorage (no cookies); the page talks only to its own console.
 
 const LANGUAGES = ["en", "zh-Hant-HK", "zh-Hans-CN"];
-const SESSION = "cexchain.session";
-const LANGUAGE = "cexchain.language";
+const SESSION = "kanhe.session";
+const LANGUAGE = "kanhe.language";
 
 const state = { language: "en", text: {}, english: {}, who: null, firstRun: false,
                 defaultLanguage: null, flash: null };
@@ -444,7 +444,7 @@ function sheetScreen(answer) {
                        "", `${t("sheet.code")}: ${answer.recovery_code}`, "", t("sheet.intro"), ""];
         const url = URL.createObjectURL(new Blob([lines.join("\n")],
                                                  { type: "text/plain;charset=utf-8" }));
-        const link = el("a", { href: url, download: "cexchain-recovery-code.txt" });
+        const link = el("a", { href: url, download: "kanhe-recovery-code.txt" });
         document.body.append(link);
         link.click();
         link.remove();
@@ -2306,7 +2306,7 @@ const SHEET = group("sheet", [
 ]);
 
 const RULES_INPUT = 256 * 1024;
-const RULES_DRAFT = "cexchain.rules";
+const RULES_DRAFT = "kanhe.rules";
 
 /// The editor's draft, kept in this tab (sessionStorage) so that a reload
 /// does not lose it.
@@ -3196,7 +3196,7 @@ function askByFile(intentOf) {
             const name = await saveDownload("exchange/proposal", {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ...intentOf(), note: note.value.trim(), language: state.language }),
-            }, "proposal.cexchain");
+            }, "proposal.kanhe");
             made.replaceChildren(el("p", { class: "notice", text: t("exchange.proposal_made", { name }) }));
         } catch (error) {
             made.replaceChildren(problem(t("error.server", { message: error.message })));
@@ -3875,7 +3875,7 @@ function codeView(code, label, fingerprint) {
 /// consented to or recorded with a tap. `opened` names one opened on this
 /// computer (console open FILE, as a double-click runs it), read at once.
 function exchangeScreen(opened) {
-    const input = el("input", { id: "exchange-file", type: "file", accept: ".cexchain,application/cbor" });
+    const input = el("input", { id: "exchange-file", type: "file", accept: ".kanhe,application/cbor" });
     const result = el("section", { "aria-live": "polite" });
     const read = async (from) => {
         status(t("status.working"));
@@ -3957,7 +3957,7 @@ function proposalView(read, upload) {
                 const name = await saveDownload("exchange/consent", {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ record: done.statement_id, upload }),
-                }, "consent.cexchain");
+                }, "consent.kanhe");
                 return el("p", { class: "notice", text: t("exchange.consent_made", { name }) });
             });
         } catch (error) {
@@ -4256,7 +4256,7 @@ async function loadChecker() {
         return checker;
     }
     try {
-        const { default: create } = await import("./wasm/cexchain-console.mjs");
+        const { default: create } = await import("./wasm/kanhe-console.mjs");
         const module = await create();
         const call = (name, bytes, ...rest) => {
             const pointer = module._malloc(Math.max(bytes.length, 1));
@@ -4273,32 +4273,32 @@ async function loadChecker() {
             }).flat();
             const out = module[name](pointer, bytes.length, ...args);
             const text = module.UTF8ToString(out);
-            module._cexchain_free(out);
+            module._kanhe_free(out);
             pointers.forEach((p) => module._free(p));
             return JSON.parse(text);
         };
         checker = {
-            describe: (payload) => call("_cexchain_describe_payload", payload),
+            describe: (payload) => call("_kanhe_describe_payload", payload),
             challenge: (payload, kid, hash) =>
-                call("_cexchain_presence_challenge", payload, kid, hash),
+                call("_kanhe_presence_challenge", payload, kid, hash),
             verify: (proof, files, ledger) => {
-                module._cexchain_proof_reset();
+                module._kanhe_proof_reset();
                 for (const [name, content] of files) {
                     const label = new TextEncoder().encode(name);
                     const n = module._malloc(Math.max(label.length, 1));
                     const d = module._malloc(Math.max(content.length, 1));
                     module.HEAPU8.set(label, n);
                     module.HEAPU8.set(content, d);
-                    module._cexchain_proof_attachment(n, label.length, d, content.length);
+                    module._kanhe_proof_attachment(n, label.length, d, content.length);
                     module._free(n);
                     module._free(d);
                 }
-                return call("_cexchain_proof_verify", proof, new TextEncoder().encode(ledger));
+                return call("_kanhe_proof_verify", proof, new TextEncoder().encode(ledger));
             },
-            fieldRoot: (request) => call("_cexchain_field_root",
+            fieldRoot: (request) => call("_kanhe_field_root",
                                          new TextEncoder().encode(JSON.stringify(request))),
             commitment: (content, salt, hash) =>
-                call("_cexchain_attachment_commitment", content, salt, hash),
+                call("_kanhe_attachment_commitment", content, salt, hash),
         };
     } catch {
         checker = null;
@@ -4504,7 +4504,7 @@ async function approveScreen(prepared, files = new Map(), after = null) {
             facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value) }));
         }
     };
-    const consenting = summary.record_type === "cexchain.contract-consent/1";
+    const consenting = summary.record_type === "kanhe.contract-consent/1";
     const access = summary.access;
     const machine = summary.type === "actor-register" && summary.kind !== 1;
     fact("approve.action", t(consenting ? "approve.type.consent"
@@ -4715,7 +4715,7 @@ async function route() {
     const hash = location.hash;
     // An invitation's code is read once and taken out of the address bar and
     // the history at once.
-    const enroll = hash.match(/^#\/enroll\/(cxi_[A-Za-z0-9_-]{43})$/);
+    const enroll = hash.match(/^#\/enroll\/(khi_[A-Za-z0-9_-]{43})$/);
     if (enroll) {
         history.replaceState(null, "", `${location.pathname}#/enroll`);
         state.pendingCode = enroll[1];

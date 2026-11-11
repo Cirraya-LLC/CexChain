@@ -13,11 +13,11 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
-namespace protocol = cexchain::protocol;
-using cexchain::Bytes;
+namespace protocol = kanhe::protocol;
+using kanhe::Bytes;
 
 namespace {
 
@@ -28,18 +28,18 @@ void require(bool condition) {
 }
 
 const Bytes& test_contract() {
-    static const Bytes code = *cexchain::from_hex(CEXCHAIN_FUZZ_TEST_CONTRACT);
+    static const Bytes code = *kanhe::from_hex(KANHE_FUZZ_TEST_CONTRACT);
     return code;
 }
 
-cexchain::Result<Bytes> deploy_code(std::uint64_t /*index*/) {
+kanhe::Result<Bytes> deploy_code(std::uint64_t /*index*/) {
     return test_contract();
 }
 
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const auto state = protocol::LedgerState::decode(cexchain::ByteView(data, size), deploy_code);
+    const auto state = protocol::LedgerState::decode(kanhe::ByteView(data, size), deploy_code);
     if (!state) {
         return 0;
     }

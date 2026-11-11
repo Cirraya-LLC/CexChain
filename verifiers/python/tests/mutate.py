@@ -54,7 +54,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from cexchain_verify import cbor, crypto  # noqa: E402
+from kanhe_verify import cbor, crypto  # noqa: E402
 
 
 def _flip_signature(cose_bytes: bytes) -> bytes:

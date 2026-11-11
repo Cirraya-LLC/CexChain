@@ -10,17 +10,17 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/users.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/users.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
 constexpr std::string_view people_file = "users.json";
-constexpr std::string_view invitation_prefix = "cxi_";
+constexpr std::string_view invitation_prefix = "khi_";
 
 constexpr std::array<std::pair<Role, std::string_view>, 4> role_names{{
     {Role::owner, "owner"},
@@ -250,4 +250,4 @@ std::size_t remove_key_slots(KeyStore& keys, const User& user) {
     return removed;
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

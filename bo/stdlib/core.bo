@@ -6,7 +6,7 @@ bo 1
 # the buyer as its counterparty; the lines the contract writes under
 # `can transfer` add to it and are checked first. Without `to`, each call
 # names the counterparty (R21). To change a built-in action, copy it under a
-# name of your own: `cexchain bo stdlib show transfer` prints it, in any
+# name of your own: `kanhe bo stdlib show transfer` prints it, in any
 # language.
 #
 # The fields these terms use: holder (a party). An action can start only from

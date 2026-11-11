@@ -31,14 +31,14 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -4881,4 +4881,4 @@ Checked check(std::string_view source, const ast::File& file) {
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

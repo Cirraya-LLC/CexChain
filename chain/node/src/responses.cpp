@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-#include <cexchain/node/responses.hpp>
+#include <kanhe/node/responses.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 std::string_view errc_name(const Errc code) {
     switch (code) {
@@ -69,4 +69,4 @@ http::Response error_response(const Error& error) {
     return error_response(status_of(error.code), errc_name(error.code), error.detail);
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

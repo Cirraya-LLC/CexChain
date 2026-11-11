@@ -15,11 +15,11 @@
 # server's API. A keeper whose delegation does not cover
 # a function is refused it; a revoked keeper idles. The instance's evidence
 # verifies offline with the keeper's calls in it.
-# Usage: keeper.sh CEXCHAIN
+# Usage: keeper.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 SERVERS=()
@@ -30,15 +30,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="keeper test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="keeper test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; [ -f alpha.json.log ] && tail -n 20 alpha.json.log; exit 1; }
@@ -53,7 +53,7 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json; json.load(open('$out'))" 2> /dev/null; then
@@ -270,28 +270,28 @@ contains -F "when.suspend" verify.txt
 contains -F "VERIFICATION FAILED" verify.txt && fail "the evidence verifies"
 a audit | contains 'audit passed'
 
-# --- A clock ahead (CEXCHAIN_CLOCK_OFFSET) ------------------------------------------------
+# --- A clock ahead (KANHE_CLOCK_OFFSET) ------------------------------------------------
 # For demonstrations and tests every command can run its clock ahead. A
 # client ahead of the ledger it writes to is refused (a statement from the
 # future); a ledger run ahead fires S3's rule, not due for days.
-CEXCHAIN_CLOCK_OFFSET=3x expect_exit 1 status --ledger "$A"
-contains 'CEXCHAIN_CLOCK_OFFSET is a whole number' out.txt
-CEXCHAIN_CLOCK_OFFSET=3661d expect_exit 1 status --ledger "$A"
-run --help | contains 'CEXCHAIN_CLOCK_OFFSET'
-CEXCHAIN_CLOCK_OFFSET=14d run keeper run --as default.key --server "$URL" \
+KANHE_CLOCK_OFFSET=3x expect_exit 1 status --ledger "$A"
+contains 'KANHE_CLOCK_OFFSET is a whole number' out.txt
+KANHE_CLOCK_OFFSET=3661d expect_exit 1 status --ledger "$A"
+run --help | contains 'KANHE_CLOCK_OFFSET'
+KANHE_CLOCK_OFFSET=14d run keeper run --as default.key --server "$URL" \
     --token-file runner.token --ledger-id "$A_ID" --cache "$WORK/cache" > out.txt
 contains "refused when.suspend on ${S3:0:12}.*issued in the future" out.txt
 has_status "$S3" active
 for pid in "${SERVERS[@]}"; do kill "$pid" 2> /dev/null || true; wait "$pid" 2> /dev/null || true; done
 SERVERS=()
-CEXCHAIN_CLOCK_OFFSET=14d run keeper run --as default.key --ledger "$A" > ahead.txt
+KANHE_CLOCK_OFFSET=14d run keeper run --as default.key --ledger "$A" > ahead.txt
 contains "fired when.suspend on ${S3:0:12}" ahead.txt
 has_status "$S3" suspended
 # A server stamps every write: it refuses a clock ahead unless told it is
 # meant, and its status shows it.
-CEXCHAIN_CLOCK_OFFSET=14d expect_exit 1 serve --ledger "$A" --listen 127.0.0.1:0
+KANHE_CLOCK_OFFSET=14d expect_exit 1 serve --ledger "$A" --listen 127.0.0.1:0
 contains 'pass --allow-clock-offset' out.txt
-CEXCHAIN_CLOCK_OFFSET=14d start_server ahead.json --ledger "$A" --allow-clock-offset
+KANHE_CLOCK_OFFSET=14d start_server ahead.json --ledger "$A" --allow-clock-offset
 json 'd["clock_offset_ms"]' < ahead.json | contains -x 1209600000
 contains 'runs 1209600 s ahead' ahead.json.log
 AHEAD_URL="$(json 'd["url"]' < ahead.json)"
@@ -301,6 +301,6 @@ request = urllib.request.Request(sys.argv[1] + "/v1/status",
                                  headers={"Authorization": "Bearer " + sys.argv[2]})
 print(json.load(urllib.request.urlopen(request, timeout=5))["clock_offset_ms"])
 PY
-CEXCHAIN_CLOCK_OFFSET=14d a audit | contains 'audit passed'
+KANHE_CLOCK_OFFSET=14d a audit | contains 'audit passed'
 
 echo "keeper end-to-end: ok"

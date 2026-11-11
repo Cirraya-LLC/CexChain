@@ -9,7 +9,7 @@
 #include "registry.hpp"
 
 int main(int argc, char** argv) {
-    using namespace cexchain::cli;
+    using namespace kanhe::cli;
     try {
         return dispatch(argc, argv);
     } catch (const UsageError& e) {

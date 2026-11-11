@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# A company's console on its server (not enabled by default): it serves the
+# ledger's API too, so it runs instead of kanhe.service. Set its options in
+# /etc/kanhe/console.env, then
+#   systemctl enable --now kanhe-console
+# A person's console runs as their own user instead: kanhe-console service install.
+[Unit]
+Description=Kanhe console
+After=network-online.target
+Wants=network-online.target
+Conflicts=kanhe.service
+
+[Service]
+User=kanhe
+Group=kanhe
+StateDirectory=kanhe
+StateDirectoryMode=0700
+Environment=KANHE_NO_BROWSER=1
+EnvironmentFile=/etc/kanhe/console.env
+ExecStart=/usr/bin/kanhe-console run $KANHE_CONSOLE_ARGS
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

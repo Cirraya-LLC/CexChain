@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Static reflection helpers (C++26, P2996) shared by cexchain::bo's sources.
+// Static reflection helpers (C++26, P2996) shared by kanhe::bo's sources.
 // Never included by the front end, which Clang builds.
 
 #pragma once
@@ -11,7 +11,7 @@
 #include <meta>
 #include <string_view>
 
-namespace cexchain::bo::detail {
+namespace kanhe::bo::detail {
 
 /// True if `table` lists E's enumerators' identifiers, in order, and the
 /// enumerators are 0, 1, 2, ...
@@ -47,4 +47,4 @@ constexpr std::string_view enumerator_name(const E value) noexcept {
     return {};
 }
 
-} // namespace cexchain::bo::detail
+} // namespace kanhe::bo::detail

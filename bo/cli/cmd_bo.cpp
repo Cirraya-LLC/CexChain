@@ -3,7 +3,7 @@
 
 // Bo commands: checking and building Bo source, and the
 // language packs it is read with; building the deploy of `contract deploy
-// --bo`. Built only with the Bo compiler (cexchain::bo: GCC 16, for C++26
+// --bo`. Built only with the Bo compiler (kanhe::bo: GCC 16, for C++26
 // reflection and contracts).
 
 #include <algorithm>
@@ -20,34 +20,34 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/calls.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/form.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/names.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/protocol/deploy_file.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/calls.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/form.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/names.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/protocol/deploy_file.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "bo_commands.hpp"
 #include "bo_support.hpp"
 #include "json_output.hpp"
 #include "tool_support.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 using verifier::cbor_json;
 
@@ -65,7 +65,7 @@ PackFile read_pack_file(const std::string& file) {
     return {file, bo::read_pack(text)};
 }
 
-/// The language for messages: --language, else $CEXCHAIN_LANGUAGE, else
+/// The language for messages: --language, else $KANHE_LANGUAGE, else
 /// English. Any official pack, or one given with --pack.
 const bo::Pack* message_language(const Args& args, std::span<const bo::Pack> extra) {
     return reader_language(args.get("language"), extra);
@@ -148,11 +148,11 @@ VocabFile read_vocab_file(const std::string& file) {
 /// any problem ends the command.
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
-#define CEXCHAIN_SANITIZED 1
+#define KANHE_SANITIZED 1
 #endif
 #endif
 #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
-#define CEXCHAIN_SANITIZED 1
+#define KANHE_SANITIZED 1
 #endif
 
 /// --max-memory MIB: this process's address space, limited, as the console
@@ -171,7 +171,7 @@ void limit_memory(const Args& args) {
     }
     // macOS cannot limit an address space (setrlimit RLIMIT_AS fails there):
     // the CPU limit below and the console's wall clock still hold.
-#if !defined(CEXCHAIN_SANITIZED) && !defined(__APPLE__)
+#if !defined(KANHE_SANITIZED) && !defined(__APPLE__)
     const rlimit limit{static_cast<rlim_t>(n << 20), static_cast<rlim_t>(n << 20)};
     if (::setrlimit(RLIMIT_AS, &limit) != 0) {
         throw CommandError{"cannot limit this process's memory"};
@@ -1054,7 +1054,7 @@ int cmd_bo_version(const Args& args) {
         packs.push_back(pack.id + " " + std::to_string(pack.version));
     }
     if (args.json()) {
-        print_json({{"version", CEXCHAIN_VERSION},
+        print_json({{"version", KANHE_VERSION},
                     {"compiler", bo::compiler_string()},
                     {"edition", bo::edition},
                     {"packs", packs}});
@@ -1064,7 +1064,7 @@ int cmd_bo_version(const Args& args) {
     for (const auto& p : packs) {
         list += (list.empty() ? "" : ", ") + p.get<std::string>();
     }
-    std::println("bo {}", CEXCHAIN_VERSION);
+    std::println("bo {}", KANHE_VERSION);
     std::println("compiler:  {}", bo::compiler_string());
     std::println("edition:   {}; packs {}", bo::edition, list);
     return exit_ok;
@@ -1137,7 +1137,7 @@ int cmd_bo_fmt(const Args& args) {
     const bo::PackSet set = pack_set(args);
     const bo::Pack* messages = set_language(args, set);
     // --language names the language to write; without it, every word keeps
-    // its spelling ($CEXCHAIN_LANGUAGE sets only the messages').
+    // its spelling ($KANHE_LANGUAGE sets only the messages').
     const bo::Pack* target = nullptr;
     if (const std::optional<std::string> want = args.get("language")) {
         target = bo::find_language(set.packs(), *want);
@@ -2492,4 +2492,4 @@ BoDeploy bo_deploy_body(const Args& args, const std::string& file,
     return out;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

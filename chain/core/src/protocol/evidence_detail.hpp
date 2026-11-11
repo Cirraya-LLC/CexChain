@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <cexchain/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
 
 // Internal: not part of the public API.
-namespace cexchain::protocol::detail {
+namespace kanhe::protocol::detail {
 
 /// `verify_bundle` with `provider` as given: `options.signatures` is not
 /// asked (a caller that wrapped the provider in a `CheckedProvider` already).
@@ -14,4 +14,4 @@ namespace cexchain::protocol::detail {
                                                             ByteView encoded,
                                                             const VerifyOptions& options);
 
-} // namespace cexchain::protocol::detail
+} // namespace kanhe::protocol::detail

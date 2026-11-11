@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <charconv>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
-namespace cexchain::node::detail {
+namespace kanhe::node::detail {
 
 namespace {
 
@@ -159,4 +159,4 @@ std::variant<DueQuery, QueryError> parse_due_query(const http::Request& r) {
     return q;
 }
 
-} // namespace cexchain::node::detail
+} // namespace kanhe::node::detail

@@ -17,20 +17,20 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/calls.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/calls.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 
 const PackSet& official_set() {
     static const PackSet set = *make_pack_set({}).set;

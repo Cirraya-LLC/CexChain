@@ -26,27 +26,27 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/access.hpp>
-#include <cexchain/client/claims.hpp>
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/access.hpp>
+#include <kanhe/client/claims.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -1294,4 +1294,4 @@ void Console::deliver_answer(const Signed& signer, const nlohmann::json& body,
     });
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

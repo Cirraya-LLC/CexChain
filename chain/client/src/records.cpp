@@ -8,12 +8,12 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/record_files.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 std::string media_type_of(const std::filesystem::path& path) {
     const std::string extension = path.extension().string();
@@ -167,8 +167,7 @@ Bytes vault_public_key(const Session& session) {
     session.fetch_vault_public_key();
     const std::filesystem::path path = vault_public_key_path(session);
     if (!std::filesystem::exists(path)) {
-        throw ActionError{
-            "this ledger has no vault key yet; create one with: cexchain vault rekey"};
+        throw ActionError{"this ledger has no vault key yet; create one with: kanhe vault rekey"};
     }
     auto key = decode_vault_public_key(read_file(path));
     if (!key) {
@@ -273,7 +272,7 @@ Vault read_vault(const Session& session, const protocol::Id& record,
     if (std::filesystem::exists(path) && std::filesystem::exists(vault_public_key_path(session))) {
         throw ActionError{
             "the record's private data is not sealed, though this ledger has a vault key; "
-            "seal it with: cexchain vault rekey"};
+            "seal it with: kanhe vault rekey"};
     }
     return load_vault(session, record, nullptr);
 }
@@ -543,22 +542,22 @@ bool remove_record_file(Session& session, const protocol::Id& record, const Reco
 }
 
 std::string_view record_type_purpose(std::string_view type) {
-    if (type == "cexchain.access-request/1") {
+    if (type == "kanhe.access-request/1") {
         return "asking another ledger for a record (access request)";
     }
-    if (type == "cexchain.access-grant/1") {
+    if (type == "kanhe.access-grant/1") {
         return "granting such a request (access grant)";
     }
-    if (type == "cexchain.access-receipt/1") {
+    if (type == "kanhe.access-receipt/1") {
         return "acknowledging what was delivered (access accept)";
     }
-    if (type == "cexchain.contract-consent/1") {
+    if (type == "kanhe.contract-consent/1") {
         return "consenting to a call on a contract instance elsewhere (contract consent)";
     }
-    if (type == "cexchain.claim/1") {
+    if (type == "kanhe.claim/1") {
         return "confirming a condition on another record's fields, without them (claim issue)";
     }
-    if (type == "cexchain.membership/1") {
+    if (type == "kanhe.membership/1") {
         return "a trust node's word on who runs another ledger (trust member add)";
     }
     return {};
@@ -576,4 +575,4 @@ Json vault_json(const protocol::Id& record, const Vault& vault) {
     return {{"record", id_json(record)}, {"fields", fields}, {"attachments", attachments}};
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

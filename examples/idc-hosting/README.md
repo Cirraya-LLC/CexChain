@@ -8,7 +8,7 @@ then the customer ends the service, and the panel deletes the server and takes i
 The provider's AI agent sends the customer the notices the contract asks for, through MCP; a
 clerk records the cash payment by hand. Anyone can verify the whole history offline.
 
-CexChain knows nothing about servers, panels, or invoices. The contract,
+Kanhe knows nothing about servers, panels, or invoices. The contract,
 [`hosting.bo`](hosting.bo), declares the `services` and `commerce` vocabulary packs and adds a
 few lines of its own:
 
@@ -105,7 +105,7 @@ marked with their rules (`bo explain --language zh-Hant-HK`, in part):
 13. **Verified offline.** `contract verify` replays every call and checks every consent on the
     customer's own ledger: 11 requests made, 11 answered, 0 open; who answered each (the
     executor, the agent with its model and the MCP tool, the clerk, the keeper). The same file
-    opens in the browser verifier (`cexchain-verify.html`), and both ledgers audit clean.
+    opens in the browser verifier (`kanhe-verify.html`), and both ledgers audit clean.
 
 ## The address
 
@@ -124,7 +124,7 @@ and the customer's consent at each allocation (R3).
 
 ## Time
 
-A month cannot pass in a test. Every `cexchain` command reads `CEXCHAIN_CLOCK_OFFSET` (such as
+A month cannot pass in a test. Every `kanhe` command reads `KANHE_CLOCK_OFFSET` (such as
 `30d` or `2067754s`) and runs its clock that far ahead; the script sets it and restarts the
 cluster to move time on, and the customer, the executor, and the agent move with the provider.
 It is for demonstrations and tests only: a ledger keeps the times it records, so `serve` starts
@@ -136,10 +136,10 @@ clock runs ahead of its ledger's is refused (a statement from the future).
 ```sh
 bo test examples/idc-hosting/hosting.bo                           # its six tests
 bo explain examples/idc-hosting/hosting.bo --language zh-Hans-CN   # the contract text
-examples/idc-hosting/idc-hosting.sh [CEXCHAIN] [DIR]                       # CTest: demo_idc_hosting
+examples/idc-hosting/idc-hosting.sh [KANHE] [DIR]                       # CTest: demo_idc_hosting
 ```
 
-The script needs a `cexchain` built with the Bo compiler (GCC 16; the release build and the
+The script needs a `kanhe` built with the Bo compiler (GCC 16; the release build and the
 Docker image have it) and `python3`, which runs the fake panel and billing system. It takes
 about a minute. Give a `DIR` to keep the ledgers, the executor's journal, and the fake systems'
 files, and look around afterwards. In production the executor runs as a service of its own

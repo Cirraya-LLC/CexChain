@@ -16,15 +16,15 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/ledger.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/ledger.hpp>
 
 #include "bench.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 /// 2026-10-06T00:00:00Z, as the tests' t0.
 inline constexpr protocol::Timestamp t0 = 1'791'244'800'000;
@@ -141,4 +141,4 @@ struct Workload {
                                             std::span<const protocol::Id> instances,
                                             std::uint64_t round);
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

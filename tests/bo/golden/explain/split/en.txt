@@ -24,7 +24,7 @@ Besides Bo's core words, the contract uses the finance vocabulary pack (version 
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 split
-  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 The call gives parts (a list of at most 16 items, each money in HKD); recipients (a list of at most 16 items, each a party). [R1, R15]
   4.1.4 Requirement 1: the sum of the parts is the amount.
@@ -49,6 +49,6 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
 [R15] Parts are a list of amounts in the unit of the instance's amount.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R22] A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it.
 [R30] Issue PARTS to RECIPIENTS makes each part an instance of its own, of the same contract, created by the call: its amount is the part and its holder its recipient, and the instance that issued it ends. A part may be split again, at most eight levels down, and its evidence carries the history of every instance it came from (spec section 15).

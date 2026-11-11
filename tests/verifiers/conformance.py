@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 """The conformance suite (testvectors/evidence-v1.json) against the command
-line: each case's evidence through `cexchain verify --json` (a record's) or
-`cexchain contract verify --json` (an instance's contract evidence), with its
+line: each case's evidence through `kanhe verify --json` (a record's) or
+`kanhe contract verify --json` (an instance's contract evidence), with its
 options as flags. The verdict must be the suite's (exit 0 verified, 3 not),
 and a verified report must hold the case's facts: a fact object matches when
 each of its keys is in the report with a matching value, a fact list matches
 a list of the same length element by element, and anything else only an
 equal value.
 
-Usage: python3 conformance.py CEXCHAIN SUITE
+Usage: python3 conformance.py KANHE SUITE
 """
 
 from __future__ import annotations
@@ -56,13 +56,13 @@ def flags(options: dict, work: str) -> list[str]:
     return out
 
 
-def run_case(cexchain: str, case: dict) -> str | None:
+def run_case(kanhe: str, case: dict) -> str | None:
     """Nothing if the command line agrees with the case; else why not."""
     with tempfile.TemporaryDirectory() as work:
         evidence = os.path.join(work, "evidence.cbor")
         with open(evidence, "wb") as f:
             f.write(bytes.fromhex(case["evidence"]))
-        command = [cexchain] + (["contract", "verify"] if case["kind"] == "contract" else ["verify"])
+        command = [kanhe] + (["contract", "verify"] if case["kind"] == "contract" else ["verify"])
         command += [evidence, "--json"] + flags(case.get("options", {}), work)
         done = subprocess.run(command, capture_output=True, text=True)
     if done.returncode not in (0, 3):
@@ -85,7 +85,7 @@ def main() -> int:
     if len(sys.argv) != 3:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 1
-    cexchain, path = sys.argv[1], sys.argv[2]
+    kanhe, path = sys.argv[1], sys.argv[2]
     with open(path) as f:
         suite = json.load(f)
     if suite.get("format") != 1:
@@ -93,7 +93,7 @@ def main() -> int:
         return 1
     failures = 0
     for case in suite["cases"]:
-        problem = run_case(cexchain, case)
+        problem = run_case(kanhe, case)
         if problem is not None:
             failures += 1
             print(f"FAIL {case['name']}: {problem}")

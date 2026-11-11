@@ -19,16 +19,16 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 const crypto::Provider& provider() {
     static const crypto::openssl::Provider instance;
@@ -92,11 +92,11 @@ void compiler(std::string_view text) {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     // Read once before timing anything: the official packs.
-    static const bool ready = !cexchain::bo::official_packs().empty();
+    static const bool ready = !kanhe::bo::official_packs().empty();
     if (!ready) {
         std::abort();
     }
-    const cexchain::ByteView bytes(data, size);
+    const kanhe::ByteView bytes(data, size);
     bundle(bytes);
     built(bytes);
     compiler(std::string_view(reinterpret_cast<const char*>(data), size));

@@ -8,9 +8,9 @@
 #include <string>
 #include <unistd.h>
 
-#include <cexchain/console/activity.hpp>
+#include <kanhe/console/activity.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -84,4 +84,4 @@ std::vector<Activity> read_activity(const std::filesystem::path& directory, std:
     return out;
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

@@ -21,15 +21,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/ledger/storage.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -285,4 +285,4 @@ http::Response Console::recover_finish(const http::Request& request) const {
     return finish_recovery(recovery, future.get());
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

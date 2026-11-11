@@ -12,11 +12,11 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/record_files.hpp>
 
-namespace node = cexchain::node;
+namespace node = kanhe::node;
 
 namespace {
 
@@ -29,15 +29,15 @@ void require(bool condition) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const cexchain::ByteView input(data, size);
+    const kanhe::ByteView input(data, size);
 
     const auto box = node::parse_sealed_box(input);
     // A registration whose second attachment is 5 bytes long.
-    cexchain::protocol::RecordRegisterBody record;
-    record.attachments.push_back({"a.txt", "text/plain", 3, cexchain::Bytes(32, 1)});
-    record.attachments.push_back({"b.jpg", "image/jpeg", 5, cexchain::Bytes(32, 2)});
+    kanhe::protocol::RecordRegisterBody record;
+    record.attachments.push_back({"a.txt", "text/plain", 3, kanhe::Bytes(32, 1)});
+    record.attachments.push_back({"b.jpg", "image/jpeg", 5, kanhe::Bytes(32, 2)});
     for (std::uint64_t index = 0; index < 3; ++index) {
-        const node::SealedFile file{index, cexchain::Bytes(input.begin(), input.end())};
+        const node::SealedFile file{index, kanhe::Bytes(input.begin(), input.end())};
         if (node::check_sealed_file(record, file)) {
             require(box.has_value() && index < record.attachments.size());
             require(box->ciphertext.size() ==
@@ -45,7 +45,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         }
     }
 
-    if (const auto value = cexchain::cbor::decode(input)) {
+    if (const auto value = kanhe::cbor::decode(input)) {
         if (const auto files = node::decode_sealed_files(*value)) {
             for (std::size_t i = 1; i < files->size(); ++i) {
                 require((*files)[i - 1].index < (*files)[i].index);

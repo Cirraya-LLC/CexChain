@@ -14,25 +14,25 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/console/activity.hpp>
-#include <cexchain/console/certificates.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/ledger/environment.hpp>
+#include <kanhe/console/activity.hpp>
+#include <kanhe/console/certificates.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/ledger/environment.hpp>
 
 #include "console_commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
-constexpr std::string_view default_verifier = "https://cexchain.cirraya.com/verify/";
+constexpr std::string_view default_verifier = "https://kanhe.cirraya.com/verify/";
 std::string_view text_of(const Bytes& bytes) {
     return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
 }
@@ -68,7 +68,7 @@ console::Kind certificate_kind(const Args& args, const std::string& type) {
     const auto found = kinds.find(type);
     if (found == kinds.end()) {
         throw CommandError{"no kind of type " + type +
-                           " prints fields here: add one (cexchain-console kind add) whose "
+                           " prints fields here: add one (kanhe-console kind add) whose "
                            "sheet lists them in \"printed\", or give it with --sheet FILE"};
     }
     return std::move(found->second);
@@ -341,8 +341,7 @@ int cmd_certificate_issue(const Args& args) {
         std::println("issued {} certificates of {} ({} issued before), listed in {}", count,
                      kind.name, already, out.string());
         // Through a server, the addresses are its own; else --url names them.
-        std::println("print them: cexchain-console certificate print --type {} --out DIR{}",
-                     kind.type,
+        std::println("print them: kanhe-console certificate print --type {} --out DIR{}", kind.type,
                      !session.server_url().empty() ? ""
                      : base.empty()                ? " --url URL"
                                                    : " --url " + base);
@@ -489,4 +488,4 @@ int cmd_certificate_print(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

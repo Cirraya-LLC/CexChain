@@ -6,7 +6,7 @@
 #include <sqlite3.h>
 #include <utility>
 
-namespace cexchain::search::sql {
+namespace kanhe::search::sql {
 
 namespace {
 
@@ -155,4 +155,4 @@ std::string Database::error() const {
     return db_ != nullptr ? sqlite3_errmsg(db_) : "no database";
 }
 
-} // namespace cexchain::search::sql
+} // namespace kanhe::search::sql

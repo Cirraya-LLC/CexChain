@@ -20,25 +20,25 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/access.hpp>
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/access.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -726,7 +726,7 @@ Console::sign_approval(const http::Request& request) const {
                                ? client::decode_vault_public_key(client::read_file(pub))
                                : std::nullopt;
     if (!vault_key) {
-        return error(409, "conflict", "this ledger has no vault key (cexchain vault rekey)");
+        return error(409, "conflict", "this ledger has no vault key (kanhe vault rekey)");
     }
     const Draft& draft = *prepared->draft;
     const auto& registration = std::get<protocol::RecordRegisterBody>(statement.body);
@@ -823,4 +823,4 @@ void Console::registered_now(const Signing& signing, const http::Response& regis
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

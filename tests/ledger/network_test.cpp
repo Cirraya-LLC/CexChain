@@ -11,23 +11,23 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/network.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/network.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/network_witness.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
-namespace network = cexchain::protocol::network;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
+namespace network = kanhe::protocol::network;
 
 constexpr std::uint64_t seen = 1'794'000'000;
 
-cexchain::Result<protocol::EvidenceReport> verify(const protocol::EvidenceBundle& bundle,
-                                                  const protocol::VerifyOptions& options) {
+kanhe::Result<protocol::EvidenceReport> verify(const protocol::EvidenceBundle& bundle,
+                                               const protocol::VerifyOptions& options) {
     auto encoded = protocol::encode_bundle(bundle);
     REQUIRE(encoded);
     REQUIRE(*protocol::decode_bundle(*encoded) == bundle);
@@ -107,7 +107,7 @@ TEST_CASE("a verifier counts trusted network witnesses' cosignatures of anchors"
     // Of another ledger's origin.
     other = *bundle;
     other.anchors[0].network_cosignatures[0] =
-        ed.cosign("cirraya.com/cexchain/" + std::string(64, '0'), at.tree_size, at.root, seen);
+        ed.cosign("cirraya.com/kanhe/" + std::string(64, '0'), at.tree_size, at.root, seen);
     CHECK(failure(other, trusting({&ed})) == Errc::verification_failed);
 }
 

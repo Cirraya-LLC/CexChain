@@ -10,17 +10,17 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/record_log.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/record_log.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 ledger::Ledger open(World& w) {
     auto opened = ledger::Ledger::open(w.fs(), w.clock(), provider());

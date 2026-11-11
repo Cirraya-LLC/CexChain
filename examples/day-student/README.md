@@ -46,11 +46,11 @@ office works on the same application, not on its own copy:
 ## Run it
 
 ```sh
-examples/day-student/day-student.sh path/to/cexchain            # in a temporary directory
-examples/day-student/day-student.sh path/to/cexchain ./school   # keep the ledger to look at
+examples/day-student/day-student.sh path/to/kanhe            # in a temporary directory
+examples/day-student/day-student.sh path/to/kanhe ./school   # keep the ledger to look at
 ```
 
-It needs a `cexchain` built with the Bo compiler (GCC 16; the release build
+It needs a `kanhe` built with the Bo compiler (GCC 16; the release build
 and the Docker image have it). The same rules work in the web console: open
 `day-student.bo` under Rules, deploy it, and retire it there when version 2
 is deployed; each office's staff, as console users with delegations for

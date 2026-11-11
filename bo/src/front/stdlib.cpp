@@ -20,17 +20,17 @@
 #include <utility>
 #include <variant>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/stdlib.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/stdlib.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/vocab.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -41,7 +41,7 @@ namespace {
 #endif
 
 constexpr unsigned char core_bytes[] = {
-#if CEXCHAIN_BO_EMBED
+#if KANHE_BO_EMBED
 #embed "../../stdlib/core.bo"
 #else
 #include "core.bo.inc"
@@ -560,4 +560,4 @@ std::vector<ExplainedClause> standard_terms_text(const Concept* action, const Pa
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

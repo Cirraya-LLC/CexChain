@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kanhe
+GenericName=Verifiable records
+Comment=Your ledger's console: records, rules, and parties, approved with your passkey
+Exec=kanhe-console open
+Terminal=false
+Categories=Office;

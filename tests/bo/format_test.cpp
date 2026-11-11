@@ -10,7 +10,7 @@
 // language formatted into that language changes only its layout; the layout
 // rules; words the new language would read together; and source that cannot
 // be formatted. That the formatted source builds to the same code is in
-// build_test.cpp (it needs cexchain::bo). Set CEXCHAIN_UPDATE_GOLDENS=1 to
+// build_test.cpp (it needs kanhe::bo). Set KANHE_UPDATE_GOLDENS=1 to
 // rewrite the goldens after a deliberate change.
 
 #include <algorithm>
@@ -27,20 +27,20 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
 const PackSet& official_set() {
@@ -166,7 +166,7 @@ std::vector<std::string> meaning(std::string_view source) {
 } // namespace
 
 TEST_CASE("the formatter's goldens", "[bo][format]") {
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     std::size_t files = 0;
     for (const auto& entry : std::filesystem::directory_iterator(golden_dir / "format")) {
         const std::string source = read_text(entry.path() / "source.bo");

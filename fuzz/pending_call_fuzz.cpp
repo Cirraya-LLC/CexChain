@@ -13,11 +13,11 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/node/contracts.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/node/contracts.hpp>
 
-namespace node = cexchain::node;
-namespace cbor = cexchain::cbor;
+namespace node = kanhe::node;
+namespace cbor = kanhe::cbor;
 
 namespace {
 
@@ -30,7 +30,7 @@ void require(bool condition) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const cexchain::ByteView input(data, size);
+    const kanhe::ByteView input(data, size);
     if (const auto proposal = node::decode_call_proposal(input)) {
         const auto again = node::encode_call_proposal(*proposal);
         require(again && std::ranges::equal(*again, input));

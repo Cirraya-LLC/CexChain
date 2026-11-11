@@ -36,7 +36,7 @@ Test "the supplier sells the receivable, and the buyer pledges it": passed
     Result: refused, since requirement 1 of transfer is not met (bo:requires transfer 1).
     The contract text, 4.2.5: Requirement 1: the counterparty is not the holder.
   Step 3 (line 39) passed: supplier transfer to factor1 -> active
-    Result: accepted with the consent of the supplier and factor1, and the instance is active.
+    Result: accepted with the consent of factor1 and the supplier, and the instance is active.
   Step 4 (line 40) passed: supplier pledge to bank1 -> consent of factor1
     Result: the call waits for the consent of factor1.
   Step 5 (line 41) passed: factor1 pledge to bank1 -> pledged

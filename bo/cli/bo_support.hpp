@@ -8,11 +8,11 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
 #include "args.hpp"
 #include "json_output.hpp"
@@ -22,7 +22,7 @@
 /// building a deploy from a source or a .boc file, and checking a deploy's
 /// source against its code. Every build has the second, but only builds
 /// with the Bo compiler (GCC 16) can rebuild; the others say so.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// True if this build has the Bo compiler.
 [[nodiscard]] bool have_bo_compiler() noexcept;
@@ -58,13 +58,13 @@ struct SourceCheck {
 [[nodiscard]] std::string source_check_text(const SourceCheck& check);
 
 /// The reader's language for Bo's messages and contract text: `want`
-/// (--language), else $CEXCHAIN_LANGUAGE, else English. A pack id, a
+/// (--language), else $KANHE_LANGUAGE, else English. A pack id, a
 /// language tag, or a tag's unique prefix (zh-Hant), among the official
 /// packs and then `extra`; a language no pack has is a usage error.
 [[nodiscard]] const bo::Pack* reader_language(const std::optional<std::string>& want,
                                               std::span<const bo::Pack> extra = {});
 
-/// $CEXCHAIN_LANGUAGE's official pack, else English: for the words of a
+/// $KANHE_LANGUAGE's official pack, else English: for the words of a
 /// compiled contract's refusals, which never fail a command.
 [[nodiscard]] const bo::Pack* environment_language() noexcept;
 
@@ -100,4 +100,4 @@ struct BoDeploy {
 [[nodiscard]] BoDeploy bo_deploy_body(const Args& args, const std::string& file,
                                       const crypto::Provider& provider, crypto::HashAlg hash);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

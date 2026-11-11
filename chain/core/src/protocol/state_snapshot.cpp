@@ -20,10 +20,10 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -672,4 +672,4 @@ LedgerState::decode(ByteView bytes,
     return s;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

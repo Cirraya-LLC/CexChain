@@ -5,9 +5,9 @@
 #include <chrono>
 #include <random>
 
-#include <cexchain/core/protocol/id_map.hpp>
+#include <kanhe/core/protocol/id_map.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 IdKey key_of(const Id& id) noexcept {
     IdKey key{};
@@ -101,4 +101,4 @@ void NonceSet::grow() {
     }
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

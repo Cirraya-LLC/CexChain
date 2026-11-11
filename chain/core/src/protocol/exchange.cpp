@@ -3,12 +3,12 @@
 
 #include <utility>
 
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -51,7 +51,7 @@ std::string_view name(ExchangeKind kind) noexcept {
 }
 
 Result<Bytes> encode_exchange_file(const ExchangeFile& f) {
-    CEXCHAIN_CHECK(check(f));
+    KANHE_CHECK(check(f));
     cbor::Map map{entry(1, cbor::Value::unsigned_integer(exchange_format)),
                   entry(2, cbor::Value::text(std::string(name(f.kind)))),
                   entry(3, cbor::Value::bytes(f.home.bytes())),
@@ -82,14 +82,14 @@ Result<ExchangeFile> decode_exchange_file(ByteView encoded) {
     if (encoded.size() > max_exchange_file) {
         return fail(Errc::limit_exceeded, "a proposal or consent file is at most 16 MiB");
     }
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
-    CEXCHAIN_TRY(std::uint64_t version, reader.need_uint(1));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(std::uint64_t version, reader.need_uint(1));
     if (version != exchange_format) {
         return fail(Errc::unsupported, "a proposal or consent file of another format version");
     }
     ExchangeFile f;
-    CEXCHAIN_TRY(std::string kind, reader.need_text(2));
+    KANHE_TRY(std::string kind, reader.need_text(2));
     if (kind == "proposal") {
         f.kind = ExchangeKind::proposal;
     } else if (kind == "consent") {
@@ -97,37 +97,37 @@ Result<ExchangeFile> decode_exchange_file(ByteView encoded) {
     } else {
         return fail(Errc::invalid_argument, "a file is a proposal or a consent");
     }
-    CEXCHAIN_TRY(f.home, reader.need_id(3));
-    CEXCHAIN_TRY(f.instance, reader.need_id(4));
-    CEXCHAIN_TRY(f.head, reader.need_uint(5));
-    CEXCHAIN_TRY(f.function, reader.need_text(6));
-    CEXCHAIN_TRY(const cbor::Value* arguments, reader.need(7));
+    KANHE_TRY(f.home, reader.need_id(3));
+    KANHE_TRY(f.instance, reader.need_id(4));
+    KANHE_TRY(f.head, reader.need_uint(5));
+    KANHE_TRY(f.function, reader.need_text(6));
+    KANHE_TRY(const cbor::Value* arguments, reader.need(7));
     f.arguments = *arguments;
-    CEXCHAIN_TRY(std::int64_t hash, reader.need_int(8));
+    KANHE_TRY(std::int64_t hash, reader.need_int(8));
     const auto alg = crypto::hash_alg_from_cose(hash);
     if (!alg) {
         return fail(Errc::invalid_argument, "a home's hash is SHA-256 or SM3");
     }
     f.hash = *alg;
-    CEXCHAIN_TRY(f.evidence, reader.need_bytes(9));
+    KANHE_TRY(f.evidence, reader.need_bytes(9));
     if (const cbor::Value* list = reader.get(10)) {
-        CEXCHAIN_TRY(const cbor::Array* needs, detail::as_array(*list));
+        KANHE_TRY(const cbor::Array* needs, detail::as_array(*list));
         if (needs->size() > max_exchange_needs) {
             return fail(Errc::limit_exceeded, "a proposal names at most 16 ledgers");
         }
         for (const cbor::Value& item : *needs) {
-            CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(item));
-            CEXCHAIN_TRY(Id id, to_id(bytes));
+            KANHE_TRY(Bytes bytes, detail::as_bytes_value(item));
+            KANHE_TRY(Id id, to_id(bytes));
             f.needs.push_back(id);
         }
         if (needs->empty()) {
             return fail(Errc::invalid_argument, "a proposal names 1 to 16 ledgers");
         }
     }
-    CEXCHAIN_TRY(f.note, reader.opt_text(11));
-    CEXCHAIN_CHECK(reader.finish());
-    CEXCHAIN_CHECK(check(f));
+    KANHE_TRY(f.note, reader.opt_text(11));
+    KANHE_CHECK(reader.finish());
+    KANHE_CHECK(check(f));
     return f;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

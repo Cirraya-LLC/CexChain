@@ -5,14 +5,14 @@
 
 #include <string>
 
-#include <cexchain/client/contracts.hpp>
+#include <kanhe/client/contracts.hpp>
 
 #include "output.hpp"
 #include "support.hpp"
 
 /// Contract operations from options, with Bo's words in the reader's
-/// language ($CEXCHAIN_LANGUAGE).
-namespace cexchain::cli {
+/// language ($KANHE_LANGUAGE).
+namespace kanhe::cli {
 
 /// A command's arguments: --args in diagnostic notation, --args-cbor from a
 /// file of CBOR, or null.
@@ -23,4 +23,4 @@ namespace cexchain::cli {
                                         protocol::ContractConsent& consent,
                                         const ConsentOptions& options, const Args& ledger_args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

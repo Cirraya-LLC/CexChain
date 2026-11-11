@@ -14,11 +14,11 @@
 # the journal, not retried. Two copies of one executor take turns by the
 # server's lease. Secrets are sealed and never shown. Every answer verifies
 # offline.
-# Usage: executor.sh CEXCHAIN
+# Usage: executor.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
@@ -30,15 +30,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="executor test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="executor test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -94,7 +94,7 @@ run executor run --help | contains 'never params, results, responses'
 run executor connector add --help | contains 'never through a shell'
 run executor secret set --help | contains 'never from the command line'
 run executor journal show --help | contains 'HASH(salt || response)'
-run connector webhook --help | contains 'X-CexChain-Signature'
+run connector webhook --help | contains 'X-Kanhe-Signature'
 run connector command --help | contains 'EX_TEMPFAIL'
 run completion bash | contains '"executor connector") words="add list remove show"'
 run completion zsh | contains 'executor secret'
@@ -149,9 +149,9 @@ queue = os.path.join(work, "hook-queue.txt")
 class Hook(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        stamp = self.headers.get("X-CexChain-Timestamp", "")
+        stamp = self.headers.get("X-Kanhe-Timestamp", "")
         expected = "sha256=" + hmac.new(secret, stamp.encode() + b"." + body, hashlib.sha256).hexdigest()
-        signed = hmac.compare_digest(self.headers.get("X-CexChain-Signature", ""), expected)
+        signed = hmac.compare_digest(self.headers.get("X-Kanhe-Signature", ""), expected)
         request = json.loads(body)
         status, reply = 200, None
         with lock:
@@ -162,7 +162,7 @@ class Hook(BaseHTTPRequestHandler):
                 open(queue, "w").write("".join(line + "\n" for line in pending[1:]))
             with open(log, "a") as f:
                 f.write(json.dumps({"id": request["id"], "kind": request["kind"],
-                                    "attempt": self.headers.get("X-CexChain-Attempt"),
+                                    "attempt": self.headers.get("X-Kanhe-Attempt"),
                                     "key": self.headers.get("Idempotency-Key"),
                                     "signed": signed, "params": request.get("params")}) + "\n")
         if not signed:
@@ -238,14 +238,14 @@ a token create worker --scope executor --out worker.token > /dev/null
 PORT="$(free_port)"
 URL="http://127.0.0.1:$PORT"
 start_server() {
-    "$CEXCHAIN" serve --listen "127.0.0.1:$PORT" --ledger "$A" --log-key a-log.key --quiet \
+    "$KANHE" serve --listen "127.0.0.1:$PORT" --ledger "$A" --log-key a-log.key --quiet \
         > server.out 2> server.log &
     echo "$!" > server.pid
     PIDS+=("$(cat server.pid)")
     wait_for 300 healthy "$URL" || { cat server.log; fail "the server did not start"; }
 }
 start_server
-RUN=("$CEXCHAIN" executor run --config worker.json --state "$S" --server "$URL" --token-file worker.token
+RUN=("$KANHE" executor run --config worker.json --state "$S" --server "$URL" --token-file worker.token
     --as worker.key --lease-ttl 5)
 
 # --- Done, through a webhook and a command ------------------------------------------------
@@ -263,7 +263,7 @@ json 'd["id"]' < post-last.json | contains -x "$R2"
 json 'd["secrets"]["panel-token"]' < post-last.json | contains -x panel-token-value
 contains -x '$(touch pwned)' post-count
 [ ! -e pwned ] || fail "params and arguments never reach a shell"
-lacks '^CEXCHAIN_' post-env.txt
+lacks '^KANHE_' post-env.txt
 # The answer publishes the result and the response's salted digest only.
 a request show "$R1" --json > r1.json
 json 'd["answer"]["arguments"]' < r1.json > r1-args.txt
@@ -412,7 +412,7 @@ touch refuse-posts
 # the deadline), slow builds included.
 R6="$(ask http.post '{"n": 6}' 20000)"
 ACTIONS="$(lines post-count)"
-"$CEXCHAIN" executor run --config worker.json --state "$S" --server "$PROXY" \
+"$KANHE" executor run --config worker.json --state "$S" --server "$PROXY" \
     --token-file worker.token --as worker.key --wait 1 --lease-ttl 5 --json > late.jsonl 2> late.log &
 EXECUTOR=$!
 PIDS+=("$EXECUTOR")
@@ -443,7 +443,7 @@ for d in "$SA" "$SB"; do
     mkdir -p "$d"
     cp -R "$S/secrets" "$S/secrets.key" "$S/secrets.pub" "$d/"
 done
-COPY=("$CEXCHAIN" executor run --config worker.json --server "$URL" --token-file worker.token
+COPY=("$KANHE" executor run --config worker.json --server "$URL" --token-file worker.token
     --as worker.key --wait 1 --lease-ttl 5 --json --state)
 "${COPY[@]}" "$SA" > copy-a.jsonl 2> copy-a.log &
 COPY_A=$!

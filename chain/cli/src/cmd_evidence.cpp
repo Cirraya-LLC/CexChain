@@ -4,17 +4,17 @@
 #include <algorithm>
 #include <print>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/witness.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/witness.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -93,7 +93,7 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
                 {"public_key", public_key_json(key->public_key())}};
     }
     if (!value) {
-        throw CommandError{"not a CexChain file (not CBOR, not a PKCS #8 key)"};
+        throw CommandError{"not a Kanhe file (not CBOR, not a PKCS #8 key)"};
     }
     if (const auto bundle = protocol::decode_bundle(content)) {
         Json out{{"kind", "evidence-bundle"},
@@ -107,7 +107,7 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
         if (const auto checkpoint = protocol::parse_checkpoint(bundle->checkpoint)) {
             out["checkpoint"] = checkpoint_json(checkpoint->checkpoint);
         }
-        out["note"] = "decoded only; run cexchain verify to check it";
+        out["note"] = "decoded only; run kanhe verify to check it";
         return out;
     }
     if (const auto request = protocol::decode_cosign_request(content)) {
@@ -191,14 +191,14 @@ Json inspect_json(const crypto::Provider& provider, const Bytes& content) {
         for (const cbor::Value& item : *items) {
             const auto entry = protocol::decode_log_entry(*item.as_bytes());
             if (!entry) {
-                throw CommandError{"not a CexChain file"};
+                throw CommandError{"not a Kanhe file"};
             }
             entries.push_back({{"statement_id", id_json(entry->statement_id)},
                                {"registered_at", iso_time(entry->registered_at)}});
         }
         return {{"kind", "log-export"}, {"entries", std::move(entries)}};
     }
-    throw CommandError{"CBOR, but not a CexChain object (use --raw to see it)"};
+    throw CommandError{"CBOR, but not a Kanhe object (use --raw to see it)"};
 }
 
 } // namespace
@@ -248,7 +248,7 @@ int cmd_checkpoint_list(const Args& args) {
     if (args.json()) {
         print_json(out);
     } else if (checkpoints.empty()) {
-        std::println("no checkpoints yet (cexchain checkpoint create)");
+        std::println("no checkpoints yet (kanhe checkpoint create)");
     }
     return exit_ok;
 }
@@ -408,7 +408,7 @@ int cmd_proof_state(const Args& args) {
     if (!proof) {
         throw CommandError{
             proof.error().code == Errc::not_found
-                ? "it is not in the latest checkpoint's state yet (cexchain checkpoint create)"
+                ? "it is not in the latest checkpoint's state yet (kanhe checkpoint create)"
                 : std::string(proof.error().detail)};
     }
     const auto state_commitment = session.ledger().state_commitment();
@@ -624,4 +624,4 @@ int cmd_inspect(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -6,7 +6,7 @@
 // error-parse-*, as `bo check --stage parse` prints the tree, followed by the
 // parser's problems), the same tree for the same contract in every language,
 // precedence, the `=` rule, words with arguments, prefix splits, and the
-// messages. Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the ast.txt files after
+// messages. Set KANHE_UPDATE_GOLDENS=1 to rewrite the ast.txt files after
 // a deliberate change.
 
 #include <algorithm>
@@ -25,18 +25,18 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 
 const Lexicon& official() {
     static const Lexicon lexicon = [] {
@@ -115,7 +115,7 @@ TEST_CASE("the parser's goldens", "[bo][parser]") {
     }
     std::ranges::sort(cases);
     CHECK(cases.size() >= 35);
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     for (const auto& path : cases) {
         const std::string name = path.filename().string();
         INFO(name);

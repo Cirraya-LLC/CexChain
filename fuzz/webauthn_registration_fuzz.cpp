@@ -15,28 +15,28 @@
 #include <cstdlib>
 #include <string_view>
 
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-namespace protocol = cexchain::protocol;
+namespace protocol = kanhe::protocol;
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
-    static const cexchain::Bytes challenge(32, 0x5a);
+    static const kanhe::crypto::openssl::Provider provider;
+    static const kanhe::Bytes challenge(32, 0x5a);
     if (size < 2) {
         return 0;
     }
     const std::size_t length =
         std::min<std::size_t>((std::size_t{data[0]} << 8U) | data[1], size - 2);
-    const cexchain::ByteView attestation(data + 2, length);
-    const cexchain::ByteView client_data(data + 2 + length, size - 2 - length);
+    const kanhe::ByteView attestation(data + 2, length);
+    const kanhe::ByteView client_data(data + 2 + length, size - 2 - length);
     if (const auto credential = protocol::credential_from_registration(
             provider, attestation, client_data, challenge, "localhost", std::nullopt)) {
         const auto encoded = protocol::encode_presence_credential(*credential);
         if (!encoded || credential->credential_id.empty() ||
             credential->key.bytes.size() !=
-                cexchain::crypto::public_key_size(credential->key.algorithm) ||
+                kanhe::crypto::public_key_size(credential->key.algorithm) ||
             protocol::decode_presence_credential(*encoded) != *credential) {
             std::abort();
         }

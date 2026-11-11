@@ -10,14 +10,14 @@
 #include <print>
 #include <string>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/node/timestamps.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/node/timestamps.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -34,7 +34,7 @@ protocol::SignedCheckpoint chosen_checkpoint(const ledger::Ledger& ledger, const
     }
     auto latest = ledger.latest_checkpoint();
     if (!latest) {
-        throw CommandError{"the ledger has no checkpoints yet (cexchain checkpoint create)"};
+        throw CommandError{"the ledger has no checkpoints yet (kanhe checkpoint create)"};
     }
     return std::move(*latest);
 }
@@ -122,7 +122,7 @@ int cmd_checkpoint_timestamps(const Args& args) {
     if (args.json()) {
         print_json(out);
     } else if (lines.empty()) {
-        std::println("no time-stamp tokens yet (cexchain checkpoint timestamp --tsa URL)");
+        std::println("no time-stamp tokens yet (kanhe checkpoint timestamp --tsa URL)");
     } else {
         std::println("{:>10}  {:<23}  {}", "SIZE", "AUTHORITY'S TIME", "AUTHORITY");
         for (const std::string& line : lines) {
@@ -132,4 +132,4 @@ int cmd_checkpoint_timestamps(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

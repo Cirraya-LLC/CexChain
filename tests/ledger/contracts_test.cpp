@@ -13,17 +13,17 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 /// The vectors' test contract: it outputs the content of byte-string
 /// arguments, aborts with text arguments, and otherwise accepts with
@@ -138,7 +138,7 @@ struct Deal {
         return *encoded;
     }
 
-    cexchain::Result<ledger::Registration> submit(const protocol::ContractCallBody& b) {
+    kanhe::Result<ledger::Registration> submit(const protocol::ContractCallBody& b) {
         auto r = home.submit(home.org(), home.statement(home.org_id(), std::nullopt, b));
         home.clock().advance(1000);
         return r;
@@ -158,7 +158,7 @@ struct Deal {
         return *encoded;
     }
 
-    cexchain::Result<protocol::ContractReport> verify(const Bytes& evidence) {
+    kanhe::Result<protocol::ContractReport> verify(const Bytes& evidence) {
         protocol::VerifyOptions options;
         options.expected_ledger = home.ledger().id();
         return protocol::verify_contract_evidence(provider(), evidence, options);

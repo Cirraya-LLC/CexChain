@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// cexchain's commands: the table the registry dispatches, documents, and
+// kanhe's commands: the table the registry dispatches, documents, and
 // completes from.
 
 #include "commands.hpp"
 #include "registry_options.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 std::vector<CommandSpec> chain_commands() {
     return {
@@ -22,7 +22,7 @@ std::vector<CommandSpec> chain_commands() {
          1,
          {},
          cmd_completion,
-         "Load with: source <(cexchain completion bash)   or   source <(cexchain completion zsh)"},
+         "Load with: source <(kanhe completion bash)   or   source <(kanhe completion zsh)"},
 
         // ------------------------------------------------------------------
         {{"key", "generate"},
@@ -39,8 +39,8 @@ std::vector<CommandSpec> chain_commands() {
               passphrase_file_option}),
          cmd_key_generate,
          "A token key (USB key, smart card, HSM) is named by an RFC 7512 URI, e.g.\n"
-         "  pkcs11:token=CexChain;object=alice?module-path=/usr/lib/softhsm/libsofthsm2.so\n"
-         "Its PIN comes from pin-value= or pin-source= in the URI, $CEXCHAIN_PKCS11_PIN, or a\n"
+         "  pkcs11:token=Kanhe;object=alice?module-path=/usr/lib/softhsm/libsofthsm2.so\n"
+         "Its PIN comes from pin-value= or pin-source= in the URI, $KANHE_PKCS11_PIN, or a\n"
          "prompt. Commands that take a key file also take such a URI."},
         {{"key", "show"},
          "Show a key's algorithm, public key, and key ids",
@@ -68,7 +68,7 @@ std::vector<CommandSpec> chain_commands() {
          with({{"remove", "", "Store the key unencrypted"},
                passphrase_file_option,
                {"new-passphrase-file", "FILE",
-                "Read the new passphrase from FILE (default: $CEXCHAIN_NEW_PASSPHRASE or a "
+                "Read the new passphrase from FILE (default: $KANHE_NEW_PASSPHRASE or a "
                 "prompt)"}}),
          cmd_key_passphrase},
 
@@ -87,7 +87,7 @@ std::vector<CommandSpec> chain_commands() {
                {"log-key", "KEY", "Log key file (signs checkpoints and receipts)", true},
                {"hash", "HASH", "sha256 (default) or sm3"},
                {"vault-public-key", "FILE",
-                "Seal private record data to this key (from cexchain vault keygen) instead of "
+                "Seal private record data to this key (from kanhe vault keygen) instead of "
                 "creating <ledger>/vault.key"},
                passphrase_file_option}),
          cmd_init,
@@ -125,10 +125,10 @@ std::vector<CommandSpec> chain_commands() {
          0,
          with({ledger_option}),
          cmd_ledger_snapshot_create,
-         "Right after a checkpoint (cexchain checkpoint create), with nothing logged after it.\n"
+         "Right after a checkpoint (kanhe checkpoint create), with nothing logged after it.\n"
          "Opens then take the state from the newest snapshot that checks against the log, and\n"
          "replay only what follows; a server opened from one replays the whole log in the\n"
-         "background and compares, and cexchain audit does too. A snapshot is a cache, kept\n"
+         "background and compares, and kanhe audit does too. A snapshot is a cache, kept\n"
          "in two files beside the log (snapshot-a, snapshot-b), never sent anywhere. One is\n"
          "written by itself after a checkpoint once the log has grown 100,000 entries since\n"
          "the last (serve --snapshot-interval)."},
@@ -199,7 +199,7 @@ std::vector<CommandSpec> chain_commands() {
          with({ledger_option, {"out", "FILE", "Output file (the encoded log entry)", true}}),
          cmd_ledger_genesis,
          "The genesis entry fixes the ledger id, hash, root key, and first log key. A witness\n"
-         "added from it (cexchain witness add-log --genesis) can follow key rotations."},
+         "added from it (kanhe witness add-log --genesis) can follow key rotations."},
         {{"ledger", "rotate-log-key"},
          "Replace the log key (signed by the organization's root key)",
          "Ledger",
@@ -242,7 +242,7 @@ std::vector<CommandSpec> chain_commands() {
          signing({{"kind", "KIND", "person, agent, or device", true},
                   {"name", "NAME", "Display name", true},
                   {"key", "KEY",
-                   "The new actor's public key file (from cexchain key public), or its private key "
+                   "The new actor's public key file (from kanhe key public), or its private key "
                    "file",
                    true},
                   {"responsible", "ACTOR", "Accountable person (required for agents)"},
@@ -293,8 +293,8 @@ std::vector<CommandSpec> chain_commands() {
          "ACTOR",
          1,
          1,
-         signing({{"credential", "FILE",
-                   "A passkey credential file (from cexchain presence enroll)", false, true},
+         signing({{"credential", "FILE", "A passkey credential file (from kanhe presence enroll)",
+                   false, true},
                   {"add", "", "Keep the passkeys already registered"},
                   {"clear", "", "Remove every passkey"}}),
          cmd_actor_set_presence,
@@ -318,7 +318,7 @@ std::vector<CommandSpec> chain_commands() {
          "key) for the site \"localhost\"; or, with --pkcs11, enrolls a key on a token (a UKey or\n"
          "smart card), which proves presence by signing after its PIN is entered. Only public\n"
          "data is written to FILE; give it to your administrator to register with\n"
-         "cexchain actor set-presence."},
+         "kanhe actor set-presence."},
 
         // ------------------------------------------------------------------
         {{"delegation", "grant"},
@@ -351,7 +351,7 @@ std::vector<CommandSpec> chain_commands() {
          "those functions, creations included; --request-kinds makes its contract calls\n"
          "answers to requests of those kinds, nothing else (an executor's delegation: see\n"
          "executor add). A delegation granted under it may name only some of them.\n\n"
-         "  cexchain delegation grant --to 5d0e7a21 --allow contract-call --contracts 3f2a9c1e \\\n"
+         "  kanhe delegation grant --to 5d0e7a21 --allow contract-call --contracts 3f2a9c1e \\\n"
          "      --functions result --request-kinds notify --as root.key"},
         {{"delegation", "list"},
          "List delegations",
@@ -443,7 +443,7 @@ std::vector<CommandSpec> chain_commands() {
                   vault_key_option}),
          cmd_claim_issue,
          "Checks the condition against RECORD's private data (opened with the vault key) and\n"
-         "registers a cexchain.claim/1 record saying that it holds, as of now. Values: money\n"
+         "registers a kanhe.claim/1 record saying that it holds, as of now. Values: money\n"
          "as HKD 30000.00, dates as YYYY-MM-DD, numbers, and text (quoted if it looks like\n"
          "one of those). Several --if must all hold. If the condition does not hold, no claim\n"
          "is issued unless --allow-no: by default asking reveals nothing more than silence.\n"
@@ -490,7 +490,7 @@ std::vector<CommandSpec> chain_commands() {
                   {"until", "DATE", "The membership lapses after it (YYYY-MM-DD or an ISO time)"},
                   {"note", "TEXT", "How you checked them, kept sealed with the membership"}}),
          cmd_trust_member_add,
-         "Registers a cexchain.membership/1 record naming LEDGER as a member: this ledger acts\n"
+         "Registers a kanhe.membership/1 record naming LEDGER as a member: this ledger acts\n"
          "as a trust node. A verifier who chose this trust node then sees, in the member's\n"
          "evidence, whom the member is, as you checked them. The member fetches its proof\n"
          "from your server (GET /m/LEDGER, served to anyone) with trust node fetch."},
@@ -601,8 +601,8 @@ std::vector<CommandSpec> chain_commands() {
          "record's evidence as it is then (revoked or replaced since, it says so) and the\n"
          "fields named here disclosed. TOKEN is random: nobody finds the address without\n"
          "being given it, so give it only where those fields may be seen. Put it in a QR\n"
-         "code: cexchain qr RECORD --bundle-url ADDRESS --verifier-url\n"
-         "https://cexchain.cirraya.com/verify/. Not yet on a cluster's members."},
+         "code: kanhe qr RECORD --bundle-url ADDRESS --verifier-url\n"
+         "https://kanhe.cirraya.com/verify/. Not yet on a cluster's members."},
         {{"record", "published"},
          "List the records published at private addresses",
          "Records",
@@ -757,9 +757,9 @@ std::vector<CommandSpec> chain_commands() {
                 "Prove consistency from this size (default: the witness's last cosigned size)"}}),
          cmd_checkpoint_cosign_request,
          "The request holds the checkpoint and a consistency proof from the last checkpoint the\n"
-         "witness cosigned. Send it to the witness (cexchain witness cosign), then store the\n"
-         "cosignature it returns with cexchain checkpoint add-cosignature. With --peer and\n"
-         "--send, a peer running cexchain serve --witness-dir cosigns it online: two\n"
+         "witness cosigned. Send it to the witness (kanhe witness cosign), then store the\n"
+         "cosignature it returns with kanhe checkpoint add-cosignature. With --peer and\n"
+         "--send, a peer running kanhe serve --witness-dir cosigns it online: two\n"
          "organizations witness each other with no third party."},
         {{"checkpoint", "add-cosignature"},
          "Store a witness's cosignature; exports then include it",
@@ -784,7 +784,7 @@ std::vector<CommandSpec> chain_commands() {
          "The authority signs, at its own time, a digest of the checkpoint. Whoever trusts it\n"
          "then knows that everything the checkpoint covers existed by that time, and verifiers\n"
          "refuse evidence whose ledger dates such an entry later (spec v0.11). Exports carry\n"
-         "the tokens (verify --tsa-root). cexchain serve --tsa URL asks by itself."},
+         "the tokens (verify --tsa-root). kanhe serve --tsa URL asks by itself."},
         {{"checkpoint", "add-timestamp"},
          "Store a time-stamp token got another way; exports then include it",
          "Checkpoints and proofs",
@@ -795,7 +795,7 @@ std::vector<CommandSpec> chain_commands() {
                {"size", "N", "The size of the checkpoint it stamps (default: the latest)"}}),
          cmd_checkpoint_add_timestamp,
          "FILE is an RFC 3161 TimeStampToken (DER) over the checkpoint: its message imprint is\n"
-         "the timestamp_imprint that cexchain checkpoint show --json gives, under the ledger's\n"
+         "the timestamp_imprint that kanhe checkpoint show --json gives, under the ledger's\n"
          "hash (for example: openssl ts -query -digest IMPRINT -sha256 -cert)."},
         {{"checkpoint", "timestamps"},
          "List the time-stamp tokens over checkpoints",
@@ -819,7 +819,7 @@ std::vector<CommandSpec> chain_commands() {
                {"note-key", "KEY", "Sign it with this note key (Ed25519; file or pkcs11: URI)"}}),
          cmd_checkpoint_note,
          "The note an open witness network cosigns (spec v0.13, c2sp.org/tlog-checkpoint):\n"
-         "the ledger's origin, cirraya.com/cexchain/<ledger id>, the tree size, and the root\n"
+         "the ledger's origin, cirraya.com/kanhe/<ledger id>, the tree size, and the root\n"
          "in base64. With --note-key, signed as a log signs it, as add-checkpoint sends it.\n"
          "SHA-256 ledgers only."},
         {{"checkpoint", "network-cosign"},
@@ -834,12 +834,12 @@ std::vector<CommandSpec> chain_commands() {
                {"witness", "NAME", "Ask only this one"},
                {"ca-file", "FILE", "Trust these CA certificates (PEM) for https:// witnesses"}}),
          cmd_checkpoint_network_cosign,
-         "Each witness listed with cexchain witness register URL --vkey VKEY gets the\n"
+         "Each witness listed with kanhe witness register URL --vkey VKEY gets the\n"
          "checkpoint's note, signed with the note key, and a consistency proof from the size\n"
          "it cosigned last (c2sp.org/tlog-witness add-checkpoint). Its cosignature is kept,\n"
          "and exports carry it (verify --witness-vkey). A witness that cosigned a larger tree\n"
          "of this ledger is reported, not asked again: a fork, or a restore from an old\n"
-         "backup. cexchain serve --note-key asks by itself."},
+         "backup. kanhe serve --note-key asks by itself."},
         {{"checkpoint", "network-cosignatures"},
          "List the open-network witnesses' cosignatures of checkpoints",
          "Checkpoints and proofs",
@@ -932,19 +932,18 @@ std::vector<CommandSpec> chain_commands() {
          "RECORD|INSTANCE",
          1,
          1,
-         with(
-             {ledger_option,
-              {"bundle-url", "URL",
-               "Where you publish the evidence (from cexchain export, or contract evidence)", true},
-              {"verifier-url", "URL", "Where you host cexchain-verify.html", true},
-              {"out", "FILE", "Write an SVG image (default: draw the code in the terminal)"}}),
+         with({ledger_option,
+               {"bundle-url", "URL",
+                "Where you publish the evidence (from kanhe export, or contract evidence)", true},
+               {"verifier-url", "URL", "Where you host kanhe-verify.html", true},
+               {"out", "FILE", "Write an SVG image (default: draw the code in the terminal)"}}),
          cmd_qr,
          "The code links to the verifier page with the ledger id, the record id, and the bundle's\n"
          "URL. Scanning it verifies the evidence on the scanner's own device; the page refuses\n"
          "evidence about another record or from another ledger. The server that hosts the bundle\n"
          "must allow cross-origin requests from the verifier's origin."},
         {{"inspect"},
-         "Decode any CexChain file",
+         "Decode any Kanhe file",
          "Evidence",
          "FILE",
          1,
@@ -1033,7 +1032,7 @@ std::vector<CommandSpec> chain_commands() {
                 "Re-seal to this public key (default: generate <ledger>/vault.key)"},
                passphrase_file_option,
                {"new-passphrase-file", "FILE",
-                "Passphrase for a generated key (default: $CEXCHAIN_NEW_PASSPHRASE or a prompt)"}}),
+                "Passphrase for a generated key (default: $KANHE_NEW_PASSPHRASE or a prompt)"}}),
          cmd_vault_rekey,
          "Use after a vault key may have leaked, when its holders change, or to seal data\n"
          "written before vaults were encrypted. The previous vault, with its key, is kept in\n"
@@ -1048,7 +1047,7 @@ std::vector<CommandSpec> chain_commands() {
          0,
          with({{"dir", "DIR", "The witness's state directory", true},
                {"genesis", "FILE",
-                "The ledger's genesis entry (from cexchain ledger genesis): fixes the ledger id "
+                "The ledger's genesis entry (from kanhe ledger genesis): fixes the ledger id "
                 "and its keys, so the witness can follow key rotations"},
                {"ledger-id", "ID",
                 "The ledger's id (full hex), from its operator: pins --genesis, or goes with "
@@ -1076,7 +1075,7 @@ std::vector<CommandSpec> chain_commands() {
          "Refuses (exit 3) a checkpoint not signed by the ledger's log key, or one whose history\n"
          "does not extend what this witness cosigned: a sign the ledger was rewritten or forked.\n"
          "Refuses (exit 2) a request whose proof starts elsewhere than the witness's last size;\n"
-         "the operator can then ask with: cexchain checkpoint cosign-request --from SIZE."},
+         "the operator can then ask with: kanhe checkpoint cosign-request --from SIZE."},
         {{"witness", "status"},
          "List the ledgers this witness follows",
          "Witness",
@@ -1118,7 +1117,7 @@ std::vector<CommandSpec> chain_commands() {
          "parties, or files. Refuses a witness whose key is not the one given.\n\n"
          "With --vkey, an open network's witness (spec v0.13) is listed in\n"
          "network-witnesses.json, and nothing is sent: it cosigns once the network's\n"
-         "maintainers list this ledger (cexchain witness network-entry prints the entry to\n"
+         "maintainers list this ledger (kanhe witness network-entry prints the entry to\n"
          "send them). serve --note-key and checkpoint network-cosign ask it."},
         {{"witness", "network-entry"},
          "Print this ledger's entry for an open witness network's list of logs",
@@ -1134,7 +1133,7 @@ std::vector<CommandSpec> chain_commands() {
          cmd_witness_network_entry,
          "The lines a network's list takes (vkey, qpd, contact; the witness-network log-list\n"
          "format). The verifier key's name is the ledger's origin,\n"
-         "cirraya.com/cexchain/<ledger id>. Send the entry to the network's maintainers\n"
+         "cirraya.com/kanhe/<ledger id>. Send the entry to the network's maintainers\n"
          "yourself: they add logs by hand. Keep the note key as safe as the log key, and back\n"
          "it up: a network never updates a log's key. SHA-256 ledgers only."},
         {{"witness", "registered"},
@@ -1190,7 +1189,7 @@ std::vector<CommandSpec> chain_commands() {
                {"tls-key", "FILE", "TLS private key (PEM)"},
                {"read-only", "", "Refuse every write"},
                {"cluster", "",
-                "Serve as a member of this ledger's cluster (cexchain cluster init or join)"},
+                "Serve as a member of this ledger's cluster (kanhe cluster init or join)"},
                {"public-read", "",
                 "Serve read routes without a token (a public verification portal; the vault, "
                 "metrics, requests, and what is due still need one)"},
@@ -1227,7 +1226,7 @@ std::vector<CommandSpec> chain_commands() {
                {"expiry-grace", "SECONDS",
                 "The keeper expires a request this long after its deadline (default: 900)"},
                {"allow-clock-offset", "",
-                "Serve with $CEXCHAIN_CLOCK_OFFSET set, the ledger's clock ahead (demonstrations "
+                "Serve with $KANHE_CLOCK_OFFSET set, the ledger's clock ahead (demonstrations "
                 "and tests only)"},
                passphrase_file_option}),
          cmd_serve,
@@ -1243,7 +1242,7 @@ std::vector<CommandSpec> chain_commands() {
          "           /v1/contracts/due (below)\n"
          "  submit:  POST /v1/statements (a signed statement, application/cose; or a record's\n"
          "           registration with its sealed private data, or a contract call with its\n"
-         "           consents' evidence, application/cexchain-submission+cbor),\n"
+         "           consents' evidence, application/kanhe-submission+cbor),\n"
          "           POST /v1/contracts/calls\n"
          "  admin:   POST /v1/checkpoint, POST /v1/cosignatures ([cosignature, witness key]),\n"
          "           GET, POST /v1/published, DELETE /v1/published/TOKEN\n"
@@ -1269,11 +1268,11 @@ std::vector<CommandSpec> chain_commands() {
          "lists what a keeper would do: the time rules due and the requests to expire.\n"
          "With --keeper-key, the server is that keeper: every --keeper-interval it fires what\n"
          "is due, one call per instance at a time, queued with the other writes.\n"
-         "Requests send \"Authorization: Bearer TOKEN\" (cexchain token create). Reads run on all\n"
+         "Requests send \"Authorization: Bearer TOKEN\" (kanhe token create). Reads run on all\n"
          "I/O threads at once; writes queue for one writer, which commits whatever has queued\n"
          "as a group with one sync. The server holds the ledger's lock only while writing, so\n"
-         "other cexchain commands keep working on it.\n"
-         "With $CEXCHAIN_CLOCK_OFFSET set, the ledger's clock runs ahead and what it records\n"
+         "other kanhe commands keep working on it.\n"
+         "With $KANHE_CLOCK_OFFSET set, the ledger's clock runs ahead and what it records\n"
          "keeps the later times: serve refuses to start unless --allow-clock-offset is given\n"
          "(demonstrations and tests only), and /v1/status shows clock_offset_ms.\n"
          "SIGINT or SIGTERM stops it gracefully."},
@@ -1312,11 +1311,11 @@ std::vector<CommandSpec> chain_commands() {
                {"raft-port", "PORT", "The port Raft listens on (default: that of --raft)"},
                member_api_option,
                {"secret-file", "FILE", "A copy of the cluster's shared secret", true},
-               {"token-file", "FILE", "A read token for the member (default: $CEXCHAIN_TOKEN)"},
+               {"token-file", "FILE", "A read token for the member (default: $KANHE_TOKEN)"},
                {"ca-file", "FILE", "CA certificates (PEM) to trust for the member"}}),
          cmd_cluster_join,
          "Copies the ledger up to its latest checkpoint, re-validating it as a replica would.\n"
-         "Then run it (cexchain serve --cluster) and add it (cexchain cluster add); Raft\n"
+         "Then run it (kanhe serve --cluster) and add it (kanhe cluster add); Raft\n"
          "brings it the rest."},
         {{"cluster", "add"},
          "Add a running node as a member",
@@ -1368,7 +1367,7 @@ std::vector<CommandSpec> chain_commands() {
          "requests, deliveries, receipts, and witnessing), executor (the requests contract\n"
          "calls make, instances' evidence, and answers to requests, no other statements; add\n"
          "read for request commands with --server). Name a peer's token after the peer\n"
-         "(cexchain peer add NAME): it then reaches only that peer's own exchanges. A token\n"
+         "(kanhe peer add NAME): it then reaches only that peer's own exchanges. A token\n"
          "only gates access: what a statement may do is still decided by its signature and\n"
          "the ledger's rules."},
         {{"token", "list"},
@@ -1407,7 +1406,7 @@ std::vector<CommandSpec> chain_commands() {
                {"from", "URL", "The primary's API, e.g. https://ledger.example.com", true},
                {"ledger-id", "ID",
                 "Replicate only this ledger (full hex id; required for http:// sources)"},
-               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"},
+               {"token-file", "FILE", "A read token for the primary (default: $KANHE_TOKEN)"},
                {"ca", "FILE", "Trust these CA certificates (PEM) for the primary"}}),
          cmd_replica_init,
          "A replica copies the primary's log up to its latest checkpoint, the checkpoints,\n"
@@ -1417,7 +1416,7 @@ std::vector<CommandSpec> chain_commands() {
          "log key signed, and trails the primary by its checkpoint interval. A primary cannot\n"
          "hand it a history that is not the ledger's: copying stops (exit 3) at the first\n"
          "entry that fails. Without TLS, pin the ledger with --ledger-id. Replicas refuse\n"
-         "writes; serve one with cexchain serve for reads, back it up, or promote it."},
+         "writes; serve one with kanhe serve for reads, back it up, or promote it."},
         {{"replica", "sync"},
          "Copy what is new on the primary",
          "Replicas",
@@ -1427,7 +1426,7 @@ std::vector<CommandSpec> chain_commands() {
          with({ledger_option,
                {"follow", "", "Keep syncing until interrupted"},
                {"interval", "SECONDS", "With --follow, how often (default: 10)"},
-               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"}}),
+               {"token-file", "FILE", "A read token for the primary (default: $KANHE_TOKEN)"}}),
          cmd_replica_sync,
          "Exit 3 if the primary's history does not verify or was rolled back. With --follow,\n"
          "network failures are retried with backoff; a failed verification stops it."},
@@ -1438,7 +1437,7 @@ std::vector<CommandSpec> chain_commands() {
          0,
          0,
          with({ledger_option,
-               {"token-file", "FILE", "A read token for the primary (default: $CEXCHAIN_TOKEN)"}}),
+               {"token-file", "FILE", "A read token for the primary (default: $KANHE_TOKEN)"}}),
          cmd_replica_status},
         {{"replica", "promote"},
          "Make a replica the primary (after the old primary has stopped)",
@@ -1508,7 +1507,7 @@ std::vector<CommandSpec> chain_commands() {
                {"witness-key", "PUBKEY",
                 "The public key of the witness this ledger's server runs for its peers"}}),
          cmd_peer_invite,
-         "Issues an API token named NAME with the peer scope, and prints a code (cxp_...) that\n"
+         "Issues an API token named NAME with the peer scope, and prints a code (khp_...) that\n"
          "carries this ledger's id, its organization's name, the URL, the token, and the\n"
          "witness key if given (serve --witness-dir --witness-key): send it to\n"
          "that party only, by a channel you trust. Compare the fingerprint it shows with them\n"
@@ -1594,7 +1593,7 @@ std::vector<CommandSpec> chain_commands() {
          "sealed in this ledger's vault): the peer seals what it grants to that key.\n\n"
          "With --if, the request asks only whether the condition holds in the record, and\n"
          "the peer answers with a claim (access answer): what it says, never the fields.\n\n"
-         "  cexchain access request --peer employer --record ID --purpose 'Eligibility check' \\\n"
+         "  kanhe access request --peer employer --record ID --purpose 'Eligibility check' \\\n"
          "    --if 'monthly_salary > HKD 30000' --send --as clerk.key --log-key log.key"},
         {{"access", "send"},
          "Send an access request to the peer's API",
@@ -1668,7 +1667,7 @@ std::vector<CommandSpec> chain_commands() {
          "REQUEST is a request file, or a request in the inbox (by id prefix). The grant is\n"
          "recorded on this ledger; the delivery holds its evidence and the record's, with\n"
          "the granted fields and attachments, sealed to the requester's key. The requester\n"
-         "can fetch it from this ledger's API. End a grant with: cexchain record revoke ID."},
+         "can fetch it from this ledger's API. End a grant with: kanhe record revoke ID."},
         {{"access", "answer"},
          "Answer a request that asks whether a condition holds",
          "Other organizations",
@@ -1688,7 +1687,7 @@ std::vector<CommandSpec> chain_commands() {
          "the condition and whether it holds, never the fields. The peer fetches it from this\n"
          "ledger's API. If the condition does not hold, nothing is answered unless\n"
          "--allow-no, so that a refusal looks like silence; access dismiss takes the request\n"
-         "away. Withdraw an answer with: cexchain record revoke CLAIM."},
+         "away. Withdraw an answer with: kanhe record revoke CLAIM."},
         {{"access", "receipt"},
          "Check and keep a peer's receipt for a delivery",
          "Other organizations",
@@ -1729,15 +1728,15 @@ std::vector<CommandSpec> chain_commands() {
          "if any, the name, and the hash its source's digests use, which must be this ledger's.\n"
          "Or it is a module, with its interface and compiler given as options.\n\n"
          "A module is in the contract profile (spec section 14): integer-only WebAssembly that\n"
-         "exports cexchain_call and imports only from \"cexchain\", at most 512 KiB. It is\n"
+         "exports kanhe_call and imports only from \"kanhe\", at most 512 KiB. It is\n"
          "checked here before it is signed. The contract's id is the deploy statement's id; its\n"
          "code never changes, so a new version is a new deploy. The ledger records a call only\n"
          "if the contract, run on it, accepts it; every verifier runs it again. A source\n"
          "recorded with the code lets anyone rebuild the code and compare, with the language's\n"
          "own tools (bo rebuild, for Bo).\n\n"
-         "  bo build lending.bo --out lending.boc && cexchain contract deploy lending.boc --as "
+         "  bo build lending.bo --out lending.boc && kanhe contract deploy lending.boc --as "
          "root.key\n"
-         "  cexchain contract deploy rules.wasm --function propose=create \\\n"
+         "  kanhe contract deploy rules.wasm --function propose=create \\\n"
          "      --function sign=call --compiler \"mytool 1.2\" --as root.key"},
         {{"contract", "show"},
          "Show a contract: its interface, code, and instances",
@@ -1785,7 +1784,7 @@ std::vector<CommandSpec> chain_commands() {
          cmd_contract_create,
          "FUNCTION is one the contract declared to create instances. The instance starts as this\n"
          "ledger's proposal, with the parties the contract names: a creation takes no consents.\n"
-         "Each party is bound only once it consents to a later call.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "Each party is bound only once it consents to a later call.\n\n" KANHE_ARGUMENTS_HELP},
         {{"contract", "call"},
          "Call a function on one of this ledger's instances",
          "Contracts",
@@ -1810,7 +1809,7 @@ std::vector<CommandSpec> chain_commands() {
          "A Bo contract's time rules are functions too (when.suspend, ...): a keeper, such as a\n"
          "device whose delegation names the contract (delegation grant --contracts), calls them\n"
          "on a schedule; one whose time has not come is refused, and nothing is recorded. Try\n"
-         "one first with --dry-run --at TIME.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "one first with --dry-run --at TIME.\n\n" KANHE_ARGUMENTS_HELP},
         {{"contract", "instance"},
          "Show an instance: its status, state, calls, parts, and requests",
          "Contracts",
@@ -1867,7 +1866,7 @@ std::vector<CommandSpec> chain_commands() {
                   signing_log_key_option,
                   passphrase_file_option,
                   {"note", "TEXT", "A note for the people who read it (1 to 1000 bytes)"},
-                  {"out", "FILE", "Where to write it (FILE.cexchain)", true}}),
+                  {"out", "FILE", "Where to write it (FILE.kanhe)", true}}),
          cmd_contract_proposal,
          "For ledgers that do not reach each other's APIs. The call runs first, as for a dry\n"
          "run: it must wait for other parties' consents (a call the contract accepts as it is,\n"
@@ -1877,9 +1876,9 @@ std::vector<CommandSpec> chain_commands() {
          "verifies the instance and reads the contract before consenting: contract consent\n"
          "--proposal FILE writes the consent file back, and contract call --consent FILE\n"
          "records the call (its arguments taken from the file).\n\n"
-         "  cexchain contract proposal 3f2a9c1e lend --args '{\"counterparty\": h'\''8d01...'\''}' "
+         "  kanhe contract proposal 3f2a9c1e lend --args '{\"counterparty\": h'\''8d01...'\''}' "
          "\\\n"
-         "      --as owner.key --log-key log.key --out lend.cexchain\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "      --as owner.key --log-key log.key --out lend.kanhe\n\n" KANHE_ARGUMENTS_HELP},
         {{"contract", "file", "show"},
          "Show a proposal or consent file, verified",
          "Contracts",
@@ -1913,7 +1912,7 @@ std::vector<CommandSpec> chain_commands() {
          "rejects, or takes as it is (the home's people sign those themselves); otherwise it\n"
          "holds the call and asks the ledgers the contract names to consent (contract pending,\n"
          "contract consent). It records the call once the contract accepts "
-         "it.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "it.\n\n" KANHE_ARGUMENTS_HELP},
         {{"contract", "pending"},
          "List the calls a home's registrar holds, waiting for consents",
          "Contracts",
@@ -1952,14 +1951,14 @@ std::vector<CommandSpec> chain_commands() {
                    "Write the consent's evidence here (with --proposal, as a consent file)"},
                   {"send", "", "Send it to the home's registrar (needs --peer)"}}),
          cmd_contract_consent,
-         "Records a cexchain.contract-consent/1 record naming exact terms: the home, the\n"
+         "Records a kanhe.contract-consent/1 record naming exact terms: the home, the\n"
          "instance, the function, a digest of the arguments (under the home's hash), and the\n"
          "instance's head. It applies to that one call only, once, until it lapses. With --call\n"
          "the terms come from the call the home's registrar holds (contract pending shows it;\n"
          "the terms are printed); with --proposal they come from a proposal file, whose\n"
          "evidence is verified first, and --out writes the consent file to send back. Otherwise\n"
          "name them, as for contract call. Prove presence (--presence) if the contract wants a\n"
-         "person to have approved in person.\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "person to have approved in person.\n\n" KANHE_ARGUMENTS_HELP},
         {{"contract", "withdraw"},
          "Withdraw a contract consent not used yet",
          "Contracts",
@@ -2022,7 +2021,7 @@ std::vector<CommandSpec> chain_commands() {
          "The code is checked as run, not against its source: --deploy-out writes the deploy\n"
          "the evidence carries, and bo rebuild checks that a Bo contract's source builds to its\n"
          "code.\n\n"
-         "  cexchain contract verify deal.cbor --ledger-id 98ae652f --deploy-out deal.boc\n"
+         "  kanhe contract verify deal.cbor --ledger-id 98ae652f --deploy-out deal.boc\n"
          "  bo rebuild deal.boc"},
         {{"contract", "export"},
          "Write a deployed contract as a deploy file, for its language's tools",
@@ -2036,7 +2035,7 @@ std::vector<CommandSpec> chain_commands() {
          "the compiler, the source if any, the name) and this ledger's hash, as a compiler\n"
          "writes one: bo rebuild checks a Bo contract's source against its code from it, and bo\n"
          "explain writes its contract text.\n\n"
-         "  cexchain contract export 3f2a9c1e --out lending.boc && bo rebuild lending.boc"},
+         "  kanhe contract export 3f2a9c1e --out lending.boc && bo rebuild lending.boc"},
         // ------------------------------------------------------------------
         {{"request", "list"},
          "List the requests contract calls made to executors",
@@ -2062,8 +2061,8 @@ std::vector<CommandSpec> chain_commands() {
          "kind, params, a deadline, and a reply (the function an answer calls), and stays open\n"
          "until one answer closes it: done, failed, or expired. Requests are derived from the\n"
          "log, so the list is the ledger's own (with --server, the verified mirror's).\n\n"
-         "  cexchain request list --open --kind notify\n"
-         "  cexchain request list --answered-by 3f2a9c1e --since 2026-10-01 --json"},
+         "  kanhe request list --open --kind notify\n"
+         "  kanhe request list --answered-by 3f2a9c1e --since 2026-10-01 --json"},
         {{"request", "show"},
          "Show a request: what was asked, its deadline, and its answer",
          "Requests",
@@ -2100,9 +2099,9 @@ std::vector<CommandSpec> chain_commands() {
          "is recorded as late. Who may answer is the delegations' choice: a person by hand, an\n"
          "executor (whose delegation names the kinds it answers), or a keeper expiring an\n"
          "overdue request.\n\n"
-         "  cexchain request answer 9b1c40aa --done --args '{\"ref\": \"T-1001\"}' --as clerk.key\n"
-         "  cexchain request answer 9b1c40aa --failed --reason unavailable --as "
-         "device.key\n\n" CEXCHAIN_ARGUMENTS_HELP},
+         "  kanhe request answer 9b1c40aa --done --args '{\"ref\": \"T-1001\"}' --as clerk.key\n"
+         "  kanhe request answer 9b1c40aa --failed --reason unavailable --as "
+         "device.key\n\n" KANHE_ARGUMENTS_HELP},
         {{"request", "cancel"},
          "Cancel a request: answer it failed, with the reason cancelled",
          "Requests",
@@ -2124,9 +2123,9 @@ std::vector<CommandSpec> chain_commands() {
          "",
          0,
          0,
-         with({{"server", "URL", "The server (default: $CEXCHAIN_SERVER)"},
+         with({{"server", "URL", "The server (default: $KANHE_SERVER)"},
                {"token-file", "FILE",
-                "An API token with the read or executor scope (default: $CEXCHAIN_TOKEN)"},
+                "An API token with the read or executor scope (default: $KANHE_TOKEN)"},
                {"ca-file", "FILE",
                 "CA certificates (PEM) to trust for --server, if not the system's"},
                {"state", "STATE", "open (default), answered, or all"},
@@ -2173,7 +2172,7 @@ std::vector<CommandSpec> chain_commands() {
          "With --agent, --model and --model-version describe the agent. Two statements are\n"
          "recorded, signed with --as: the organization's key, or an actor's whose delegation\n"
          "covers actor-register and delegation-grant and may delegate.\n\n"
-         "  cexchain executor add Notifier --contract 3f2a9c1e --kinds notify \\\n"
+         "  kanhe executor add Notifier --contract 3f2a9c1e --kinds notify \\\n"
          "      --key-out notifier.key --config-out notifier.json --as root.key"},
         {{"executor", "list"},
          "List executors: actors whose delegations answer requests",
@@ -2215,7 +2214,7 @@ std::vector<CommandSpec> chain_commands() {
          with({{"config", "FILE", "The executor's config: its ids and its connectors", true},
                {"state", "DIR", "Its state: journal, cursor, lease name, and sealed secrets", true},
                {"server", "URL", "The home's API", true},
-               {"token-file", "FILE", "An executor API token (default: $CEXCHAIN_TOKEN)"},
+               {"token-file", "FILE", "An executor API token (default: $KANHE_TOKEN)"},
                {"ca-file", "FILE",
                 "CA certificates (PEM) to trust for --server, if not the system's"},
                {"as", "KEY", "The executor's key: a private key file or a pkcs11: URI", true},
@@ -2254,7 +2253,7 @@ std::vector<CommandSpec> chain_commands() {
          "DIR. SIGINT or SIGTERM finishes the requests in hand, stops the connectors, and exits\n"
          "0. It logs requests, kinds, and outcomes; never params, results, responses, or\n"
          "secrets.\n\n"
-         "  cexchain executor run --config notifier.json --state /var/lib/notifier \\\n"
+         "  kanhe executor run --config notifier.json --state /var/lib/notifier \\\n"
          "      --server https://ledger.example.com --token-file executor.token --as notifier.key"},
         {{"executor", "check"},
          "Check an executor's config: start each connector and greet it",
@@ -2302,9 +2301,9 @@ std::vector<CommandSpec> chain_commands() {
          "performing one request at a time: up to --concurrency of them; by default, as many\n"
          "as executor run works at once for a webhook or a command, and one for a program\n"
          "(which may keep state of its own).\n\n"
-         "  cexchain executor connector add notices --config notifier.json --type webhook \\\n"
+         "  kanhe executor connector add notices --config notifier.json --type webhook \\\n"
          "      --kinds notify --url https://hooks.example.com/ledger --secret hook-key\n"
-         "  cexchain executor connector add script --config notifier.json --type command \\\n"
+         "  kanhe executor connector add script --config notifier.json --type command \\\n"
          "      --kinds http.post --program /usr/local/bin/post-request --timeout 60"},
         {{"executor", "connector", "list"},
          "List the connectors in an executor's config",
@@ -2400,11 +2399,11 @@ std::vector<CommandSpec> chain_commands() {
          0,
          {},
          cmd_connector_webhook,
-         "executor run starts it as 'cexchain connector webhook' and speaks the connector\n"
+         "executor run starts it as 'kanhe connector webhook' and speaks the connector\n"
          "protocol (spec/connectors.md) with it over stdin and stdout: there is no need to run\n"
-         "it by hand. Each request is POSTed as JSON with the header fields X-CexChain-Request\n"
-         "(its id, also sent as Idempotency-Key: act once per id), X-CexChain-Attempt,\n"
-         "X-CexChain-Timestamp (milliseconds), and X-CexChain-Signature: sha256=HEX, the\n"
+         "it by hand. Each request is POSTed as JSON with the header fields X-Kanhe-Request\n"
+         "(its id, also sent as Idempotency-Key: act once per id), X-Kanhe-Attempt,\n"
+         "X-Kanhe-Timestamp (milliseconds), and X-Kanhe-Signature: sha256=HEX, the\n"
          "HMAC-SHA-256 under the shared secret of the timestamp, a dot, and the body. A 2xx is\n"
          "done; 408, 425, 429, 5xx, or no answer: try again (Retry-After is honoured); anything\n"
          "else: failed. A body may say {\"status\": \"failed\", \"reason\": CODE} and give\n"
@@ -2419,10 +2418,10 @@ std::vector<CommandSpec> chain_commands() {
          0,
          {},
          cmd_connector_command,
-         "executor run starts it as 'cexchain connector command' and speaks the connector\n"
+         "executor run starts it as 'kanhe connector command' and speaks the connector\n"
          "protocol (spec/connectors.md) with it over stdin and stdout. For each request it runs\n"
          "the configured program without a shell, with the request as one JSON line on its\n"
-         "stdin (with \"secrets\" if the config names some), and no CEXCHAIN_* environment\n"
+         "stdin (with \"secrets\" if the config names some), and no KANHE_* environment\n"
          "variables. Exit 0: done; 75 (EX_TEMPFAIL), a signal, or the timeout: try again; any\n"
          "other: failed. Its stdout is the response, committed by digest; if it is a JSON\n"
          "object, its \"result\" is published and its \"reason\" names a failure."},
@@ -2452,7 +2451,7 @@ std::vector<CommandSpec> chain_commands() {
          "and answering no request kinds (no key 9): it can fire the rules and expire requests\n"
          "through their reply, and nothing else, never the actions that are the home's own\n"
          "word. Give its key to serve --keeper-key (the server's keeper) or to keeper run.\n\n"
-         "  cexchain keeper add Keeper --contracts 3f2a9c1e --key-out keeper.key --as root.key"},
+         "  kanhe keeper add Keeper --contracts 3f2a9c1e --key-out keeper.key --as root.key"},
         {{"keeper", "list"},
          "List keepers: devices whose delegations call time rules",
          "Keepers",
@@ -2502,8 +2501,8 @@ std::vector<CommandSpec> chain_commands() {
               {"limit", "N", "At most N contract runs (1 to 100000; default: 10000)"},
               {"start", "N", "Skip the first N instances (where an earlier answer stopped)"},
               {"server", "URL",
-               "Ask this server instead (GET /v1/contracts/due; default: $CEXCHAIN_SERVER)"},
-              {"token-file", "FILE", "An API token with the read scope (default: $CEXCHAIN_TOKEN)"},
+               "Ask this server instead (GET /v1/contracts/due; default: $KANHE_SERVER)"},
+              {"token-file", "FILE", "An API token with the read scope (default: $KANHE_TOKEN)"},
               {"ca-file", "FILE",
                "CA certificates (PEM) to trust for --server, if not the system's"}}),
          cmd_keeper_due,
@@ -2512,8 +2511,8 @@ std::vector<CommandSpec> chain_commands() {
          "request is due to expire once its deadline plus the grace has passed and its contract\n"
          "takes the expiry. Each item names the keepers whose delegations cover it. With\n"
          "--server, the server finds them, by its own clock.\n\n"
-         "  cexchain keeper due\n"
-         "  cexchain keeper due --keeper Keeper --at 2027-07-03 --json"},
+         "  kanhe keeper due\n"
+         "  kanhe keeper due --keeper Keeper --at 2027-07-03 --json"},
         {{"keeper", "run"},
          "Fire what is due as a keeper: once, or every so often",
          "Keepers",
@@ -2536,8 +2535,8 @@ std::vector<CommandSpec> chain_commands() {
          "never early, and its event says how late. On a server, serve --keeper-key does this\n"
          "itself; keeper run is for a ledger without one (or, with --server, from another\n"
          "computer). With --every and --json, it prints one line of JSON a round.\n\n"
-         "  cexchain keeper run --as keeper.key\n"
-         "  cexchain keeper run --as keeper.key --every 60"},
+         "  kanhe keeper run --as keeper.key\n"
+         "  kanhe keeper run --as keeper.key --every 60"},
 
         // ------------------------------------------------------------------
         {{"mcp"},
@@ -2558,18 +2557,18 @@ std::vector<CommandSpec> chain_commands() {
          "delegations cover it, and recorded with provenance: the agent's model, a hash of the\n"
          "inputs it names, and the digest of the tool it used.\n\n"
          "Tools:\n"
-         "  cexchain_whoami, cexchain_ledger_status, cexchain_record_types\n"
-         "  cexchain_get_record, cexchain_issue_record, cexchain_endorse_record,\n"
-         "  cexchain_transition_record, cexchain_verify_evidence\n"
-         "  cexchain_list_contracts, cexchain_get_instance, cexchain_verify_contract_evidence\n"
-         "  cexchain_call_contract           create or call an instance on this ledger\n"
-         "  cexchain_list_pending_calls      calls a home's registrar holds for this ledger\n"
-         "  cexchain_fetch_instance          an instance from its home, verified\n"
-         "  cexchain_propose_contract_call   propose a call to a home's registrar\n"
-         "  cexchain_consent_contract_call   consent to a held call, and send the consent\n"
-         "  cexchain_list_requests, cexchain_get_request\n"
+         "  kanhe_whoami, kanhe_ledger_status, kanhe_record_types\n"
+         "  kanhe_get_record, kanhe_issue_record, kanhe_endorse_record,\n"
+         "  kanhe_transition_record, kanhe_verify_evidence\n"
+         "  kanhe_list_contracts, kanhe_get_instance, kanhe_verify_contract_evidence\n"
+         "  kanhe_call_contract           create or call an instance on this ledger\n"
+         "  kanhe_list_pending_calls      calls a home's registrar holds for this ledger\n"
+         "  kanhe_fetch_instance          an instance from its home, verified\n"
+         "  kanhe_propose_contract_call   propose a call to a home's registrar\n"
+         "  kanhe_consent_contract_call   consent to a held call, and send the consent\n"
+         "  kanhe_list_requests, kanhe_get_request\n"
          "                                   requests contract calls made, and their answers\n"
-         "  cexchain_answer_request          answer a request as its executor (done, failed,\n"
+         "  kanhe_answer_request          answer a request as its executor (done, failed,\n"
          "                                   or expired), under the agent's delegation\n\n"
          "Contract tools reach other organizations as this ledger's peers (peer add). Consents\n"
          "travel as evidence, which needs a checkpoint: give --log-key to let the agent consent.\n"
@@ -2578,8 +2577,8 @@ std::vector<CommandSpec> chain_commands() {
          "then refuse, since peers belong to a ledger directory.\n"
          "Contract arguments are CBOR diagnostic notation; a JSON value works as well. MCP\n"
          "clients start the server without a terminal: give key passphrases with\n"
-         "--passphrase-file or $CEXCHAIN_PASSPHRASE."},
+         "--passphrase-file or $KANHE_PASSPHRASE."},
     };
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

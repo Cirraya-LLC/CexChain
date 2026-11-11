@@ -17,16 +17,16 @@
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/connectors.hpp>
-#include <cexchain/node/server.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/connectors.hpp>
+#include <kanhe/node/server.hpp>
 
-namespace cbor = cexchain::cbor;
-namespace connector = cexchain::node::connector;
-namespace http = cexchain::node::http;
-using cexchain::Bytes;
-using cexchain::to_hex;
+namespace cbor = kanhe::cbor;
+namespace connector = kanhe::node::connector;
+namespace http = kanhe::node::http;
+using kanhe::Bytes;
+using kanhe::to_hex;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
@@ -34,16 +34,16 @@ namespace {
 
 std::filesystem::path fresh_directory() {
     static int counter = 0;
-    const auto dir = std::filesystem::temp_directory_path() /
-                     ("cexchain-connectors-test-" + std::to_string(::getpid()) + "-" +
-                      std::to_string(counter++));
+    const auto dir =
+        std::filesystem::temp_directory_path() /
+        ("kanhe-connectors-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
 }
 
 /// A webhook receiver: records what it receives, answers what it is told.
-class Receiver final : public cexchain::node::Application {
+class Receiver final : public kanhe::node::Application {
 public:
     void handle(http::Request request, std::string, Respond respond) override {
         http::Response response;
@@ -80,7 +80,7 @@ private:
 
 class Running {
 public:
-    Running(cexchain::node::Application& app, cexchain::node::ServerOptions options)
+    Running(kanhe::node::Application& app, kanhe::node::ServerOptions options)
         : server_(app, std::move(options)) {
         REQUIRE(server_.listen());
         thread_ = std::thread([this] { server_.run(); });
@@ -94,12 +94,12 @@ public:
     [[nodiscard]] std::uint16_t port() const { return server_.port(); }
 
 private:
-    cexchain::node::Server server_;
+    kanhe::node::Server server_;
     std::thread thread_;
 };
 
-cexchain::node::ServerOptions plain() {
-    cexchain::node::ServerOptions o;
+kanhe::node::ServerOptions plain() {
+    kanhe::node::ServerOptions o;
     o.host = "127.0.0.1";
     o.threads = 1;
     o.port = 0;
@@ -119,7 +119,7 @@ self_signed(const std::filesystem::path& dir) {
     X509_gmtime_adj(X509_getm_notAfter(cert), 3600);
     X509_set_pubkey(cert, key);
     X509_NAME* name = X509_get_subject_name(cert);
-    const std::string cn = "cexchain webhook test";
+    const std::string cn = "kanhe webhook test";
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char*>(cn.c_str()), -1, -1, 0);
     X509_set_issuer_name(cert, name);
@@ -146,10 +146,10 @@ self_signed(const std::filesystem::path& dir) {
     return {cert_path, key_path};
 }
 
-cexchain::protocol::Id id_of(std::uint8_t fill) {
+kanhe::protocol::Id id_of(std::uint8_t fill) {
     std::array<std::uint8_t, 32> bytes{};
     bytes.fill(fill);
-    return *cexchain::protocol::to_id(bytes);
+    return *kanhe::protocol::to_id(bytes);
 }
 
 connector::Perform request() {
@@ -175,7 +175,7 @@ connector::Hello hello(json config, const std::string& secret = "",
     h.config = config.dump();
     if (!secret.empty()) {
         h.secrets[secret_name] =
-            connector::Secret{cexchain::SecureBytes(Bytes(secret.begin(), secret.end()))};
+            connector::Secret{kanhe::SecureBytes(Bytes(secret.begin(), secret.end()))};
     }
     return h;
 }
@@ -208,17 +208,17 @@ TEST_CASE("the webhook connector posts signed requests and maps the answers",
     CHECK(got.method == "POST");
     CHECK(got.path == "/hooks/in");
     CHECK(got.header("content-type") == "application/json");
-    CHECK(got.header("x-cexchain-request") == to_hex(id_of(7).bytes()));
+    CHECK(got.header("x-kanhe-request") == to_hex(id_of(7).bytes()));
     CHECK(got.header("idempotency-key") == to_hex(id_of(7).bytes()));
-    CHECK(got.header("x-cexchain-attempt") == "2");
+    CHECK(got.header("x-kanhe-attempt") == "2");
     // The signature: HMAC-SHA-256 over the timestamp, a dot, and the body.
     const std::string body = text_of(got.body);
-    const std::string timestamp(*got.header("x-cexchain-timestamp"));
-    const auto expected = cexchain::crypto::openssl::hmac(
-        cexchain::crypto::HashAlg::sha256, cexchain::as_bytes(std::string_view("shared secret")),
-        cexchain::as_bytes(timestamp + "." + body));
+    const std::string timestamp(*got.header("x-kanhe-timestamp"));
+    const auto expected = kanhe::crypto::openssl::hmac(
+        kanhe::crypto::HashAlg::sha256, kanhe::as_bytes(std::string_view("shared secret")),
+        kanhe::as_bytes(timestamp + "." + body));
     REQUIRE(expected);
-    CHECK(got.header("x-cexchain-signature") == "sha256=" + to_hex(expected->bytes()));
+    CHECK(got.header("x-kanhe-signature") == "sha256=" + to_hex(expected->bytes()));
     const json document = json::parse(body);
     CHECK(document["kind"] == "notify");
     CHECK(document["params"]["about"] == "welcome");

@@ -27,7 +27,7 @@ Besides Bo's core words, the contract uses the finance vocabulary pack (version 
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 pledge
-  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 It needs the consent of the bank. The first such call names the ledger of the bank and binds the bank to it; later calls may leave it out or name the same ledger. [R3]
   4.1.4 Requirement 1: if the amount is over HKD 5,000,000, the holder must prove presence in person, with a passkey or a hardware key. [R6, R13]
@@ -37,7 +37,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.8 An AI agent may start it within its delegation. [R14]
 
 4.2 transfer
-  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the holder, whose agreement it needs. [R19]
   4.2.3 The call gives counterparty (a party). [R21]
   4.2.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
@@ -60,7 +60,7 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R9] A time rule whose action names a party states that party's duty: it sets when an instance is due and overdue, and nothing is called.
 [R13] In person asks the party that starts the action to prove presence with a passkey or a hardware key.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
 [R21] An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.
 [R25] A contract that names no UTC offset counts dates and days at UTC+08:00.

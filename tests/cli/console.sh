@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# The web console's server side, end to end: `cexchain-console run` serves
+# The web console's server side, end to end: `kanhe-console run` serves
 # the page at /console/ beside the ledger's API, with its security headers,
 # answers only for its own names, and refuses other sites' pages.
-# Usage: console.sh CEXCHAIN
+# Usage: console.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2; tail -n 20 "$WORK"/*.log >&2 || true' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -19,16 +19,16 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="console test"
-export CEXCHAIN_LEDGER="$WORK/ledger"
-unset CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="console test"
+export KANHE_LEDGER="$WORK/ledger"
+unset KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -78,7 +78,7 @@ stop_server() {
 # JSON.
 start_server() {
     local out="$1"; shift
-    "$(dirname "$CEXCHAIN")/cexchain-console" run --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$(dirname "$KANHE")/kanhe-console" run --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -97,18 +97,18 @@ run init --org "Console Org" --root-key root.key --log-key log.key > /dev/null
 # The chain's server knows nothing of the console.
 expect_exit 1 serve --public-url https://ledger.example.com
 grep -q -- "unknown option --public-url" out.txt || fail "serve has no console"
-expect_exit 1 cexchain-console run --public-url ftp://ledger.example.com
+expect_exit 1 kanhe-console run --public-url ftp://ledger.example.com
 grep -q "https:// or http://" out.txt || fail "a URL's scheme"
 # Beyond this computer, only over TLS (here, or an https proxy in front).
-expect_exit 1 cexchain-console run --listen 0.0.0.0:0
+expect_exit 1 kanhe-console run --listen 0.0.0.0:0
 grep -q -- "only with TLS" out.txt || fail "the console beyond loopback needs TLS"
-expect_exit 1 cexchain-console run --listen 0.0.0.0:0 --public-url http://ledger.example.com
-run cexchain-console run --help > out.txt
+expect_exit 1 kanhe-console run --listen 0.0.0.0:0 --public-url http://ledger.example.com
+run kanhe-console run --help > out.txt
 grep -q -- "--listen HOST:PORT" out.txt || fail "console run --help names --listen"
 grep -q -- "--public-url URL" out.txt || fail "console run --help names --public-url"
 
 # --- The chain's server alone: /console/ is an unknown path -------------------------
-"$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet > plain.json 2> plain.json.log &
+"$KANHE" serve --listen 127.0.0.1:0 --json --quiet > plain.json 2> plain.json.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
     [ -s plain.json ] && python3 -c "import json; json.load(open('plain.json'))" 2> /dev/null && break
@@ -161,24 +161,24 @@ PORT=$(json 'd["port"]' < public.json)
 # Signing in begins one; until then there are none, and none to revoke.
 [ "$(status_of GET "$PORT" /console/api/session "ledger.example.com")" = 401 ] ||
     fail "no session without a token"
-run cexchain-console session list > out.txt
+run kanhe-console session list > out.txt
 grep -q "no console sessions" out.txt || fail "console session list"
-[ "$(run cexchain-console session list --json)" = "[]" ] || fail "console session list --json"
-expect_exit 2 cexchain-console session revoke 0123456789abcdef
+[ "$(run kanhe-console session list --json)" = "[]" ] || fail "console session list --json"
+expect_exit 2 kanhe-console session revoke 0123456789abcdef
 grep -q "no console session 0123456789abcdef" out.txt || fail "revoking an unknown session"
-run cexchain-console session revoke --help > out.txt
+run kanhe-console session revoke --help > out.txt
 grep -q "End a web console session" out.txt || fail "console session revoke --help"
 
 # --- Users and invitations -------------------------------------------------------
-run cexchain-console user list > out.txt
+run kanhe-console user list > out.txt
 grep -q "no console users" out.txt || fail "no users at first"
 # The console running above published its address; setup-link uses it.
-run cexchain-console setup-link > out.txt
-grep -q "https://ledger.example.com/console/#/enroll/cxi_" out.txt || fail "the setup link"
-CODE=$(sed -n 's|.*#/enroll/\(cxi_[A-Za-z0-9_-]*\).*|\1|p' out.txt)
-LOCAL=$(run cexchain-console setup-link --url "http://localhost:7470/" --json)
+run kanhe-console setup-link > out.txt
+grep -q "https://ledger.example.com/console/#/enroll/khi_" out.txt || fail "the setup link"
+CODE=$(sed -n 's|.*#/enroll/\(khi_[A-Za-z0-9_-]*\).*|\1|p' out.txt)
+LOCAL=$(run kanhe-console setup-link --url "http://localhost:7470/" --json)
 [ "$(echo "$LOCAL" | json 'd["role"]')" = owner ] || fail "setup-link --json"
-echo "$LOCAL" | json 'd["link"]' | grep -q "^http://localhost:7470/console/#/enroll/cxi_" ||
+echo "$LOCAL" | json 'd["link"]' | grep -q "^http://localhost:7470/console/#/enroll/khi_" ||
     fail "setup-link --url"
 # A new setup link replaces the last: the first code no longer begins a registration.
 BEGIN=$(request POST "$PORT" /console/api/enroll/begin "ledger.example.com" \
@@ -190,49 +190,49 @@ BEGIN=$(request POST "$PORT" /console/api/enroll/begin "ledger.example.com" \
 [ "$(echo "$BEGIN" | sed -n 1p)" = 200 ] || fail "the setup link begins a registration"
 echo "$BEGIN" | grep -q '"rp":{"id":"ledger.example.com"' || fail "the passkey's relying party"
 
-run cexchain-console user add Bob --role viewer > out.txt
+run kanhe-console user add Bob --role viewer > out.txt
 grep -q "invite Bob" out.txt || fail "console user add"
-run cexchain-console user list > out.txt
+run kanhe-console user list > out.txt
 grep -q "^Bob .*viewer .*invited" out.txt || fail "the invitation listed"
 grep -q "^(setup) .*owner .*invited" out.txt || fail "the setup invitation listed"
-[ "$(run cexchain-console user list --json | json 'len(d["invitations"])')" = 2 ] || fail "--json"
-expect_exit 1 cexchain-console user add "Bad Name!"
-expect_exit 1 cexchain-console user add Carol --role boss
-expect_exit 1 cexchain-console user role Bob boss
-expect_exit 2 cexchain-console user show Bob
-expect_exit 2 cexchain-console user role Bob admin
-run cexchain-console user revoke Bob > out.txt
+[ "$(run kanhe-console user list --json | json 'len(d["invitations"])')" = 2 ] || fail "--json"
+expect_exit 1 kanhe-console user add "Bad Name!"
+expect_exit 1 kanhe-console user add Carol --role boss
+expect_exit 1 kanhe-console user role Bob boss
+expect_exit 2 kanhe-console user show Bob
+expect_exit 2 kanhe-console user role Bob admin
+run kanhe-console user revoke Bob > out.txt
 grep -q "revoked Bob and their invitations" out.txt || fail "revoking an invitation"
-expect_exit 2 cexchain-console user revoke Bob
-run cexchain-console user revoke --help > out.txt
+expect_exit 2 kanhe-console user revoke Bob
+run kanhe-console user revoke --help > out.txt
 grep -q "only owner" out.txt || fail "console user revoke --help"
 
 # --- The console's sealed keys ------------------------------------------------------
-run cexchain-console key list > out.txt
+run kanhe-console key list > out.txt
 grep -q "keys are not set up" out.txt || fail "keys before setup"
-expect_exit 2 cexchain-console key import root root.key
+expect_exit 2 kanhe-console key import root root.key
 printf 'the unlock passphrase of these tests\n' > unlock.txt
-run cexchain-console key init --unlock-file unlock.txt > out.txt
+run kanhe-console key init --unlock-file unlock.txt > out.txt
 grep -q "recovery code (shown once" out.txt || fail "console key init"
 grep -qE '^    [A-Z2-7]{4}(-[A-Z2-7]{4}){5}-[A-Z2-7]{2}$' out.txt || fail "the recovery code's form"
-expect_exit 2 cexchain-console key init
+expect_exit 2 kanhe-console key init
 grep -q "set up already" out.txt || fail "a second key init"
-run cexchain-console key import root root.key > out.txt
+run kanhe-console key import root root.key > out.txt
 grep -q "sealed the key root" out.txt || fail "console key import"
-KEYS=$(run cexchain-console key list --json)
+KEYS=$(run kanhe-console key list --json)
 [ "$(echo "$KEYS" | json 'd["keys"][0]["name"]')" = root ] || fail "console key list --json"
 [ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
     fail "the slots"
-expect_exit 1 cexchain-console key import Root root.key
-run cexchain-console key remove root > out.txt
-expect_exit 2 cexchain-console key remove root
+expect_exit 1 kanhe-console key import Root root.key
+run kanhe-console key remove root > out.txt
+expect_exit 2 kanhe-console key remove root
 expect_exit 1 serve --unlock-file unlock.txt
 printf 'not the passphrase at all\n' > wrong.txt
 # Linking a user to a person of the ledger needs a sealed key, the user, and a person.
-expect_exit 1 cexchain-console user link Nobody --key root
-expect_exit 2 cexchain-console user link Nobody --actor 00000000 --key root
+expect_exit 1 kanhe-console user link Nobody --key root
+expect_exit 2 kanhe-console user link Nobody --actor 00000000 --key root
 grep -q "holds no key named root" out.txt || fail "linking with no such key"
-expect_exit 2 cexchain-console user passkeys Nobody --out passkeys
+expect_exit 2 kanhe-console user passkeys Nobody --out passkeys
 grep -q "no console user named Nobody" out.txt || fail "passkeys of no such user"
 
 # A member who registered a passkey (written here as the console writes one),
@@ -250,73 +250,73 @@ people["users"].append({"name": "Mia", "role": "member", "created": 1, "passkeys
 people["users"].append({"name": "Vic", "role": "viewer", "created": 1, "passkeys": []})
 json.dump(people, open(path, "w"))
 PY
-expect_exit 2 cexchain-console user approve Vic --as root.key
+expect_exit 2 kanhe-console user approve Vic --as root.key
 grep -q "act as no one" out.txt || fail "a viewer is not approved"
-expect_exit 1 cexchain-console user approve Mia --as root.key --may fly
-expect_exit 1 cexchain-console user approve Mia --as root.key --may people
-run cexchain-console user approve Mia --as root.key --may register,act --kinds example.org.photo/1 \
+expect_exit 1 kanhe-console user approve Mia --as root.key --may fly
+expect_exit 1 kanhe-console user approve Mia --as root.key --may people
+run kanhe-console user approve Mia --as root.key --may register,act --kinds example.org.photo/1 \
     --until 2099-01-01 --json > approved.json
 MIA=$(json 'd["actor"]' < approved.json)
 [ "$(json '(d["may"]["register"], d["may"]["act"], d["may"]["kinds"])' < approved.json)" = "(True, True, ['example.org.photo/1'])" ] ||
     fail "what Mia may do"
-[ "$(run cexchain-console user show Mia --json | json 'd["actor"]')" = "$MIA" ] || fail "Mia acts as her person"
-run cexchain-console key list --json | json '[k["name"] for k in d["keys"]]' | grep -q "person-${MIA:0:16}" ||
+[ "$(run kanhe-console user show Mia --json | json 'd["actor"]')" = "$MIA" ] || fail "Mia acts as her person"
+run kanhe-console key list --json | json '[k["name"] for k in d["keys"]]' | grep -q "person-${MIA:0:16}" ||
     fail "her key sealed in the console"
 run actor show "$MIA" --json > mia.json
 [ "$(json 'd["kind"]' < mia.json)" = person ] || fail "Mia is a person"
 [ "$(json 'len(d["presence_credentials"])' < mia.json)" = 1 ] || fail "her passkey registered"
 run delegation list --json | json "[x['scope']['require_presence'] for x in d if x['grantee']['id'] == '$MIA']" |
     grep -q "\[True\]" || fail "she acts in person"
-expect_exit 2 cexchain-console user approve Mia --as root.key
+expect_exit 2 kanhe-console user approve Mia --as root.key
 grep -q "acts as someone on the ledger already" out.txt || fail "approved once"
-run cexchain-console activity --json | json '(d[0]["action"], d[0]["user"])' | grep -qF "('people.approve', 'cli')" ||
+run kanhe-console activity --json | json '(d[0]["action"], d[0]["user"])' | grep -qF "('people.approve', 'cli')" ||
     fail "the activity log records the approval"
-run cexchain-console activity | grep -q "people.approve" || fail "console activity"
+run kanhe-console activity | grep -q "people.approve" || fail "console activity"
 
 # --- console run, status, open, stop ------------------------------------------------
 stop_server
-run cexchain-console status > out.txt
+run kanhe-console status > out.txt
 grep -q "the console is not running" out.txt || fail "status when stopped"
-expect_exit 2 cexchain-console stop
+expect_exit 2 kanhe-console stop
 FREE=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1])")
-"$(dirname "$CEXCHAIN")/cexchain-console" run --port "$FREE" --quiet > run.log 2>&1 &
+"$(dirname "$KANHE")/kanhe-console" run --port "$FREE" --quiet > run.log 2>&1 &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
-    [ "$(run cexchain-console status --json | json 'd["running"]')" = True ] && break
+    [ "$(run kanhe-console status --json | json 'd["running"]')" = True ] && break
     sleep 0.1
 done
-run cexchain-console status > out.txt
+run kanhe-console status > out.txt
 grep -q "the console runs (process [0-9]*) at http://localhost:$FREE/console/" out.txt ||
     fail "status when running"
-[ "$(run cexchain-console open --print)" = "http://localhost:$FREE/console/" ] || fail "console open --print"
+[ "$(run kanhe-console open --print)" = "http://localhost:$FREE/console/" ] || fail "console open --print"
 [ "$(status_of GET "$FREE" /console/ "localhost:$FREE")" = 200 ] || fail "console run serves"
-expect_exit 2 cexchain-console run --port "$FREE"
+expect_exit 2 kanhe-console run --port "$FREE"
 grep -q "the console runs already" out.txt || fail "a second console run"
-run cexchain-console stop > out.txt
+run kanhe-console stop > out.txt
 grep -q "stopped the console" out.txt || fail "console stop"
-[ "$(run cexchain-console status --json | json 'd["running"]')" = False ] || fail "stopped"
-expect_exit 1 cexchain-console run --port 70000
-expect_exit 1 cexchain-console run --port "$FREE" --unlock-file wrong.txt
+[ "$(run kanhe-console status --json | json 'd["running"]')" = False ] || fail "stopped"
+expect_exit 1 kanhe-console run --port 70000
+expect_exit 1 kanhe-console run --port "$FREE" --unlock-file wrong.txt
 grep -q "does not unlock the console's keys" out.txt || fail "a wrong unlock file"
 
 # --- console settings ------------------------------------------------------------
-run cexchain-console settings show > out.txt
+run kanhe-console settings show > out.txt
 grep -q "language: each browser's own" out.txt || fail "no language at first"
 grep -q "backup folder: none chosen" out.txt || fail "no backup folder at first"
-expect_exit 1 cexchain-console settings set
-expect_exit 1 cexchain-console settings set --language fr
-run cexchain-console settings set --language zh-Hant-HK --backup-folder backups/ledger > out.txt
+expect_exit 1 kanhe-console settings set
+expect_exit 1 kanhe-console settings set --language fr
+run kanhe-console settings set --language zh-Hant-HK --backup-folder backups/ledger > out.txt
 grep -q "language: zh-Hant-HK" out.txt || fail "console settings set"
 [ -d backups/ledger ] || fail "the backup folder is made"
-SETTINGS=$(run cexchain-console settings show --json)
+SETTINGS=$(run kanhe-console settings show --json)
 [ "$(echo "$SETTINGS" | json 'd["backup_folder"]')" = "$WORK/backups/ledger" ] ||
     fail "the backup folder is a full path"
 [ "$(echo "$SETTINGS" | json 'd["language"]')" = zh-Hant-HK ] || fail "settings --json"
-expect_exit 2 cexchain-console settings set --backup-folder unlock.txt/inside
+expect_exit 2 kanhe-console settings set --backup-folder unlock.txt/inside
 grep -q "cannot be made" out.txt || fail "a folder that cannot be made"
-run cexchain-console settings set --language browser --backup-folder none > /dev/null
-[ "$(run cexchain-console settings show --json | json 'd["language"]')" = None ] || fail "language cleared"
-run cexchain-console settings set --help > out.txt
+run kanhe-console settings set --language browser --backup-folder none > /dev/null
+[ "$(run kanhe-console settings show --json | json 'd["language"]')" = None ] || fail "language cleared"
+run kanhe-console settings set --help > out.txt
 grep -q -- "--backup-folder DIR" out.txt || fail "console settings set --help"
 
 # --- Document kinds ---------------------------------------------------------------
@@ -326,23 +326,23 @@ cat > photo-kind.json << 'JSON'
             {"name": "taken", "type": "date"}],
  "files": "required"}
 JSON
-run cexchain-console kind list > out.txt
+run kanhe-console kind list > out.txt
 grep -q "no kinds" out.txt || fail "no kinds at first"
-run cexchain-console kind add photo-kind.json > out.txt
+run kanhe-console kind add photo-kind.json > out.txt
 grep -q "added the kind Photo (example.org.photo/1)" out.txt || fail "console kind add"
-expect_exit 2 cexchain-console kind add photo-kind.json
+expect_exit 2 kanhe-console kind add photo-kind.json
 grep -q -- "--replace" out.txt || fail "a second add"
-run cexchain-console kind add photo-kind.json --replace > /dev/null
-[ "$(run cexchain-console kind list --json | json 'd[0]["fields"][1]["type"]')" = date ] || fail "kind list --json"
-run cexchain-console kind show example.org.photo/1 > out.txt
+run kanhe-console kind add photo-kind.json --replace > /dev/null
+[ "$(run kanhe-console kind list --json | json 'd[0]["fields"][1]["type"]')" = date ] || fail "kind list --json"
+run kanhe-console kind show example.org.photo/1 > out.txt
 grep -q "field taken .* date .* private" out.txt || fail "console kind show"
 printf '{"sheet": 1, "kind": "document", "type": "x/1", "name": "X", "fields": []}' > bad-kind.json
-expect_exit 1 cexchain-console kind add bad-kind.json
+expect_exit 1 kanhe-console kind add bad-kind.json
 grep -q "1 to 32 fields" out.txt || fail "a bad kind sheet"
-run cexchain-console kind remove example.org.photo/1 > out.txt
+run kanhe-console kind remove example.org.photo/1 > out.txt
 grep -q "its records stay on the ledger" out.txt || fail "console kind remove"
-expect_exit 2 cexchain-console kind show example.org.photo/1
-run cexchain-console kind add --help > out.txt
+expect_exit 2 kanhe-console kind show example.org.photo/1
+run kanhe-console kind add --help > out.txt
 grep -q '"sheet": 1' out.txt || fail "console kind add --help"
 
 # --- console setup: the first run, for scripts -------------------------------------
@@ -358,18 +358,18 @@ credential += bytes([0x03, 0x82, 0x32, 0x58, 0x20]) + os.urandom(32)
 open("owner.passkey", "wb").write(credential)
 PY
 SCRIPTED="$WORK/scripted"
-expect_exit 1 cexchain-console setup --ledger "$SCRIPTED" --credential owner.passkey
-expect_exit 1 cexchain-console setup --ledger "$SCRIPTED" --name "Bad Name!" --credential owner.passkey
+expect_exit 1 kanhe-console setup --ledger "$SCRIPTED" --credential owner.passkey
+expect_exit 1 kanhe-console setup --ledger "$SCRIPTED" --name "Bad Name!" --credential owner.passkey
 [ ! -e "$SCRIPTED/statements" ] || fail "a refused setup makes no ledger"
-run cexchain-console setup --ledger "$SCRIPTED" --name "Scripted Owner" --credential owner.passkey \
+run kanhe-console setup --ledger "$SCRIPTED" --name "Scripted Owner" --credential owner.passkey \
     --unlock-file unlock.txt --json > setup.json
 [ "$(json 'len(d["ledger"]["id"]) if isinstance(d["ledger"], dict) else len(d["ledger"])' < setup.json)" = 64 ] ||
     fail "console setup --json names the ledger"
 json 'd["recovery_code"]' < setup.json | grep -qE '^[A-Z2-7]{4}(-[A-Z2-7]{4}){5}-[A-Z2-7]{2}$' ||
     fail "console setup prints the recovery code"
-expect_exit 2 cexchain-console setup --ledger "$SCRIPTED" --name Again --credential owner.passkey
+expect_exit 2 kanhe-console setup --ledger "$SCRIPTED" --name Again --credential owner.passkey
 grep -q "holds a ledger already" out.txt || fail "a second setup"
-KEYS=$(run cexchain-console key list --ledger "$SCRIPTED" --json)
+KEYS=$(run kanhe-console key list --ledger "$SCRIPTED" --json)
 [ "$(echo "$KEYS" | json 'sorted(k["name"] for k in d["keys"])')" = "['log', 'machine', 'owner', 'root', 'witness']" ] ||
     fail "setup seals the root, log, owner, machine, and witness keys"
 [ "$(echo "$KEYS" | json 'sorted(s["kind"] for s in d["slots"])')" = "['passphrase', 'recovery']" ] ||
@@ -377,19 +377,19 @@ KEYS=$(run cexchain-console key list --ledger "$SCRIPTED" --json)
 [ "$(echo "$KEYS" | json 'd["vault_key"]')" = True ] || fail "setup seals a vault key"
 [ -f "$SCRIPTED/vault/vault.pub" ] && [ ! -f "$SCRIPTED/vault/vault.key" ] ||
     fail "the vault's private key only sealed"
-USERS=$(run cexchain-console user list --ledger "$SCRIPTED" --json)
+USERS=$(run kanhe-console user list --ledger "$SCRIPTED" --json)
 [ "$(echo "$USERS" | json 'd["users"][0]["role"]')" = owner ] || fail "setup's owner"
 run delegation list --ledger "$SCRIPTED" --json > out.txt
 grep -q '"require_presence": *true' out.txt || fail "the owner's delegation requires presence"
-run cexchain-console setup --help > out.txt
+run kanhe-console setup --help > out.txt
 grep -q "for scripts" out.txt || fail "console setup --help"
 
 # The scripted ledger, served by its console: unlocked by the file, its API opens.
 start_console() {
-    "$(dirname "$CEXCHAIN")/cexchain-console" run --ledger "$1" --port "$FREE" --quiet "${@:2}" > "$1.run.log" 2>&1 &
+    "$(dirname "$KANHE")/kanhe-console" run --ledger "$1" --port "$FREE" --quiet "${@:2}" > "$1.run.log" 2>&1 &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
-        [ "$(run cexchain-console status --ledger "$1" --json | json 'd["running"]')" = True ] && return 0
+        [ "$(run kanhe-console status --ledger "$1" --json | json 'd["running"]')" = True ] && return 0
         sleep 0.1
     done
     fail "the console did not start on $1"
@@ -398,7 +398,7 @@ run token create reader --ledger "$SCRIPTED" --scope read --out scripted.token >
 start_console "$SCRIPTED" --unlock-file unlock.txt
 [ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
     fail "the unlocked ledger is served"
-run cexchain-console stop --ledger "$SCRIPTED" > /dev/null
+run kanhe-console stop --ledger "$SCRIPTED" > /dev/null
 # Locked: the console answers, and the ledger waits for it.
 start_console "$SCRIPTED"
 [ "$(status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] || fail "locked, the API waits"
@@ -415,109 +415,109 @@ RECOVER=$(request POST "$FREE" /console/api/recover/begin "localhost:$FREE" "htt
 # The code unlocked the console, so its API opened.
 [ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
     fail "the code unlocks"
-run cexchain-console stop --ledger "$SCRIPTED" > /dev/null
+run kanhe-console stop --ledger "$SCRIPTED" > /dev/null
 sleep 0.5
 
 # --- Sealed backups: the console stopped, then restored elsewhere with the code ----------
-expect_exit 1 cexchain-console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt
+expect_exit 1 kanhe-console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt
 grep -q "no backup folder" out.txt || fail "a backup needs a folder"
-run cexchain-console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt --folder backups --json > backup.json
+run kanhe-console backup now --ledger "$SCRIPTED" --unlock-file unlock.txt --folder backups --json > backup.json
 SEALED=$(json 'd["file"]' < backup.json)
-case "$SEALED" in */cexchain-*.cexbackup) ;; *) fail "a sealed backup's name" ;; esac
-[ "$(run cexchain-console backup list --ledger "$SCRIPTED" --folder backups --json | json 'len(d)')" = 1 ] ||
+case "$SEALED" in */kanhe-*.cexbackup) ;; *) fail "a sealed backup's name" ;; esac
+[ "$(run kanhe-console backup list --ledger "$SCRIPTED" --folder backups --json | json 'len(d)')" = 1 ] ||
     fail "console backup list"
-run cexchain-console activity --ledger "$SCRIPTED" --json | json 'd[0]["action"]' | grep -qx "backups.write" ||
+run kanhe-console activity --ledger "$SCRIPTED" --json | json 'd[0]["action"]' | grep -qx "backups.write" ||
     fail "the activity log records the backup"
 printf 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\n' > wrong-code.txt
-expect_exit 2 cexchain-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file wrong-code.txt
+expect_exit 2 kanhe-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file wrong-code.txt
 grep -q "does not open" out.txt || fail "a wrong recovery code"
 [ ! -e "$WORK/restored/statements" ] || fail "nothing restored with a wrong code"
 json 'd["recovery_code"]' < setup.json > code.txt
-run cexchain-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt --json > restored.json
+run kanhe-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt --json > restored.json
 [ "$(json 'd["ledger_id"]' < restored.json)" = "$(run status --ledger "$SCRIPTED" --json | json 'd["ledger_id"]')" ] ||
     fail "the same ledger restored"
-[ "$(run cexchain-console user list --ledger "$WORK/restored" --json | json 'd["users"][0]["name"]')" = "Scripted Owner" ] ||
+[ "$(run kanhe-console user list --ledger "$WORK/restored" --json | json 'd["users"][0]["name"]')" = "Scripted Owner" ] ||
     fail "the console's users restored"
 run audit --ledger "$WORK/restored" | grep -q "audit passed" || fail "the restored ledger audits"
-expect_exit 2 cexchain-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt
+expect_exit 2 kanhe-console restore "$SEALED" --ledger "$WORK/restored" --recovery-code-file code.txt
 grep -q "already exists" out.txt || fail "not over a ledger"
 # Served from the restored folder: locked, and the code unlocks it.
 start_console "$WORK/restored"
 [ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] ||
     fail "the restored console starts locked"
-run cexchain-console stop --ledger "$WORK/restored" > /dev/null
+run kanhe-console stop --ledger "$WORK/restored" > /dev/null
 sleep 0.5
 start_console "$WORK/restored" --unlock-file unlock.txt
 [ "$(TOKEN=$(cat scripted.token) status_of GET "$FREE" /v1/status "localhost:$FREE")" = 200 ] ||
     fail "the restored console unlocks with its passphrase, its tokens kept"
-run cexchain-console stop --ledger "$WORK/restored" > /dev/null
+run kanhe-console stop --ledger "$WORK/restored" > /dev/null
 sleep 0.5
 
 # --- This computer's place for a person's ledger, and the console in the background ------
 if [ "$(uname)" = Darwin ]; then
-    PLACE="$WORK/home/Library/Application Support/CexChain/ledger"
+    PLACE="$WORK/home/Library/Application Support/Kanhe/ledger"
 else
-    PLACE="$WORK/home/.local/share/cexchain/ledger"
+    PLACE="$WORK/home/.local/share/kanhe/ledger"
 fi
-[ "$(env -u CEXCHAIN_LEDGER -u XDG_DATA_HOME HOME="$WORK/home" "$(dirname "$CEXCHAIN")/cexchain-console" status --json |
+[ "$(env -u KANHE_LEDGER -u XDG_DATA_HOME HOME="$WORK/home" "$(dirname "$KANHE")/kanhe-console" status --json |
     json 'd["directory"]')" = "$PLACE" ] || fail "console commands default to this computer's place"
-if env -u CEXCHAIN_LEDGER HOME="$WORK/home" "$CEXCHAIN" status > out.txt 2>&1; then
+if env -u KANHE_LEDGER HOME="$WORK/home" "$KANHE" status > out.txt 2>&1; then
     fail "other commands still need --ledger"
 fi
 grep -q -- "--ledger" out.txt || fail "other commands say they need --ledger"
-run cexchain-console service install --ledger "$SCRIPTED" --unit-dir units --no-start --port "$FREE" \
+run kanhe-console service install --ledger "$SCRIPTED" --unit-dir units --no-start --port "$FREE" \
     --json > service.json
 SERVICE_FILE=$(json 'd["file"]' < service.json)
 [ -f "$SERVICE_FILE" ] || fail "the service file is written"
 grep -qF "$SCRIPTED" "$SERVICE_FILE" || fail "the service runs this ledger's console"
-grep -q "CEXCHAIN_NO_BROWSER" "$SERVICE_FILE" || fail "the service opens no browser"
-[ "$(run cexchain-console service status --unit-dir units --json | json '(d["installed"], d["ledger"])')" = \
+grep -q "KANHE_NO_BROWSER" "$SERVICE_FILE" || fail "the service opens no browser"
+[ "$(run kanhe-console service status --unit-dir units --json | json '(d["installed"], d["ledger"])')" = \
     "(True, '$SCRIPTED')" ] || fail "console service status"
-run cexchain-console service install --ledger "$SCRIPTED" --print | grep -q "console" || fail "--print"
-run cexchain-console service uninstall --unit-dir units --no-start > /dev/null
+run kanhe-console service install --ledger "$SCRIPTED" --print | grep -q "console" || fail "--print"
+run kanhe-console service uninstall --unit-dir units --no-start > /dev/null
 [ ! -f "$SERVICE_FILE" ] || fail "uninstalled"
-[ "$(run cexchain-console service status --unit-dir units --json | json 'd["installed"]')" = False ] ||
+[ "$(run kanhe-console service status --unit-dir units --json | json 'd["installed"]')" = False ] ||
     fail "status after uninstalling"
 # console open FILE takes only a proposal or consent file, checked before anything starts.
-echo "not one" > not-exchange.cexchain
-if run cexchain-console open --ledger "$SCRIPTED" --print not-exchange.cexchain > out.txt 2>&1; then
+echo "not one" > not-exchange.kanhe
+if run kanhe-console open --ledger "$SCRIPTED" --print not-exchange.kanhe > out.txt 2>&1; then
     fail "console open of a file that is not a proposal"
 fi
 grep -q "not a proposal or consent file" out.txt || fail "console open says why"
-[ "$(run cexchain-console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = False ] ||
+[ "$(run kanhe-console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = False ] ||
     fail "a refused file starts nothing"
 # console open starts a stopped console, in the background, then gives its address.
-URL=$(run cexchain-console open --ledger "$SCRIPTED" --print)
+URL=$(run kanhe-console open --ledger "$SCRIPTED" --print)
 case "$URL" in http://localhost:*/console/) ;; *) fail "console open --print: $URL" ;; esac
-[ "$(run cexchain-console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = True ] ||
+[ "$(run kanhe-console status --ledger "$SCRIPTED" --json | json 'd["running"]')" = True ] ||
     fail "console open started it"
-run cexchain-console stop --ledger "$SCRIPTED" > /dev/null
+run kanhe-console stop --ledger "$SCRIPTED" > /dev/null
 sleep 0.5
 
 # --- console run on an empty directory: the first run's setup link --------------------
 EMPTY="$WORK/empty"
-CEXCHAIN_NO_BROWSER=1 "$(dirname "$CEXCHAIN")/cexchain-console" run --ledger "$EMPTY" --port "$FREE" --quiet --json \
+KANHE_NO_BROWSER=1 "$(dirname "$KANHE")/kanhe-console" run --ledger "$EMPTY" --port "$FREE" --quiet --json \
     > first.json 2> first.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
-    [ "$(run cexchain-console status --ledger "$EMPTY" --json | json 'd["running"]')" = True ] && break
+    [ "$(run kanhe-console status --ledger "$EMPTY" --json | json 'd["running"]')" = True ] && break
     sleep 0.1
 done
 [ "$(json 'd["setup"]' < first.json)" = True ] || fail "an empty directory's first run"
-grep -q "^http://localhost:$FREE/console/#/enroll/cxi_" "$EMPTY/console/setup-link" ||
+grep -q "^http://localhost:$FREE/console/#/enroll/khi_" "$EMPTY/console/setup-link" ||
     fail "the setup link's file"
 grep -q 'http-equiv="refresh"' "$(json 'd["setup_page"]' < first.json)" || fail "the setup page"
 request GET "$FREE" /console/api/start "localhost:$FREE" | grep -q '"first_run":true' ||
     fail "the page knows it is the first run"
 [ "$(status_of GET "$FREE" /v1/status "localhost:$FREE")" = 503 ] || fail "no ledger yet"
-SETUP_CODE=$(sed -n 's|.*#/enroll/\(cxi_[A-Za-z0-9_-]*\).*|\1|p' "$EMPTY/console/setup-link")
+SETUP_CODE=$(sed -n 's|.*#/enroll/\(khi_[A-Za-z0-9_-]*\).*|\1|p' "$EMPTY/console/setup-link")
 BEGIN=$(request POST "$FREE" /console/api/enroll/begin "localhost:$FREE" "http://localhost:$FREE" \
     "{\"code\": \"$SETUP_CODE\", \"name\": \"Alice\"}")
 echo "$BEGIN" | grep -q '"first_run":true' || fail "the setup link begins the first run"
 echo "$BEGIN" | grep -q '"prf":{"eval":{"first":"' || fail "the first passkey is asked for its PRF"
-run cexchain-console status --ledger "$EMPTY" > out.txt
+run kanhe-console status --ledger "$EMPTY" > out.txt
 grep -q "no owner yet" out.txt || fail "no owner before the first run"
-run cexchain-console stop --ledger "$EMPTY" > /dev/null
+run kanhe-console stop --ledger "$EMPTY" > /dev/null
 [ ! -e "$EMPTY/statements" ] || fail "no ledger until the passkey is registered"
 
 # --- A ledger made by the README's quick start opens in the console ---------------------
@@ -525,7 +525,7 @@ QUICK="$WORK/quick"
 mkdir "$QUICK"
 (
     cd "$QUICK"
-    export CEXCHAIN_LEDGER=./ledger
+    export KANHE_LEDGER=./ledger
     run key generate --out root.key > /dev/null
     run key generate --out log.key > /dev/null
     run init --name "Alice" --root-key root.key --log-key log.key > /dev/null
@@ -537,20 +537,20 @@ mkdir "$QUICK"
     printf 'not really a photo\n' > photo.jpg
     run record issue --as alice.key --type example.org.photo/1 --field place="Victoria Harbour" \
         --field taken=2026-10-16 --attach photo.jpg > /dev/null
-    run cexchain-console key init --unlock-file "$WORK/unlock.txt" > /dev/null
-    run cexchain-console key import log log.key > /dev/null
-    run cexchain-console key import alice alice.key > /dev/null
-    run cexchain-console key import vault ledger/vault/vault.key | grep -q "vault key" ||
+    run kanhe-console key init --unlock-file "$WORK/unlock.txt" > /dev/null
+    run kanhe-console key import log log.key > /dev/null
+    run kanhe-console key import alice alice.key > /dev/null
+    run kanhe-console key import vault ledger/vault/vault.key | grep -q "vault key" ||
         fail "console key import vault"
-    run cexchain-console key list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["vault_key"]'
+    run kanhe-console key list --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["vault_key"]'
     run key generate --out other.key > /dev/null
-    if run cexchain-console key import vault other.key > /dev/null 2>&1; then fail "another key as the vault key"; fi
+    if run kanhe-console key import vault other.key > /dev/null 2>&1; then fail "another key as the vault key"; fi
     run token create reader --scope read --out "$WORK/quick.token" > /dev/null
 )
 start_console "$QUICK/ledger" --unlock-file unlock.txt
 STATUS=$(TOKEN=$(cat quick.token) request GET "$FREE" /v1/status "localhost:$FREE")
 [ "$(echo "$STATUS" | sed -n 1p)" = 200 ] || fail "the quick start's ledger is served"
 echo "$STATUS" | grep -q '"organization":"Alice"' || fail "the quick start's organization"
-run cexchain-console stop --ledger "$QUICK/ledger" > /dev/null
+run kanhe-console stop --ledger "$QUICK/ledger" > /dev/null
 
 echo "console: all checks passed"

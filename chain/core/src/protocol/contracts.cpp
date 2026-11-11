@@ -8,11 +8,11 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -269,7 +269,7 @@ Result<InstanceFields> read_instance_fields(const Fields<N>& fields) {
         out.status = std::string(*text);
     }
     if (const auto& parties = fields[3]) {
-        CEXCHAIN_TRY(out.parties, read_parties(*parties));
+        KANHE_TRY(out.parties, read_parties(*parties));
     }
     return out;
 }
@@ -281,7 +281,7 @@ Result<ContractChild> read_child(const Item& item) {
         return fail(Errc::malformed, "a child is a map");
     }
     const Fields<3> fields(item);
-    CEXCHAIN_TRY(InstanceFields read, read_instance_fields(fields));
+    KANHE_TRY(InstanceFields read, read_instance_fields(fields));
     if (!fields.finish()) {
         return fail(Errc::malformed, "a child holds only its state, status, and parties");
     }
@@ -325,7 +325,7 @@ Result<ContractAccept> read_accept(const Item& item) {
     }
     const Fields<7> fields(item);
     ContractAccept accept;
-    CEXCHAIN_TRY(InstanceFields read, read_instance_fields(fields));
+    KANHE_TRY(InstanceFields read, read_instance_fields(fields));
     accept.state = std::move(read.state);
     accept.status = std::move(read.status);
     accept.parties = std::move(read.parties);
@@ -360,7 +360,7 @@ Result<ContractAccept> read_accept(const Item& item) {
         }
         Item::Inside inside(*children);
         for (std::uint64_t i = 0; i < children->count(); ++i) {
-            CEXCHAIN_TRY(ContractChild child, read_child(inside.next()));
+            KANHE_TRY(ContractChild child, read_child(inside.next()));
             accept.children.push_back(std::move(child));
         }
     }
@@ -371,11 +371,11 @@ Result<ContractAccept> read_accept(const Item& item) {
         }
         Item::Inside inside(*requests);
         for (std::uint64_t i = 0; i < requests->count(); ++i) {
-            CEXCHAIN_TRY(ContractRequest request, read_request(inside.next()));
+            KANHE_TRY(ContractRequest request, read_request(inside.next()));
             accept.requests.push_back(std::move(request));
         }
     }
-    CEXCHAIN_CHECK(fields.finish());
+    KANHE_CHECK(fields.finish());
     return accept;
 }
 
@@ -424,7 +424,7 @@ Status put_parties(Bytes& out, const Parties& parties) {
     });
     cbor::append_head(out, cbor::Major::map, sorted.size());
     for (const auto* party : sorted) {
-        CEXCHAIN_CHECK(put_text(out, party->first));
+        KANHE_CHECK(put_text(out, party->first));
         put_bytes(out, party->second.bytes());
     }
     return {};
@@ -442,7 +442,7 @@ Status put_signer(Bytes& out, const ContractSigner& signer) {
     }
     if (signer.model) {
         put_uint(out, 3);
-        CEXCHAIN_CHECK(put_text(out, *signer.model));
+        KANHE_CHECK(put_text(out, *signer.model));
     }
     return {};
 }
@@ -469,11 +469,11 @@ Result<ContractOutput> decode_contract_output(ByteView output, const Id& home) {
         Item::Inside inside(top);
         const auto outcome = inside.next().as_uint();
         if (outcome == output_accept) {
-            CEXCHAIN_TRY(ContractAccept accept, read_accept(inside.next()));
+            KANHE_TRY(ContractAccept accept, read_accept(inside.next()));
             return ContractOutput(std::move(accept));
         }
         if (outcome == output_needs) {
-            CEXCHAIN_TRY(ContractNeeds needs, read_needs(inside.next(), home));
+            KANHE_TRY(ContractNeeds needs, read_needs(inside.next(), home));
             return ContractOutput(std::move(needs));
         }
     }
@@ -504,19 +504,19 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
     put_raw(out, accept.state.bytes());
     if (accept.status) {
         put_uint(out, 2);
-        CEXCHAIN_CHECK(put_text(out, *accept.status));
+        KANHE_CHECK(put_text(out, *accept.status));
     }
     if (accept.parties) {
         put_uint(out, 3);
-        CEXCHAIN_CHECK(put_parties(out, *accept.parties));
+        KANHE_CHECK(put_parties(out, *accept.parties));
     }
     if (!accept.events.empty()) {
         put_uint(out, 4);
         cbor::append_head(out, cbor::Major::array, accept.events.size());
         for (const ContractEvent& e : accept.events) {
             cbor::append_head(out, cbor::Major::array, 2);
-            CEXCHAIN_CHECK(put_text(out, e.name));
-            CEXCHAIN_CHECK(cbor::encode_to(out, e.data, 4));
+            KANHE_CHECK(put_text(out, e.name));
+            KANHE_CHECK(cbor::encode_to(out, e.data, 4));
         }
     }
     if (accept.final) {
@@ -533,11 +533,11 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
             put_raw(out, child.state.bytes());
             if (child.status) {
                 put_uint(out, 2);
-                CEXCHAIN_CHECK(put_text(out, *child.status));
+                KANHE_CHECK(put_text(out, *child.status));
             }
             if (!child.parties.empty()) {
                 put_uint(out, 3);
-                CEXCHAIN_CHECK(put_parties(out, child.parties));
+                KANHE_CHECK(put_parties(out, child.parties));
             }
         }
     }
@@ -547,13 +547,13 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
         for (const ContractRequest& r : accept.requests) {
             cbor::append_head(out, cbor::Major::map, 4);
             put_uint(out, 1);
-            CEXCHAIN_CHECK(put_text(out, r.kind));
+            KANHE_CHECK(put_text(out, r.kind));
             put_uint(out, 2);
-            CEXCHAIN_CHECK(cbor::encode_to(out, r.params, 4));
+            KANHE_CHECK(cbor::encode_to(out, r.params, 4));
             put_uint(out, 3);
             put_uint(out, r.deadline);
             put_uint(out, 4);
-            CEXCHAIN_CHECK(put_text(out, r.reply));
+            KANHE_CHECK(put_text(out, r.reply));
         }
     }
     return out;
@@ -561,17 +561,17 @@ Result<Bytes> encode_contract_output(const ContractOutput& output) {
 
 Result<Id> child_instance_id(const crypto::Provider& provider, crypto::HashAlg hash, const Id& call,
                              std::uint64_t position) {
-    CEXCHAIN_TRY(Bytes encoded,
-                 cbor::encode(cbor::Value::array(
-                     {cbor::Value::bytes(call.bytes()), cbor::Value::unsigned_integer(position)})));
+    KANHE_TRY(Bytes encoded,
+              cbor::encode(cbor::Value::array(
+                  {cbor::Value::bytes(call.bytes()), cbor::Value::unsigned_integer(position)})));
     return provider.digest(hash, encoded);
 }
 
 Result<Id> request_id(const crypto::Provider& provider, crypto::HashAlg hash, const Id& call,
                       std::uint64_t position) {
-    CEXCHAIN_TRY(Bytes encoded, cbor::encode(cbor::Value::array(
-                                    {cbor::Value::text("request"), cbor::Value::bytes(call.bytes()),
-                                     cbor::Value::unsigned_integer(position)})));
+    KANHE_TRY(Bytes encoded, cbor::encode(cbor::Value::array(
+                                 {cbor::Value::text("request"), cbor::Value::bytes(call.bytes()),
+                                  cbor::Value::unsigned_integer(position)})));
     return provider.digest(hash, encoded);
 }
 
@@ -584,9 +584,9 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
                       6 + count_of({input.instance.has_value(), !input.consents.empty(),
                                     input.request.has_value()}));
     put_uint(out, 1);
-    CEXCHAIN_CHECK(put_text(out, input.function));
+    KANHE_CHECK(put_text(out, input.function));
     put_uint(out, 2);
-    CEXCHAIN_CHECK(cbor::encode_to(out, input.arguments, 1));
+    KANHE_CHECK(cbor::encode_to(out, input.arguments, 1));
     put_uint(out, 3);
     put_bytes(out, input.home.bytes());
     put_uint(out, 4);
@@ -605,11 +605,11 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
         put_raw(out, v.state.bytes());
         if (v.status) {
             put_uint(out, 4);
-            CEXCHAIN_CHECK(put_text(out, *v.status));
+            KANHE_CHECK(put_text(out, *v.status));
         }
         if (!v.parties.empty()) {
             put_uint(out, 5);
-            CEXCHAIN_CHECK(put_parties(out, v.parties));
+            KANHE_CHECK(put_parties(out, v.parties));
         }
         if (v.parent) {
             put_uint(out, 6);
@@ -621,7 +621,7 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
     put_uint(out, 6);
     cbor::append_head(out, cbor::Major::array, 2);
     put_bytes(out, input.caller.bytes());
-    CEXCHAIN_CHECK(put_signer(out, input.caller_signer));
+    KANHE_CHECK(put_signer(out, input.caller_signer));
     put_uint(out, 7);
     put_uint(out, input.time);
     if (!input.consents.empty()) {
@@ -630,7 +630,7 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
         for (const auto& [ledger, signer] : input.consents) {
             cbor::append_head(out, cbor::Major::array, 2);
             put_bytes(out, ledger.bytes());
-            CEXCHAIN_CHECK(put_signer(out, signer));
+            KANHE_CHECK(put_signer(out, signer));
         }
     }
     if (input.request) {
@@ -640,9 +640,9 @@ Result<Bytes> encode_contract_input(const ContractInput& input) {
         put_uint(out, 1);
         put_bytes(out, r.id.bytes());
         put_uint(out, 2);
-        CEXCHAIN_CHECK(put_text(out, r.kind));
+        KANHE_CHECK(put_text(out, r.kind));
         put_uint(out, 3);
-        CEXCHAIN_CHECK(cbor::encode_to(out, r.params, 2));
+        KANHE_CHECK(cbor::encode_to(out, r.params, 2));
         put_uint(out, 4);
         put_uint(out, r.deadline);
         put_uint(out, 5);
@@ -699,9 +699,9 @@ Result<ContractConsent> decode_contract_consent(const cbor::Value& metadata) {
         }
     }
     ContractConsent c;
-    CEXCHAIN_TRY(c.ledger, id_field(get("ledger")));
-    CEXCHAIN_TRY(c.instance, id_field(get("instance")));
-    CEXCHAIN_TRY(c.arguments, id_field(get("arguments")));
+    KANHE_TRY(c.ledger, id_field(get("ledger")));
+    KANHE_TRY(c.instance, id_field(get("instance")));
+    KANHE_TRY(c.arguments, id_field(get("arguments")));
     const cbor::Value* function = get("function");
     const cbor::Value* head = get("head");
     const cbor::Value* until = get("until");
@@ -724,7 +724,7 @@ Result<ContractConsent> decode_contract_consent(const cbor::Value& metadata) {
 
 Result<Id> contract_arguments_digest(const crypto::Provider& provider, crypto::HashAlg hash,
                                      const cbor::Value& arguments) {
-    CEXCHAIN_TRY(Bytes encoded, cbor::encode(arguments));
+    KANHE_TRY(Bytes encoded, cbor::encode(arguments));
     return provider.digest(hash, encoded);
 }
 
@@ -735,4 +735,4 @@ bool consent_matches(const ContractConsent& consent, const Id& home, const Contr
            consent.arguments == arguments_digest && consent.head == *call.head;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

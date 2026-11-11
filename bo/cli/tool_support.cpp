@@ -12,7 +12,7 @@
 #include <string>
 #include <unistd.h>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 Bytes read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -72,4 +72,4 @@ crypto::HashAlg parse_hash(std::string_view name) {
     throw UsageError{"hash must be sha256 or sm3"};
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -10,18 +10,18 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/node/api.hpp>
+#include <kanhe/node/api.hpp>
 
 #include "args.hpp"
 
 /// Serving a ledger's API, for the chain's `serve` and the applications that
 /// serve themselves beside it.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// What `serve` uses when its options leave it open, and the application it
-/// may serve beside the ledger's API: `cexchain-console run` serves the
+/// may serve beside the ledger's API: `kanhe-console run` serves the
 /// console on localhost, trying the next ports when one is taken, and learns
-/// the port it got; `cexchain-index serve` adds the index.
+/// the port it got; `kanhe-index serve` adds the index.
 struct ServeDefaults {
     std::optional<std::string> listen;
     /// How many ports to try, from the one asked for (0 or 1: only it).
@@ -49,4 +49,4 @@ int serve(const Args& args, const ServeDefaults& defaults);
 /// Throws unless `dir` holds a ledger.
 void require_ledger_directory(const std::filesystem::path& dir);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -23,27 +23,27 @@
 #include <sys/resource.h>
 #include <thread>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/client/network_witnesses.hpp>
-#include <cexchain/client/public_witness.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/relay_server.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/ledger/backup.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/record_files.hpp>
-#include <cexchain/node/replica.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/client/network_witnesses.hpp>
+#include <kanhe/client/public_witness.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/relay_server.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/ledger/backup.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/record_files.hpp>
+#include <kanhe/node/replica.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 void require_ledger_directory(const std::filesystem::path& dir) {
     if (!std::filesystem::exists(dir / "statements")) {
@@ -134,12 +134,12 @@ void ask_witnesses_until(const std::stop_token& stop, node::LedgerApi& api,
 
 int serve(const Args& args, const ServeDefaults& defaults) {
     // A server stamps every write with its clock, so one run ahead
-    // ($CEXCHAIN_CLOCK_OFFSET) records later times for everyone who writes
+    // ($KANHE_CLOCK_OFFSET) records later times for everyone who writes
     // through it, and keeps them: it takes an explicit flag, so that a
     // variable left in an environment does not move a ledger's clock.
     if (ledger::SystemClock::offset() != 0 && !args.has("allow-clock-offset")) {
         throw UsageError{std::format(
-            "CEXCHAIN_CLOCK_OFFSET runs the clock {} s ahead, and a server would record the later "
+            "KANHE_CLOCK_OFFSET runs the clock {} s ahead, and a server would record the later "
             "times for good: unset it, or pass --allow-clock-offset (demonstrations and tests "
             "only)",
             ledger::SystemClock::offset() / 1000)};
@@ -197,7 +197,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     if (const auto every = args.get("snapshot-interval")) {
         options.snapshot_interval = parse_number(*every, "--snapshot-interval");
     }
-    options.version = CEXCHAIN_VERSION;
+    options.version = KANHE_VERSION;
     options.event_log = &std::cerr;
     if (args.has("witness-dir") != args.has("witness-key")) {
         throw UsageError{"--witness-dir and --witness-key go together"};
@@ -215,7 +215,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     if (const auto witness_dir = args.get("witness-dir")) {
         if (!witness_public && !std::filesystem::is_directory(*witness_dir)) {
             throw CommandError{"no witness directory at " + *witness_dir +
-                               " (cexchain witness add-log)"};
+                               " (kanhe witness add-log)"};
         }
         std::shared_ptr<const crypto::Signer> witness_key =
             load_signer(args.need("witness-key"), args);
@@ -393,7 +393,7 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     if (const protocol::Timestamp offset = ledger::SystemClock::offset(); offset != 0) {
         std::println(stderr,
                      "warning: the ledger's clock runs {} s ahead of this computer's "
-                     "($CEXCHAIN_CLOCK_OFFSET): for demonstrations and tests only; what it "
+                     "($KANHE_CLOCK_OFFSET): for demonstrations and tests only; what it "
                      "records keeps the later times",
                      offset / 1000);
     }
@@ -449,4 +449,4 @@ int serve(const Args& args, const ServeDefaults& defaults) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

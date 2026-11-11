@@ -11,13 +11,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
 
 #include "support/ledger_world.hpp"
 
-using namespace cexchain::test;
-using cexchain::Bytes;
+using namespace kanhe::test;
+using kanhe::Bytes;
 
 TEST_CASE("readers run alongside the writer", "[ledger][concurrency]") {
     World w;
@@ -76,7 +76,7 @@ TEST_CASE("readers run alongside the writer", "[ledger][concurrency]") {
     }
 
     for (std::size_t i = 0; i < statements.size(); i += 25) {
-        std::vector<cexchain::ByteView> batch;
+        std::vector<kanhe::ByteView> batch;
         for (std::size_t j = i; j < std::min(statements.size(), i + 25); ++j) {
             batch.push_back(statements[j]);
         }

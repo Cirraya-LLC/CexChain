@@ -11,12 +11,12 @@
 #include <string>
 #include <unistd.h>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/certificates.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/certificates.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/verifier/report.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -587,4 +587,4 @@ std::string fill_certificate(std::string_view html, const CertificatePage& page)
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

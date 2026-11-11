@@ -9,11 +9,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
 
-namespace protocol = cexchain::protocol;
-namespace cbor = cexchain::cbor;
-using cexchain::Bytes;
+namespace protocol = kanhe::protocol;
+namespace cbor = kanhe::cbor;
+using kanhe::Bytes;
 
 namespace {
 

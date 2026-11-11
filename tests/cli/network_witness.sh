@@ -10,11 +10,11 @@
 # cosignatures kept, exported, and counted by a verifier that trusts the
 # witness's verifier key; a server asking by itself, a replica and a backup
 # keeping them.
-# Usage: network_witness.sh CEXCHAIN
+# Usage: network_witness.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -24,12 +24,12 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="network witness test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_PASSPHRASE="network witness test"
+unset KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
+export KANHE_LEDGER="$WORK/ledger"
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 
-run() { "$CEXCHAIN" "$@"; }
+run() { "$KANHE" "$@"; }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
@@ -173,7 +173,7 @@ run checkpoint create --log-key log.key > /dev/null
 ENTRY="$(run witness network-entry --note-key note.key --contact "ops (at) example.org" --json)"
 ORIGIN="$(echo "$ENTRY" | json 'd["origin"]')"
 LOG_VKEY="$(echo "$ENTRY" | json 'd["vkey"]')"
-[ "$ORIGIN" = "cirraya.com/cexchain/$LEDGER_ID" ] || fail "the origin is derived from the ledger id"
+[ "$ORIGIN" = "cirraya.com/kanhe/$LEDGER_ID" ] || fail "the origin is derived from the ledger id"
 [ "${LOG_VKEY%%+*}" = "$ORIGIN" ] || fail "the note key's name is the origin"
 run witness network-entry --note-key note.key --contact x --qpd 48 | contains -x "qpd 48"
 run witness network-entry --note-key note.key --contact x | contains "^vkey $ORIGIN+"
@@ -235,7 +235,7 @@ run token create replica --scope read --out replica.token > /dev/null
 BEFORE="$(run checkpoint network-cosignatures --json | json 'len(d)')"
 # The program itself, not the run function: a function in the background
 # is a subshell, and killing it would leave the server running.
-"$CEXCHAIN" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
+"$KANHE" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
     --note-key note.key --network-interval 1 > serve.json 2> serve.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
@@ -252,7 +252,7 @@ done
 [ "$(run checkpoint network-cosignatures --json | json 'len(d)')" -gt "$BEFORE" ] || { cat serve.log; fail "serve --note-key"; }
 contains '"event":"network-cosignature"' serve.log
 expect_exit 1 serve --network-interval 5 # needs --note-key
-CEXCHAIN_TOKEN="$(cat replica.token)" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
+KANHE_TOKEN="$(cat replica.token)" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
     --ledger replica > /dev/null
 [ "$(run checkpoint network-cosignatures --ledger replica --json | json 'len(d)')" -ge 1 ] || fail "the replica copies them"
 run backup create --log-key log.key --out ledger.cxb > /dev/null

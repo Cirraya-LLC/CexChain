@@ -24,9 +24,9 @@
 #include <openssl/rand.h>
 #include <openssl/x509.h>
 
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-namespace cexchain::crypto::openssl {
+namespace kanhe::crypto::openssl {
 
 namespace {
 
@@ -340,7 +340,7 @@ Result<Bytes> sign_with(EVP_PKEY* pkey, SigAlg alg, ByteView message) {
 /// public key verifies. Catches imported key files whose embedded public key
 /// does not belong to the private key.
 Status check_key_pair(EVP_PKEY* pkey, const PublicKey& public_key) {
-    static constexpr std::string_view probe = "CexChain key pair consistency check";
+    static constexpr std::string_view probe = "Kanhe key pair consistency check";
     const auto signature = sign_with(pkey, public_key.algorithm, as_bytes(probe));
     if (!signature) {
         return std::unexpected(signature.error());
@@ -833,4 +833,4 @@ Result<Bytes> HpkeKey::to_encrypted_pkcs8(std::string_view passphrase) const {
     return encrypt_pkcs8(impl_->pkey.get(), passphrase);
 }
 
-} // namespace cexchain::crypto::openssl
+} // namespace kanhe::crypto::openssl

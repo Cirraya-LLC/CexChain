@@ -7,25 +7,25 @@
 # says so (a verifier is told a newer version replaced it); the new one's
 # evidence names the version it replaced. A record is superseded once, and
 # a delegation must cover the old record's type too.
-# Usage: versions.sh CEXCHAIN
+# Usage: versions.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="versions test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_PASSPHRASE="versions test"
+unset KANHE_SERVER KANHE_TOKEN
+export KANHE_LEDGER="$WORK/ledger"
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }

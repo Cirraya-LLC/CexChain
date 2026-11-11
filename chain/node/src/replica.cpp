@@ -9,16 +9,16 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/replica.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/replica.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -587,4 +587,4 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
     return report;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

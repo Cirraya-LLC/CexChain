@@ -22,17 +22,17 @@
 #include <set>
 #include <thread>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/keeper.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/keeper.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
 #include "output.hpp"
 #include "requests.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -811,4 +811,4 @@ int cmd_keeper_run(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

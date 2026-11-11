@@ -5,14 +5,14 @@
 #include <print>
 #include <span>
 
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "commands.hpp"
 #include "json_output.hpp"
 #include "registry.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -57,7 +57,7 @@ int cmd_version(const Args& args) {
         }
     }
     if (args.json()) {
-        print_json({{"version", CEXCHAIN_VERSION},
+        print_json({{"version", KANHE_VERSION},
                     {"protocol_version", protocol::protocol_version},
                     {"spec_revision", protocol::spec_revision},
                     {"crypto_library", crypto::openssl::library_version()},
@@ -65,8 +65,8 @@ int cmd_version(const Args& args) {
                     {"ledger_hashes", hashes}});
         return exit_ok;
     }
-    std::println("{} {}", program().name, CEXCHAIN_VERSION);
-    std::println("protocol:    CexChain spec {} (wire version {})", protocol::spec_revision,
+    std::println("{} {}", program().name, KANHE_VERSION);
+    std::println("protocol:    Kanhe spec {} (wire version {})", protocol::spec_revision,
                  protocol::protocol_version);
     std::println("crypto:      {}", crypto::openssl::library_version());
     std::string list;
@@ -127,4 +127,4 @@ int cmd_completion(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

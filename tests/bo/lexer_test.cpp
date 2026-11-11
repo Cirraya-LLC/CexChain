@@ -4,7 +4,7 @@
 // The lexer: the goldens in
 // tests/bo/golden/CASE/ (source.bo, and tokens.txt as `bo check --stage lex`
 // prints it), the same concepts in every language, the spec's cases, and the
-// rules that keep a reading from being a guess. Set CEXCHAIN_UPDATE_GOLDENS=1
+// rules that keep a reading from being a guess. Set KANHE_UPDATE_GOLDENS=1
 // to rewrite the tokens.txt files after a deliberate change.
 
 #include <algorithm>
@@ -20,16 +20,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 
 const Lexicon& official() {
     static const Lexicon lexicon = [] {
@@ -118,7 +118,7 @@ TEST_CASE("the lexer's goldens", "[bo][lexer]") {
     }
     std::ranges::sort(cases);
     CHECK(cases.size() >= 60);
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     for (const auto& path : cases) {
         INFO(path.filename().string());
         const std::string source = read_text(path / "source.bo");

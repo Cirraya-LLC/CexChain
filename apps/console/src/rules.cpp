@@ -20,17 +20,17 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/bo/source.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/node/process.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/node/process.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -291,4 +291,4 @@ http::Response Console::rules_route(const http::Request& request) const {
     return json(200, std::get<CompilerRun>(answer).answer);
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

@@ -21,15 +21,15 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/deploy_file.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/deploy_file.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
 
 #include "commands.hpp"
 #include "contracts.hpp"
@@ -37,7 +37,7 @@
 #include "records.hpp"
 #include "requests.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -640,7 +640,7 @@ int cmd_contract_evidence(const Args& args) {
 }
 
 // ---------------------------------------------------------------------------
-// Proposal and consent files (.cexchain)
+// Proposal and consent files (.kanhe)
 // ---------------------------------------------------------------------------
 
 int cmd_contract_proposal(const Args& args) {
@@ -1192,4 +1192,4 @@ int cmd_contract_export(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -6,7 +6,7 @@
 #include "commands.hpp"
 
 /// The bo program's command handlers (commands_bo.cpp).
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 int cmd_bo_version(const Args& args);
 int cmd_bo_rebuild(const Args& args);
@@ -28,4 +28,4 @@ int cmd_bo_vocab_list(const Args& args);
 int cmd_bo_vocab_show(const Args& args);
 int cmd_bo_vocab_check(const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

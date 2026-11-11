@@ -4,10 +4,10 @@
 #include <algorithm>
 #include <variant>
 
-#include <cexchain/client/views.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
+#include <kanhe/client/views.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -516,4 +516,4 @@ Json actor_detail_json(const Session& session, const protocol::ActorState& actor
     return out;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

@@ -7,7 +7,7 @@
 #include "bo_commands.hpp"
 #include "registry_options.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -24,10 +24,10 @@ const OptionSpec memory_option{"max-memory", "MIB",
 const OptionSpec language_option{
     "language", "LANG",
     "Messages in en, zh-Hant-HK, zh-Hans-CN, or a given pack's language (default: "
-    "$CEXCHAIN_LANGUAGE, else en)"};
+    "$KANHE_LANGUAGE, else en)"};
 
 /// What every Bo command says about where it exists.
-#define CEXCHAIN_BO_PACKS_HELP                                                                     \
+#define KANHE_BO_PACKS_HELP                                                                        \
     "A language pack maps Bo's concepts (kw.can, act.transfer, unit.GB) to one language's\n"       \
     "spellings and gives its reading rules, messages, and sentences; it never changes what\n"      \
     "runs. The official packs (English, Traditional Chinese in Hong Kong usage, Simplified\n"      \
@@ -51,7 +51,7 @@ std::vector<CommandSpec> bo_commands() {
          1,
          {},
          cmd_completion,
-         "Load with: source <(cexchain completion bash)   or   source <(cexchain completion zsh)"},
+         "Load with: source <(kanhe completion bash)   or   source <(kanhe completion zsh)"},
 
         // ------------------------------------------------------------------
         {{"check"},
@@ -113,7 +113,7 @@ std::vector<CommandSpec> bo_commands() {
          "  bo check contract.bo\n"
          "  bo check contract.bo --stage model\n"
          "  bo check contract.bo --stage parse\n"
-         "  bo check contract.bo --stage lex --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo check contract.bo --stage lex --json\n\n" KANHE_BO_PACKS_HELP},
         {{"build"},
          "Build a Bo contract: its code, interface, and the source bundle a deploy records",
          "Bo language",
@@ -140,7 +140,7 @@ std::vector<CommandSpec> bo_commands() {
          "(id, version, and the digest of its canonical CBOR under --hash; packs that are not\n"
          "official, in full), and each vocabulary pack its use lines name (id, version,\n"
          "digest). The same source gives the\n"
-         "same bytes in any language and on any machine; the compiler string (cexchain-bo\n"
+         "same bytes in any language and on any machine; the compiler string (kanhe-bo\n"
          "RELEASE; codegen N; edition E) names what built it. A fragment (no contract line) does\n"
          "not build, nor notify declared as an action (it is a request). Exit status 2 if it\n"
          "does not build.\n\n"
@@ -159,7 +159,7 @@ std::vector<CommandSpec> bo_commands() {
          "  bo build contract.bo --fuel\n"
          "  bo build contract.bo --out contract.boc --hash sm3\n"
          "  bo build contract.bo --json\n"
-         "  bo build contract.bo --code-out contract.wasm\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo build contract.bo --code-out contract.wasm\n\n" KANHE_BO_PACKS_HELP},
         {{"rebuild"},
          "Rebuild a deployed contract from its source and compare it with its code",
          "Bo language",
@@ -169,7 +169,7 @@ std::vector<CommandSpec> bo_commands() {
          with({memory_option,
                {"require", "", "Fail (exit 3) unless it rebuilds, also for another compiler's"}}),
          cmd_bo_rebuild,
-         "DEPLOY is a deploy file: cexchain contract export writes one of a deployed contract,\n"
+         "DEPLOY is a deploy file: kanhe contract export writes one of a deployed contract,\n"
          "bo build --out of a built one. The source it carries (a bo-source bundle) is opened\n"
          "with the packs it names, under the hash the file names, built again, and compared\n"
          "with the code, the interface, and the name:\n"
@@ -180,7 +180,7 @@ std::vector<CommandSpec> bo_commands() {
          "                    (exit 3)\n"
          "  not rebuilt       another compiler or version built it, whose output this one does\n"
          "                    not reproduce (it names the release to use); --require fails it\n\n"
-         "  cexchain contract export 3f2a9c1e --out deal.boc && bo rebuild deal.boc"},
+         "  kanhe contract export 3f2a9c1e --out deal.boc && bo rebuild deal.boc"},
         {{"reason"},
          "Say a compiled Bo contract's reason for refusing a call, in words",
          "Bo language",
@@ -190,10 +190,10 @@ std::vector<CommandSpec> bo_commands() {
          with({pack_option,
                {"language", "LANG",
                 "In en, zh-Hant-HK, zh-Hans-CN, or a given pack's language (default: "
-                "$CEXCHAIN_LANGUAGE, else en)"}}),
+                "$KANHE_LANGUAGE, else en)"}}),
          cmd_bo_reason,
          "A compiled contract refuses with a short reason, such as bo:state countersign or\n"
-         "bo:requires sign 2, which the ledger and cexchain show as given; this says it in the\n"
+         "bo:requires sign 2, which the ledger and kanhe show as given; this says it in the\n"
          "reader's language.\n\n"
          "  bo reason 'bo:state countersign' --language zh-Hant-HK"},
         {{"explain"},
@@ -208,9 +208,9 @@ std::vector<CommandSpec> bo_commands() {
                pack_option,
                {"language", "LANG",
                 "The text (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
-                "language (default: $CEXCHAIN_LANGUAGE, else en)"},
+                "language (default: $KANHE_LANGUAGE, else en)"},
                {"state", "FILE",
-                "With a deploy file: an instance's state (CBOR, cexchain contract instance "
+                "With a deploy file: an instance's state (CBOR, kanhe contract instance "
                 "--state-out), in the text's words"}}),
          cmd_bo_explain,
          "Checks FILE as bo check does, then writes its contract text: what the parties read\n"
@@ -234,7 +234,7 @@ std::vector<CommandSpec> bo_commands() {
          "same text from the deploy.\n\n"
          "  bo explain contract.bo\n"
          "  bo explain contract.bo --language zh-Hant-HK\n"
-         "  bo explain contract.bo --language zh-Hans --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo explain contract.bo --language zh-Hans --json\n\n" KANHE_BO_PACKS_HELP},
         {{"fmt"},
          "Lay out a Bo source canonically, or write it in one language",
          "Bo language",
@@ -279,7 +279,7 @@ std::vector<CommandSpec> bo_commands() {
          "  bo fmt contract.bo\n"
          "  bo fmt contract.bo --language zh-Hant-HK\n"
          "  bo fmt contract.bo --language en --write\n"
-         "  bo fmt contract.bo --check --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo fmt contract.bo --check --json\n\n" KANHE_BO_PACKS_HELP},
         {{"form"},
          "Write a Bo source from a rules sheet, or read a source back into one",
          "Bo language",
@@ -311,7 +311,7 @@ std::vector<CommandSpec> bo_commands() {
          "same tree.\n\n"
          "  bo form lending.json\n"
          "  bo form lending.json --language zh-Hant-HK --out lending.bo\n"
-         "  bo form --from lending.bo --out lending.json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo form --from lending.bo --out lending.json\n\n" KANHE_BO_PACKS_HELP},
         {{"calls"},
          "List what each call of a contract takes, for a form",
          "Bo language",
@@ -323,7 +323,7 @@ std::vector<CommandSpec> bo_commands() {
                pack_option,
                {"language", "LANG",
                 "Labels, types, and clauses in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
-                "language (default: $CEXCHAIN_LANGUAGE, else en)"},
+                "language (default: $KANHE_LANGUAGE, else en)"},
                {"state", "HEX", "Also an instance's state (its CBOR, in hex), in words"},
                {"label", "LEDGER=NAME", "With --state: name this ledger (its id in hex)", false,
                 true}}),
@@ -338,7 +338,7 @@ std::vector<CommandSpec> bo_commands() {
          "reader's language, and where it goes (a field, a role, or an input). --state shows an\n"
          "instance's state as the contract text writes it.\n\n"
          "  bo calls lending.bo\n"
-         "  bo calls lending.boc --language zh-Hant-HK --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo calls lending.boc --language zh-Hant-HK --json\n\n" KANHE_BO_PACKS_HELP},
         {{"args"},
          "Build a call's arguments from values written as a person would",
          "Bo language",
@@ -365,7 +365,7 @@ std::vector<CommandSpec> bo_commands() {
          "bound, size, twice, function). Exit status 2 if there is one.\n\n"
          "  bo args lending.bo create --set \"name=Camera X100\" --set owner=3f2a...\n"
          "  bo args lending.bo lend --values '{\"counterparty\": \"8d01...\"}' "
-         "--json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "--json\n\n" KANHE_BO_PACKS_HELP},
         {{"test"},
          "Run the test blocks of a Bo source: each scenario, step by step, as a ledger would",
          "Bo language",
@@ -377,7 +377,7 @@ std::vector<CommandSpec> bo_commands() {
                pack_option,
                {"language", "LANG",
                 "The report (and messages) in en, zh-Hant-HK, zh-Hans-CN, or a given pack's "
-                "language (default: $CEXCHAIN_LANGUAGE, else en)"}}),
+                "language (default: $KANHE_LANGUAGE, else en)"}}),
          cmd_bo_test,
          "Builds FILE as bo build does, then runs each of its test blocks on the compiled code\n"
          "exactly as a ledger runs calls (each call's input and output as spec section 15\n"
@@ -431,7 +431,7 @@ std::vector<CommandSpec> bo_commands() {
          "differ), and its calls with their consents, fuel, and input.\n\n"
          "  bo test contract.bo\n"
          "  bo test contract.bo --language zh-Hant-HK\n"
-         "  bo test contract.bo --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo test contract.bo --json\n\n" KANHE_BO_PACKS_HELP},
         {{"packs", "list"},
          "List the language packs Bo source is read with, and their digests",
          "Bo language",
@@ -440,7 +440,7 @@ std::vector<CommandSpec> bo_commands() {
          0,
          with({pack_option, hash_option, language_option}),
          cmd_bo_packs_list,
-         CEXCHAIN_BO_PACKS_HELP},
+         KANHE_BO_PACKS_HELP},
         {{"packs", "show"},
          "Show a language pack: its reading rules, keywords, words, messages, and sentences",
          "Bo language",
@@ -454,7 +454,7 @@ std::vector<CommandSpec> bo_commands() {
                 "Show one part: reading, keywords, vocabulary, messages, or sentences"}}),
          cmd_bo_packs_show,
          "PACK is a pack's id (en, zh-Hant-HK, zh-Hans-CN, or one given with --pack) or a\n"
-         "pack file.\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "pack file.\n\n" KANHE_BO_PACKS_HELP},
         {{"packs", "check"},
          "Check language pack files, alone and with the official packs",
          "Bo language",
@@ -476,7 +476,7 @@ std::vector<CommandSpec> bo_commands() {
          "   \"vocabulary\": {\"act.transfer\": \"...\", ...},  any words; English fills in\n"
          "   \"messages\": {...}, \"sentences\": {...}}\n"
          "bo packs show en --json lists every concept id; the official packs in the source\n"
-         "tree (bo/packs/) are complete examples.\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "tree (bo/packs/) are complete examples.\n\n" KANHE_BO_PACKS_HELP},
         {{"stdlib", "list"},
          "List the built-in actions of Bo's standard library, with who starts each and its states",
          "Bo language",
@@ -501,7 +501,7 @@ std::vector<CommandSpec> bo_commands() {
          "counterparty, and states.\n\n"
          "  bo stdlib list\n"
          "  bo stdlib list core\n"
-         "  bo stdlib list --language zh-Hant-HK --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo stdlib list --language zh-Hant-HK --json\n\n" KANHE_BO_PACKS_HELP},
         {{"stdlib", "show"},
          "Show a built-in action's terms: its Bo source, to copy, and its contract text",
          "Bo language",
@@ -520,7 +520,7 @@ std::vector<CommandSpec> bo_commands() {
          "pack, the source, and each clause of the text with its kind and rules.\n\n"
          "  bo stdlib show transfer\n"
          "  bo stdlib show 轉讓 --language zh-Hant-HK\n"
-         "  bo stdlib show confirm_payment --json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo stdlib show confirm_payment --json\n\n" KANHE_BO_PACKS_HELP},
         {{"vocab", "check"},
          "Check vocabulary pack files of your own: alone, then with the official packs",
          "Bo language",
@@ -551,7 +551,7 @@ std::vector<CommandSpec> bo_commands() {
          "Packs of your own are files: nothing is created on a ledger, and nothing is revoked.\n"
          "A source uses one with a use line and --vocab FILE on every bo command (and on\n"
          "contract deploy --bo); a deploy embeds it in the contract's source bundle, so anyone\n"
-         "rebuilds the contract without the file.\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "rebuilds the contract without the file.\n\n" KANHE_BO_PACKS_HELP},
         {{"vocab", "list"},
          "List Bo's core vocabulary and its vocabulary packs, with their digests",
          "Bo language",
@@ -577,7 +577,7 @@ std::vector<CommandSpec> bo_commands() {
          "  bo vocab list\n"
          "  bo vocab list --vocab events.vocab\n"
          "  bo vocab list --language zh-Hant-HK --hash sm3 "
-         "--json\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "--json\n\n" KANHE_BO_PACKS_HELP},
         {{"vocab", "show"},
          "Show the core or a vocabulary pack: its words, their categories, and its actions",
          "Bo language",
@@ -598,8 +598,8 @@ std::vector<CommandSpec> bo_commands() {
          "  bo vocab show core\n"
          "  bo vocab show services --language zh-Hans-CN\n"
          "  bo vocab show commerce --json\n"
-         "  bo vocab show events.vocab --language zh-Hant-HK\n\n" CEXCHAIN_BO_PACKS_HELP},
+         "  bo vocab show events.vocab --language zh-Hant-HK\n\n" KANHE_BO_PACKS_HELP},
     };
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

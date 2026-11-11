@@ -22,42 +22,42 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/public_witness.hpp>
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/relay.hpp>
-#include <cexchain/client/relay_server.hpp>
-#include <cexchain/client/session.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/console/backups.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/console/users.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/executor.hpp>
-#include <cexchain/node/keeper.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/public_witness.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/relay.hpp>
+#include <kanhe/client/relay_server.hpp>
+#include <kanhe/client/session.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/console/backups.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/console/users.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/executor.hpp>
+#include <kanhe/node/keeper.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "support/authenticator.hpp"
 #include "support/ledger_world.hpp"
 
-namespace console = cexchain::console;
-namespace http = cexchain::node::http;
+namespace console = kanhe::console;
+namespace http = kanhe::node::http;
 
 namespace {
 
@@ -102,8 +102,8 @@ std::string body(const http::Response& r) {
     return {r.body.begin(), r.body.end()};
 }
 
-const cexchain::crypto::Provider& provider() {
-    static const cexchain::crypto::openssl::Provider instance;
+const kanhe::crypto::Provider& provider() {
+    static const kanhe::crypto::openssl::Provider instance;
     return instance;
 }
 
@@ -112,9 +112,9 @@ struct TempDirectory {
     std::filesystem::path path;
     TempDirectory() {
         static int counter = 0;
-        path = std::filesystem::temp_directory_path() /
-               ("cexchain-console-test-" + std::to_string(::getpid()) + "-" +
-                std::to_string(++counter));
+        path =
+            std::filesystem::temp_directory_path() /
+            ("kanhe-console-test-" + std::to_string(::getpid()) + "-" + std::to_string(++counter));
         std::filesystem::remove_all(path);
     }
     ~TempDirectory() { std::filesystem::remove_all(path); }
@@ -122,7 +122,7 @@ struct TempDirectory {
     TempDirectory& operator=(const TempDirectory&) = delete;
 };
 
-constexpr cexchain::protocol::Timestamp minute = 60'000;
+constexpr kanhe::protocol::Timestamp minute = 60'000;
 
 /// The compiler the console runs: this build's bo, where it has one.
 std::string compiler() {
@@ -216,13 +216,13 @@ TEST_CASE("a public URL is the console's only name", "[console]") {
 }
 
 TEST_CASE("a session's bearer token", "[console][sessions]") {
-    const std::string token = "cxs_" + std::string(43, 'A');
+    const std::string token = "khs_" + std::string(43, 'A');
     CHECK(console::bearer_token("Bearer " + token) == token);
     CHECK(console::bearer_token("bearer " + token) == token);
     for (const std::string& bad :
          {"Bearer " + token + "A", "Bearer " + token.substr(0, 46), "Basic " + token,
-          "Bearer  " + token.substr(1), "Bearer cxt_" + std::string(43, 'A'),
-          "Bearer cxs_" + std::string(42, 'A') + "=", "Bearer cxs_" + std::string(42, 'A') + " ",
+          "Bearer  " + token.substr(1), "Bearer kht_" + std::string(43, 'A'),
+          "Bearer khs_" + std::string(42, 'A') + "=", "Bearer khs_" + std::string(42, 'A') + " ",
           std::string("Bearer"), std::string()}) {
         INFO(bad);
         CHECK_FALSE(console::bearer_token(bad));
@@ -232,8 +232,8 @@ TEST_CASE("a session's bearer token", "[console][sessions]") {
 TEST_CASE("sessions end when idle, at their lifetime, on sign-out, and when revoked",
           "[console][sessions]") {
     const TempDirectory dir;
-    cexchain::ledger::ManualClock clock(1'800'000'000'000);
-    cexchain::ledger::SeededEntropy entropy(7);
+    kanhe::ledger::ManualClock clock(1'800'000'000'000);
+    kanhe::ledger::SeededEntropy entropy(7);
     console::Sessions sessions(dir.path, provider(), clock, entropy);
 
     const std::string token = sessions.create("alice");
@@ -242,7 +242,7 @@ TEST_CASE("sessions end when idle, at their lifetime, on sign-out, and when revo
     REQUIRE(session);
     CHECK(session->user == "alice");
     CHECK(session->id.size() == 16);
-    CHECK_FALSE(sessions.use("cxs_" + std::string(43, 'A')));
+    CHECK_FALSE(sessions.use("khs_" + std::string(43, 'A')));
 
     // Idle: 30 minutes without a request.
     clock.advance(29 * minute);
@@ -279,17 +279,17 @@ TEST_CASE("sessions end when idle, at their lifetime, on sign-out, and when revo
     CHECK_THROWS(console::request_revocation(dir.path, "not-an-id"));
 
     // What is published names sessions, never their tokens or hashes.
-    const auto text = cexchain::client::read_file(dir.path / "sessions.json");
+    const auto text = kanhe::client::read_file(dir.path / "sessions.json");
     const std::string published(text.begin(), text.end());
     CHECK(published.find(kept) == std::string::npos);
     CHECK(published.find("erin") != std::string::npos);
-    CHECK(published.find("cxs_") == std::string::npos);
+    CHECK(published.find("khs_") == std::string::npos);
 }
 
 TEST_CASE("the console's session route", "[console][sessions]") {
     const TempDirectory dir;
-    cexchain::ledger::ManualClock clock(1'800'000'000'000);
-    cexchain::ledger::SeededEntropy entropy(8);
+    kanhe::ledger::ManualClock clock(1'800'000'000'000);
+    kanhe::ledger::SeededEntropy entropy(8);
     console::Sessions sessions(dir.path, provider(), clock, entropy);
     console::Console c(console::Services{dir.path, &provider(), &clock, &entropy, &sessions});
     c.set_origins(console::loopback_origins(7470));
@@ -314,7 +314,7 @@ TEST_CASE("the console's session route", "[console][sessions]") {
     CHECK(body(who).find(token) == std::string::npos);
 
     auto forged = request("GET", "/console/api/session", host);
-    forged.headers.emplace_back("authorization", "Bearer cxs_" + std::string(43, 'B'));
+    forged.headers.emplace_back("authorization", "Bearer khs_" + std::string(43, 'B'));
     CHECK(c.handle(forged).status == 401);
 
     // Signing out is a change: from the console's page only.
@@ -339,8 +339,8 @@ namespace {
 struct ConsoleWorld {
     TempDirectory dir;
     std::filesystem::path state = console::state_directory(dir.path);
-    cexchain::ledger::ManualClock clock{1'800'000'000'000};
-    cexchain::ledger::SeededEntropy entropy{11};
+    kanhe::ledger::ManualClock clock{1'800'000'000'000};
+    kanhe::ledger::SeededEntropy entropy{11};
     console::Sessions sessions{state, provider(), clock, entropy};
     console::KeyStore keys{state};
     console::Console web{
@@ -394,7 +394,7 @@ struct ConsoleWorld {
     }
 
     /// Registers `passkey` with an invitation code; returns the answer.
-    http::Response enroll(const cexchain::test::SoftPasskey& passkey, const std::string& code,
+    http::Response enroll(const kanhe::test::SoftPasskey& passkey, const std::string& code,
                           const std::string& name = {}, const std::string& prf = {}) {
         const auto begun = post("/console/api/enroll/begin", {{"code", code}, {"name", name}});
         if (begun.status != 200) {
@@ -402,44 +402,42 @@ struct ConsoleWorld {
         }
         const auto options = nlohmann::json::parse(body(begun));
         const auto challenge =
-            *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
-        return post(
-            "/console/api/enroll/finish",
-            {{"ceremony", options["ceremony"]},
-             {"attestation_object", cexchain::to_base64url(passkey.attestation(provider()))},
-             {"client_data_json",
-              cexchain::to_base64url(passkey.client_data("webauthn.create", challenge))},
-             {"label", "laptop"},
-             {"prf", prf}});
+            *kanhe::from_base64url(options["public_key"]["challenge"].get<std::string>());
+        return post("/console/api/enroll/finish",
+                    {{"ceremony", options["ceremony"]},
+                     {"attestation_object", kanhe::to_base64url(passkey.attestation(provider()))},
+                     {"client_data_json",
+                      kanhe::to_base64url(passkey.client_data("webauthn.create", challenge))},
+                     {"label", "laptop"},
+                     {"prf", prf}});
     }
 
     /// Signs in with `passkey` (and its PRF output, if any); returns the answer.
-    http::Response sign_in(const cexchain::test::SoftPasskey& passkey,
-                           const std::string& prf = {}) {
+    http::Response sign_in(const kanhe::test::SoftPasskey& passkey, const std::string& prf = {}) {
         const auto begun = post("/console/api/sign-in/begin", nlohmann::json::object());
         REQUIRE(begun.status == 200);
         const auto options = nlohmann::json::parse(body(begun));
         const auto challenge =
-            *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
+            *kanhe::from_base64url(options["public_key"]["challenge"].get<std::string>());
         const auto proof = passkey.sign(provider(), challenge);
         return post("/console/api/sign-in/finish",
                     {{"ceremony", options["ceremony"]},
-                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
-                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
-                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-                     {"signature", cexchain::to_base64url(proof.signature)},
+                     {"credential_id", kanhe::to_base64url(proof.credential_id)},
+                     {"authenticator_data", kanhe::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", kanhe::to_base64url(proof.client_data_json)},
+                     {"signature", kanhe::to_base64url(proof.signature)},
                      {"prf", prf}});
     }
 };
 
-cexchain::test::SoftPasskey passkey(std::uint8_t id) {
-    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::esp256);
+kanhe::test::SoftPasskey passkey(std::uint8_t id) {
+    auto key = kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::esp256);
     REQUIRE(key);
-    auto shared = std::make_shared<const cexchain::crypto::openssl::KeyPair>(std::move(*key));
-    cexchain::test::SoftPasskey p;
+    auto shared = std::make_shared<const kanhe::crypto::openssl::KeyPair>(std::move(*key));
+    kanhe::test::SoftPasskey p;
     p.public_key = shared->public_key();
     p.key = shared;
-    p.credential_id = cexchain::Bytes(16, id);
+    p.credential_id = kanhe::Bytes(16, id);
     return p;
 }
 
@@ -515,14 +513,14 @@ TEST_CASE("signing in refuses what a passkey did not sign for this console",
     const auto begun = w.post("/console/api/sign-in/begin", nlohmann::json::object());
     const auto options = nlohmann::json::parse(body(begun));
     const auto challenge =
-        *cexchain::from_base64url(options["public_key"]["challenge"].get<std::string>());
+        *kanhe::from_base64url(options["public_key"]["challenge"].get<std::string>());
     const auto proof = alice.sign(provider(), challenge);
     const nlohmann::json finish{
         {"ceremony", options["ceremony"]},
-        {"credential_id", cexchain::to_base64url(proof.credential_id)},
-        {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
-        {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-        {"signature", cexchain::to_base64url(proof.signature)}};
+        {"credential_id", kanhe::to_base64url(proof.credential_id)},
+        {"authenticator_data", kanhe::to_base64url(proof.authenticator_data)},
+        {"client_data_json", kanhe::to_base64url(proof.client_data_json)},
+        {"signature", kanhe::to_base64url(proof.signature)}};
     CHECK(w.post("/console/api/sign-in/finish", finish).status == 200);
     CHECK(w.post("/console/api/sign-in/finish", finish).status == 404);
     const auto late = w.post("/console/api/sign-in/begin", nlohmann::json::object());
@@ -551,7 +549,7 @@ TEST_CASE("invitations name their user and role; a removed user is signed out",
     CHECK(nlohmann::json::parse(body(made))["role"] == "member");
     // The same passkey twice, a bad code, a bad name.
     CHECK(w.enroll(bob, w.invite("Bob", console::Role::member)).status == 409);
-    CHECK(w.enroll(passkey(3), "cxi_nothing").status == 400);
+    CHECK(w.enroll(passkey(3), "khi_nothing").status == 400);
     CHECK(w.enroll(passkey(3), w.invite("", console::Role::owner), " ").status == 400);
     // A second passkey for Bob, from his own invitation.
     REQUIRE(w.enroll(passkey(4), w.invite("Bob", console::Role::member)).status == 200);
@@ -569,13 +567,13 @@ TEST_CASE("invitations name their user and role; a removed user is signed out",
 }
 
 TEST_CASE("the console's home and things views read the node's ledger", "[console][views]") {
-    cexchain::test::World ledger;
-    const cexchain::Bytes root(32, 7);
+    kanhe::test::World ledger;
+    const kanhe::Bytes root(32, 7);
     for (int i = 0; i < 3; ++i) {
         ledger.ok(
             ledger.org(),
             ledger.statement(ledger.org_id(), std::nullopt,
-                             cexchain::protocol::RecordRegisterBody{
+                             kanhe::protocol::RecordRegisterBody{
                                  "example.thing/1", root, 1, {}, std::nullopt, std::nullopt}));
     }
     ConsoleWorld w;
@@ -595,17 +593,17 @@ TEST_CASE("the console's home and things views read the node's ledger", "[consol
     CHECK(things["more"] == false);
     CHECK(things["instances"].empty());
 
-    CHECK(w.get("/console/api/things", "cxs_" + std::string(43, 'Z')).status == 401);
+    CHECK(w.get("/console/api/things", "khs_" + std::string(43, 'Z')).status == 401);
     CHECK(w.web.handle(request("GET", "/console/api/home", "localhost:7470")).status == 401);
 }
 
 TEST_CASE("a document's page and the list show its versions", "[console][views]") {
-    cexchain::test::World ledger;
-    const cexchain::Bytes root(32, 7);
-    auto version = [&](std::optional<cexchain::protocol::Id> old) {
+    kanhe::test::World ledger;
+    const kanhe::Bytes root(32, 7);
+    auto version = [&](std::optional<kanhe::protocol::Id> old) {
         return ledger.ok(ledger.org(),
                          ledger.statement(ledger.org_id(), std::nullopt,
-                                          cexchain::protocol::RecordRegisterBody{
+                                          kanhe::protocol::RecordRegisterBody{
                                               "example.form/1", root, 1, {}, std::nullopt, old}));
     };
     const auto v1 = version(std::nullopt);
@@ -619,8 +617,8 @@ TEST_CASE("a document's page and the list show its versions", "[console][views]"
     CHECK(things["records"][0]["superseded"] == false); // newest first: v2
     CHECK(things["records"][1]["superseded"] == true);
 
-    const std::string hex1 = cexchain::to_hex(v1.bytes());
-    const std::string hex2 = cexchain::to_hex(v2.bytes());
+    const std::string hex1 = kanhe::to_hex(v1.bytes());
+    const std::string hex2 = kanhe::to_hex(v2.bytes());
     const auto old = nlohmann::json::parse(body(w.get("/console/api/records/" + hex1, token)));
     CHECK(old["superseded_by"] == hex2);
     CHECK(old["supersedes"].is_null());
@@ -635,7 +633,7 @@ TEST_CASE("a document's page and the list show its versions", "[console][views]"
 }
 
 TEST_CASE("recovery codes", "[console][keys]") {
-    cexchain::ledger::SeededEntropy entropy(21);
+    kanhe::ledger::SeededEntropy entropy(21);
     const std::string code = console::make_recovery_code(entropy);
     CHECK(code.size() == 26 + 6);
     CHECK(code[4] == '-');
@@ -654,7 +652,7 @@ TEST_CASE("recovery codes", "[console][keys]") {
 
 TEST_CASE("the console's keys are sealed to its node key", "[console][keys]") {
     const TempDirectory dir;
-    cexchain::ledger::SeededEntropy entropy(22);
+    kanhe::ledger::SeededEntropy entropy(22);
     console::KeyStore store(dir.path);
     CHECK_FALSE(store.initialized());
     const std::string code = store.initialize(entropy);
@@ -662,7 +660,7 @@ TEST_CASE("the console's keys are sealed to its node key", "[console][keys]") {
     CHECK(store.unlocked());
     CHECK_THROWS(store.initialize(entropy));
 
-    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::esp256);
+    auto key = kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::esp256);
     REQUIRE(key);
     store.seal("alice", *key);
     REQUIRE(store.keys().size() == 1);
@@ -699,7 +697,7 @@ TEST_CASE("the console's keys are sealed to its node key", "[console][keys]") {
     CHECK_THROWS(store.add_slot({console::SlotKind::prf, "../escape"}, "a long enough secret"));
 
     // The name is part of what is sealed: a file renamed does not open.
-    auto other = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    auto other = kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::ed25519);
     REQUIRE(other);
     store.seal("bob", *other);
     std::filesystem::copy_file(dir.path / "keys" / "bob.sealed",
@@ -744,7 +742,7 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
     CHECK(salt.get<std::string>().size() == 43);
 
     // Locked: a PRF the console has no slot for does not unlock it.
-    const std::string prf = cexchain::to_base64url(cexchain::Bytes(32, 0x42));
+    const std::string prf = kanhe::to_base64url(kanhe::Bytes(32, 0x42));
     const auto first = w.sign_in(alice, prf);
     REQUIRE(first.status == 200);
     CHECK(nlohmann::json::parse(body(first))["keys"] == "locked");
@@ -764,7 +762,7 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
     // A member's passkey gets no slot, and a viewer cannot unlock.
     const auto bob = passkey(2);
     REQUIRE(w.enroll(bob, w.invite("Bob", console::Role::member)).status == 200);
-    REQUIRE(w.sign_in(bob, cexchain::to_base64url(cexchain::Bytes(32, 0x43))).status == 200);
+    REQUIRE(w.sign_in(bob, kanhe::to_base64url(kanhe::Bytes(32, 0x43))).status == 200);
     CHECK(w.keys.slots().size() == 3);
     const std::string viewer = w.session_for("Vera", console::Role::viewer);
     CHECK(unlock(viewer, {{"secret", "the owner's passphrase"}}).status == 403);
@@ -775,14 +773,14 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
     // An admin's passkey gets a slot; made a viewer, she loses it, and a slot
     // left from before unlocks nothing either.
     const auto ada = passkey(3);
-    const std::string ada_prf = cexchain::to_base64url(cexchain::Bytes(32, 0x44));
+    const std::string ada_prf = kanhe::to_base64url(kanhe::Bytes(32, 0x44));
     REQUIRE(w.enroll(ada, w.invite("Ada", console::Role::admin)).status == 200);
     REQUIRE(w.sign_in(ada, ada_prf).status == 200);
     CHECK(w.keys.slots().size() == 4);
     REQUIRE(w.post_as("/console/api/people", {{"role", "Ada"}, {"to", "viewer"}}, token).status ==
             200);
     CHECK(w.keys.slots().size() == 3);
-    w.keys.add_slot({console::SlotKind::prf, cexchain::to_base64url(ada.credential_id)}, ada_prf);
+    w.keys.add_slot({console::SlotKind::prf, kanhe::to_base64url(ada.credential_id)}, ada_prf);
     w.keys.lock();
     const auto demoted = w.sign_in(ada, ada_prf);
     REQUIRE(demoted.status == 200);
@@ -791,19 +789,19 @@ TEST_CASE("the console's keys unlock with a passphrase, then with the owner's pa
 
 namespace {
 
-namespace protocol = cexchain::protocol;
+namespace protocol = kanhe::protocol;
 
 /// A ledger with Alice, a person whose delegation requires presence and
 /// whose passkey the organization registered, and a console that holds her
 /// key and knows her as its user Alice.
 struct ApprovalWorld {
-    cexchain::test::World ledger;
-    cexchain::crypto::openssl::KeyPair alice_key = cexchain::test::key("alice");
+    kanhe::test::World ledger;
+    kanhe::crypto::openssl::KeyPair alice_key = kanhe::test::key("alice");
     protocol::Id alice;
-    cexchain::test::SoftPasskey alice_passkey = passkey(5);
+    kanhe::test::SoftPasskey alice_passkey = passkey(5);
     protocol::Id record;
     TempDirectory dir;
-    cexchain::ledger::SeededEntropy entropy{31};
+    kanhe::ledger::SeededEntropy entropy{31};
     console::Sessions sessions{dir.path, provider(), ledger.clock(), entropy};
     console::KeyStore keys{dir.path};
     console::Console web{
@@ -814,11 +812,11 @@ struct ApprovalWorld {
         web.set_origins(console::loopback_origins(7470));
         web.set_ledger(&ledger.ledger());
         // As POST /v1/statements answers.
-        web.set_submitter([this](cexchain::Bytes statement, bool, auto respond) {
+        web.set_submitter([this](kanhe::Bytes statement, bool, auto respond) {
             const auto registered = ledger.ledger().submit(statement);
             const nlohmann::json value =
                 registered ? nlohmann::json{{"statement_id",
-                                             cexchain::to_hex(registered->statement_id.bytes())},
+                                             kanhe::to_hex(registered->statement_id.bytes())},
                                             {"index", registered->index}}
                            : nlohmann::json{{"error", {{"message", registered.error().detail}}}};
             http::Response r;
@@ -841,7 +839,7 @@ struct ApprovalWorld {
         ledger.grant(ledger.org(), ledger.org_id(), std::nullopt, alice, scope);
         record = ledger.ok(ledger.org(),
                            ledger.statement(ledger.org_id(), std::nullopt,
-                                            ledger.record_body(cexchain::test::document_type)));
+                                            ledger.record_body(kanhe::test::document_type)));
         static_cast<void>(keys.initialize(entropy));
         keys.seal("alice", alice_key);
         console::People people;
@@ -849,7 +847,7 @@ struct ApprovalWorld {
                                 console::Role::member,
                                 ledger.clock().now(),
                                 {credential},
-                                cexchain::to_hex(alice.bytes()),
+                                kanhe::to_hex(alice.bytes()),
                                 "alice"});
         people.users.push_back({"Bob", console::Role::member, ledger.clock().now(), {}, {}, {}});
         people.users.push_back({"Vera", console::Role::viewer, ledger.clock().now(), {}, {}, {}});
@@ -869,7 +867,7 @@ struct ApprovalWorld {
     nlohmann::json endorse(const std::string& role, const std::string& session) {
         const auto r = post("/console/api/prepare",
                             {{"action", "record.endorse"},
-                             {"record", cexchain::to_hex(record.bytes())},
+                             {"record", kanhe::to_hex(record.bytes())},
                              {"role", role}},
                             session);
         auto answer = nlohmann::json::parse(body(r));
@@ -878,20 +876,20 @@ struct ApprovalWorld {
     }
 
     /// Approves what `prepared` holds, with `with` signing `challenge`.
-    http::Response approve(const nlohmann::json& prepared, const cexchain::test::SoftPasskey& with,
-                           const cexchain::Bytes& challenge, const std::string& session) {
+    http::Response approve(const nlohmann::json& prepared, const kanhe::test::SoftPasskey& with,
+                           const kanhe::Bytes& challenge, const std::string& session) {
         const auto proof = with.sign(provider(), challenge);
         return post("/console/api/approve",
                     {{"prepared", prepared["prepared"]},
-                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
-                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
-                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-                     {"signature", cexchain::to_base64url(proof.signature)}},
+                     {"credential_id", kanhe::to_base64url(proof.credential_id)},
+                     {"authenticator_data", kanhe::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", kanhe::to_base64url(proof.client_data_json)},
+                     {"signature", kanhe::to_base64url(proof.signature)}},
                     session);
     }
 
-    static cexchain::Bytes challenge_of(const nlohmann::json& prepared) {
-        return *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+    static kanhe::Bytes challenge_of(const nlohmann::json& prepared) {
+        return *kanhe::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
     }
 };
 
@@ -909,7 +907,7 @@ TEST_CASE("a person approves a statement with one passkey tap", "[console][appro
     REQUIRE(approved.status == 200);
     const auto registered = nlohmann::json::parse(body(approved));
     const auto id =
-        *protocol::to_id(*cexchain::from_hex(registered["statement_id"].get<std::string>()));
+        *protocol::to_id(*kanhe::from_hex(registered["statement_id"].get<std::string>()));
     // On the ledger: Alice's endorsement, with her proof of presence.
     const auto index = w.ledger.ledger().state().statement_index(id);
     REQUIRE(index);
@@ -984,7 +982,7 @@ TEST_CASE("approvals refuse a wrong tap, a late one, another's, and the locked o
     ApprovalWorld w;
     // A tap over other bytes, or with a passkey not registered on the ledger.
     auto prepared = w.endorse("first", w.token);
-    CHECK(w.approve(prepared, w.alice_passkey, cexchain::Bytes(32, 9), w.token).status == 403);
+    CHECK(w.approve(prepared, w.alice_passkey, kanhe::Bytes(32, 9), w.token).status == 403);
     prepared = w.endorse("second", w.token);
     CHECK(w.approve(prepared, passkey(6), w.challenge_of(prepared), w.token).status == 403);
     // Late: after two minutes the prepared statement is gone.
@@ -1009,7 +1007,7 @@ TEST_CASE("a person revokes a record with a passkey tap", "[console][approve]") 
     ApprovalWorld w;
     const auto r = w.post("/console/api/prepare",
                           {{"action", "record.revoke"},
-                           {"record", cexchain::to_hex(w.record.bytes())},
+                           {"record", kanhe::to_hex(w.record.bytes())},
                            {"reason", "issued by mistake"}},
                           w.token);
     REQUIRE(r.status == 200);
@@ -1024,14 +1022,14 @@ namespace {
 /// The console's first run, done by registering the setup link's passkey.
 struct FirstRunWorld {
     ConsoleWorld w{true};
-    cexchain::test::SoftPasskey alice = passkey(1);
+    kanhe::test::SoftPasskey alice = passkey(1);
     bool ready = false;
     nlohmann::json made;
 
     /// With `prf`, the passkey gives its PRF output when it is made.
     explicit FirstRunWorld(const std::string& prf = {}) {
         // The ledger checks statements' times against the system's clock.
-        w.clock.set(cexchain::ledger::SystemClock{}.now());
+        w.clock.set(kanhe::ledger::SystemClock{}.now());
         w.web.set_on_ready([this] { ready = true; });
         const auto begun =
             w.post("/console/api/enroll/begin",
@@ -1048,16 +1046,16 @@ struct FirstRunWorld {
 
 /// The ledger the first run made, served to the console as the node would.
 struct Served {
-    cexchain::client::Session session;
+    kanhe::client::Session session;
 
-    explicit Served(FirstRunWorld& f) : session(cexchain::client::Location{f.w.dir.path}) {
+    explicit Served(FirstRunWorld& f) : session(kanhe::client::Location{f.w.dir.path}) {
         f.w.web.set_ledger(&session.ledger());
         // As LedgerApi::record_evidence: a checkpoint by the sealed log key
         // first, unless the latest covers the record, then the bundle.
-        f.w.web.set_evidence([this, &f](const cexchain::protocol::Id& record, auto done) {
+        f.w.web.set_evidence([this, &f](const kanhe::protocol::Id& record, auto done) {
             const auto log = f.w.keys.open("log");
             std::uint64_t last = 0;
-            session.ledger().read_state([&](const cexchain::protocol::LedgerState& state) {
+            session.ledger().read_state([&](const kanhe::protocol::LedgerState& state) {
                 if (const auto* r = state.record(record)) {
                     for (const std::uint64_t index : r->history) {
                         last = std::max(last, index);
@@ -1069,26 +1067,26 @@ struct Served {
                 REQUIRE(session.ledger().checkpoint(log));
             }
             auto bundle = session.ledger().export_evidence(log, record);
-            done(bundle ? cexchain::protocol::encode_bundle(*bundle)
-                        : cexchain::Result<cexchain::Bytes>(std::unexpected(bundle.error())));
+            done(bundle ? kanhe::protocol::encode_bundle(*bundle)
+                        : kanhe::Result<kanhe::Bytes>(std::unexpected(bundle.error())));
         });
         // As LedgerApi::instance_evidence.
         f.w.web.set_instance_evidence(
-            [this, &f, dir = f.w.dir.path](const cexchain::protocol::Id& instance, auto done) {
+            [this, &f, dir = f.w.dir.path](const kanhe::protocol::Id& instance, auto done) {
                 const auto log = f.w.keys.open("log");
                 REQUIRE(session.ledger().checkpoint(log));
                 auto bundle = session.ledger().export_evidence(log, instance);
                 REQUIRE(bundle);
-                done(cexchain::node::contract_evidence(provider(), dir, *bundle));
+                done(kanhe::node::contract_evidence(provider(), dir, *bundle));
             });
-        f.w.web.set_submitter([this, dir = f.w.dir.path](cexchain::Bytes body, bool submission,
+        f.w.web.set_submitter([this, dir = f.w.dir.path](kanhe::Bytes body, bool submission,
                                                          auto respond) {
             // As POST /v1/statements answers; a submission's private data
             // and files kept as the node keeps them.
-            std::optional<cexchain::cbor::Value> parts;
-            cexchain::Bytes statement = body;
+            std::optional<kanhe::cbor::Value> parts;
+            kanhe::Bytes statement = body;
             if (submission) {
-                parts = *cexchain::cbor::decode(body);
+                parts = *kanhe::cbor::decode(body);
                 statement = *parts->find(1)->as_bytes();
             }
             const auto registered = session.ledger().submit(statement);
@@ -1096,12 +1094,12 @@ struct Served {
             // bundles (key 3) the node keeps, which this stand-in drops.
             if (registered && parts && parts->find(2) != nullptr) {
                 const auto id = registered->statement_id;
-                cexchain::client::write_file(dir / "vault" / "records" /
-                                                 (cexchain::to_hex(id.bytes()) + ".cbor"),
-                                             *parts->find(2)->as_bytes(), true);
+                kanhe::client::write_file(dir / "vault" / "records" /
+                                              (kanhe::to_hex(id.bytes()) + ".cbor"),
+                                          *parts->find(2)->as_bytes(), true);
                 if (const auto* files = parts->find(4)) {
-                    for (const auto& file : *cexchain::node::decode_sealed_files(*files)) {
-                        REQUIRE(cexchain::node::store_record_file(dir, id, file));
+                    for (const auto& file : *kanhe::node::decode_sealed_files(*files)) {
+                        REQUIRE(kanhe::node::store_record_file(dir, id, file));
                     }
                 }
             }
@@ -1109,7 +1107,7 @@ struct Served {
             r.status = registered ? 201 : 422;
             const std::string text =
                 (registered ? nlohmann::json{{"statement_id",
-                                              cexchain::to_hex(registered->statement_id.bytes())},
+                                              kanhe::to_hex(registered->statement_id.bytes())},
                                              {"index", registered->index}}
                             : nlohmann::json{{"error", {{"message", registered.error().detail}}}})
                     .dump();
@@ -1136,20 +1134,20 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
 
     // The ledger: the owner acts in person, with the passkey, under a
     // delegation that requires presence.
-    cexchain::client::Session session(cexchain::client::Location{f.w.dir.path});
+    kanhe::client::Session session(kanhe::client::Location{f.w.dir.path});
     const auto& state = session.state();
     CHECK(state.organization() == "Alice");
-    CHECK(cexchain::to_hex(state.ledger_id().bytes()) == f.made["ledger"].get<std::string>());
+    CHECK(kanhe::to_hex(state.ledger_id().bytes()) == f.made["ledger"].get<std::string>());
     const auto people = console::load_people(f.w.state);
     REQUIRE(people.users.size() == 1);
     const console::User& owner = people.users[0];
     CHECK(owner.role == console::Role::owner);
     CHECK(owner.key == "owner");
     CHECK(people.invitations.empty());
-    const auto actor_id = *cexchain::protocol::to_id(*cexchain::from_hex(owner.actor));
+    const auto actor_id = *kanhe::protocol::to_id(*kanhe::from_hex(owner.actor));
     const auto* actor = state.actor(actor_id);
     REQUIRE(actor != nullptr);
-    CHECK(actor->kind == cexchain::protocol::ActorKind::person);
+    CHECK(actor->kind == kanhe::protocol::ActorKind::person);
     CHECK(actor->display_name == "Alice");
     REQUIRE(actor->presence.size() == 1);
     CHECK(actor->presence[0].credential_id == f.alice.credential_id);
@@ -1172,11 +1170,11 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
     CHECK(sealed == std::vector<std::string>{"log", "machine", "owner", "root", "witness"});
     // The console's machine: a device with a delegation for contract calls
     // only, which the node runs as the registrar and keeper.
-    std::optional<cexchain::protocol::Id> machine_id;
+    std::optional<kanhe::protocol::Id> machine_id;
     for (const auto& [key, a] : state.actors()) {
         if (a.display_name == "console") {
-            machine_id = cexchain::protocol::Id(a.id);
-            CHECK(a.kind == cexchain::protocol::ActorKind::device);
+            machine_id = kanhe::protocol::Id(a.id);
+            CHECK(a.kind == kanhe::protocol::ActorKind::device);
             CHECK(a.key == f.w.keys.open("machine").public_key());
         }
     }
@@ -1192,8 +1190,8 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
     }
     CHECK(machine_delegations == 1);
     // The vault: its public key on disk, its private key sealed in the console.
-    const auto vault_public = cexchain::client::decode_vault_public_key(
-        cexchain::client::read_file(f.w.dir.path / "vault" / "vault.pub"));
+    const auto vault_public = kanhe::client::decode_vault_public_key(
+        kanhe::client::read_file(f.w.dir.path / "vault" / "vault.pub"));
     REQUIRE(vault_public);
     CHECK(f.w.keys.vault_public_key() == vault_public);
     CHECK(std::ranges::equal(f.w.keys.open_vault_key().public_key(), *vault_public));
@@ -1211,15 +1209,15 @@ TEST_CASE("the first run makes the ledger, its keys, and its owner", "[console][
 TEST_CASE("setting up refuses set-up keys, a bad name, and a hardware key", "[console][setup]") {
     ConsoleWorld w{true};
     const auto alice = passkey(1);
-    cexchain::protocol::PresenceCredential credential{alice.rp_id, alice.credential_id,
-                                                      alice.public_key, std::nullopt};
+    kanhe::protocol::PresenceCredential credential{alice.rp_id, alice.credential_id,
+                                                   alice.public_key, std::nullopt};
     CHECK_THROWS_AS(
         console::set_up({w.dir.path, "Bad Name!", credential, std::nullopt, std::nullopt}, w.keys,
                         w.entropy),
         std::invalid_argument);
     auto hardware = credential;
     hardware.rp_id.clear();
-    hardware.method = cexchain::protocol::PresenceMethod::hardware_key;
+    hardware.method = kanhe::protocol::PresenceMethod::hardware_key;
     CHECK_THROWS_AS(console::set_up({w.dir.path, "Alice", hardware, std::nullopt, std::nullopt},
                                     w.keys, w.entropy),
                     std::invalid_argument);
@@ -1261,15 +1259,15 @@ TEST_CASE("a lost passkey is replaced with the recovery code", "[console][recove
         REQUIRE(r.status == 200);
         return nlohmann::json::parse(body(r));
     };
-    auto finish = [&](const nlohmann::json& begun, const cexchain::test::SoftPasskey& with,
+    auto finish = [&](const nlohmann::json& begun, const kanhe::test::SoftPasskey& with,
                       const std::string& path) {
         const auto challenge =
-            *cexchain::from_base64url(begun["public_key"]["challenge"].get<std::string>());
-        return f.w.post(
-            path, {{"ceremony", begun["ceremony"]},
-                   {"attestation_object", cexchain::to_base64url(with.attestation(provider()))},
-                   {"client_data_json",
-                    cexchain::to_base64url(with.client_data("webauthn.create", challenge))}});
+            *kanhe::from_base64url(begun["public_key"]["challenge"].get<std::string>());
+        return f.w.post(path,
+                        {{"ceremony", begun["ceremony"]},
+                         {"attestation_object", kanhe::to_base64url(with.attestation(provider()))},
+                         {"client_data_json",
+                          kanhe::to_base64url(with.client_data("webauthn.create", challenge))}});
     };
     // A recovery is finished only by its own route.
     auto begun = begin();
@@ -1289,7 +1287,7 @@ TEST_CASE("a lost passkey is replaced with the recovery code", "[console][recove
     const auto people = console::load_people(f.w.state);
     REQUIRE(people.users[0].passkeys.size() == 1);
     CHECK(people.users[0].passkeys[0].credential_id == phone.credential_id);
-    const auto actor_id = *cexchain::protocol::to_id(*cexchain::from_hex(people.users[0].actor));
+    const auto actor_id = *kanhe::protocol::to_id(*kanhe::from_hex(people.users[0].actor));
     const auto* actor = served.session.ledger().state().actor(actor_id);
     REQUIRE(actor->presence.size() == 1);
     CHECK(actor->presence[0].credential_id == phone.credential_id);
@@ -1311,14 +1309,14 @@ TEST_CASE("an invitation's registration does not recover anyone", "[console][rec
     REQUIRE(invited.status == 200);
     const auto begun = nlohmann::json::parse(body(invited));
     const auto challenge =
-        *cexchain::from_base64url(begun["public_key"]["challenge"].get<std::string>());
+        *kanhe::from_base64url(begun["public_key"]["challenge"].get<std::string>());
     const auto other = passkey(9);
     const auto r =
         f.w.post("/console/api/recover/finish",
                  {{"ceremony", begun["ceremony"]},
-                  {"attestation_object", cexchain::to_base64url(other.attestation(provider()))},
+                  {"attestation_object", kanhe::to_base64url(other.attestation(provider()))},
                   {"client_data_json",
-                   cexchain::to_base64url(other.client_data("webauthn.create", challenge))}});
+                   kanhe::to_base64url(other.client_data("webauthn.create", challenge))}});
     CHECK(r.status == 404);
     CHECK(f.w.get("/console/api/session", owner).status == 200);
 }
@@ -1364,13 +1362,13 @@ TEST_CASE("the console's settings: language and backup folder", "[console][setti
     CHECK_FALSE(console::load_settings(w.state).backup_folder);
 
     // A damaged file is refused, never half read.
-    cexchain::client::write_file(w.state / "settings.json", cexchain::as_bytes("[1]"), true);
+    kanhe::client::write_file(w.state / "settings.json", kanhe::as_bytes("[1]"), true);
     CHECK_THROWS(console::load_settings(w.state));
 }
 
 TEST_CASE("a first-run passkey that gives its PRF output unlocks the console",
           "[console][setup][keys]") {
-    const std::string prf = cexchain::to_base64url(cexchain::Bytes(32, 0x51));
+    const std::string prf = kanhe::to_base64url(kanhe::Bytes(32, 0x51));
     FirstRunWorld f(prf);
     CHECK(f.made["key_slot"] == true);
     f.w.keys.lock();
@@ -1385,28 +1383,28 @@ TEST_CASE("after the first run, the owner approves with the passkey", "[console]
     // A record, which the organization registers with its root key.
     const auto record = served.session.submit(
         f.w.keys.open("root"),
-        cexchain::protocol::RecordRegisterBody{
-            "example.thing/1", cexchain::Bytes(32, 7), 1, {}, std::nullopt, std::nullopt},
+        kanhe::protocol::RecordRegisterBody{
+            "example.thing/1", kanhe::Bytes(32, 7), 1, {}, std::nullopt, std::nullopt},
         std::nullopt);
-    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    f.w.clock.set(kanhe::ledger::SystemClock{}.now());
     const std::string token = f.made["session"].get<std::string>();
     const auto prepared_answer = f.w.post_as("/console/api/prepare",
                                              {{"action", "record.endorse"},
-                                              {"record", cexchain::to_hex(record.bytes())},
+                                              {"record", kanhe::to_hex(record.bytes())},
                                               {"role", "reviewed"}},
                                              token);
     REQUIRE(prepared_answer.status == 200);
     const auto prepared = nlohmann::json::parse(body(prepared_answer));
     const auto challenge =
-        *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+        *kanhe::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
     const auto proof = f.alice.sign(provider(), challenge);
     const auto approved =
         f.w.post_as("/console/api/approve",
                     {{"prepared", prepared["prepared"]},
-                     {"credential_id", cexchain::to_base64url(proof.credential_id)},
-                     {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
-                     {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-                     {"signature", cexchain::to_base64url(proof.signature)}},
+                     {"credential_id", kanhe::to_base64url(proof.credential_id)},
+                     {"authenticator_data", kanhe::to_base64url(proof.authenticator_data)},
+                     {"client_data_json", kanhe::to_base64url(proof.client_data_json)},
+                     {"signature", kanhe::to_base64url(proof.signature)}},
                     token);
     // The ledger's answer, as POST /v1/statements gives it.
     REQUIRE(approved.status == 201);
@@ -1443,7 +1441,7 @@ TEST_CASE("a document kind's sheet", "[console][kinds]") {
     };
     CHECK_THROWS_AS(console::parse_kind(with("sheet", 2)), std::invalid_argument);
     CHECK_THROWS_AS(console::parse_kind(with("kind", "thing")), std::invalid_argument);
-    CHECK_THROWS_AS(console::parse_kind(with("type", "cexchain.access-request/1")),
+    CHECK_THROWS_AS(console::parse_kind(with("type", "kanhe.access-request/1")),
                     std::invalid_argument);
     CHECK_THROWS_AS(console::parse_kind(with("type", "a\nb")), std::invalid_argument);
     CHECK_THROWS_AS(console::parse_kind(with("fields", nlohmann::json::array())),
@@ -1511,16 +1509,16 @@ http::Response upload(ConsoleWorld& w, const std::string& token, const std::stri
 
 /// Approves what `prepared` holds with `passkey`.
 http::Response approve(ConsoleWorld& w, const std::string& token, const nlohmann::json& prepared,
-                       const cexchain::test::SoftPasskey& passkey) {
+                       const kanhe::test::SoftPasskey& passkey) {
     const auto challenge =
-        *cexchain::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
+        *kanhe::from_base64url(prepared["public_key"]["challenge"].get<std::string>());
     const auto proof = passkey.sign(provider(), challenge);
     return w.post_as("/console/api/approve",
                      {{"prepared", prepared["prepared"]},
-                      {"credential_id", cexchain::to_base64url(proof.credential_id)},
-                      {"authenticator_data", cexchain::to_base64url(proof.authenticator_data)},
-                      {"client_data_json", cexchain::to_base64url(proof.client_data_json)},
-                      {"signature", cexchain::to_base64url(proof.signature)}},
+                      {"credential_id", kanhe::to_base64url(proof.credential_id)},
+                      {"authenticator_data", kanhe::to_base64url(proof.authenticator_data)},
+                      {"client_data_json", kanhe::to_base64url(proof.client_data_json)},
+                      {"signature", kanhe::to_base64url(proof.signature)}},
                      token);
 }
 
@@ -1579,8 +1577,8 @@ TEST_CASE("the owner registers a document with fields and a file, kept with it",
 
     const auto approved = approve(f.w, token, prepared, f.alice);
     REQUIRE(approved.status == 201);
-    const auto id = *cexchain::protocol::to_id(*cexchain::from_hex(
-        nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
+    const auto id = *kanhe::protocol::to_id(
+        *kanhe::from_hex(nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
     // On the ledger: the commitments; in the vault and the file store: the
     // private data and the photo, sealed, and both open to the vault key.
     const auto* record = served.session.ledger().state().record(id);
@@ -1588,13 +1586,12 @@ TEST_CASE("the owner registers a document with fields and a file, kept with it",
     CHECK(record->record_type == "example.org.photo/1");
     CHECK(record->field_count == 2);
     const auto key = f.w.keys.open_vault_key();
-    const auto vault = cexchain::client::read_vault(served.session, id, key);
+    const auto vault = kanhe::client::read_vault(served.session, id, key);
     CHECK(vault.fields.size() == 2);
-    const auto files = cexchain::client::record_files(served.session, id);
+    const auto files = kanhe::client::record_files(served.session, id);
     REQUIRE(files.size() == 1);
     CHECK(files[0].kept);
-    const auto content =
-        cexchain::client::open_record_file(served.session, id, files[0], vault, key);
+    const auto content = kanhe::client::open_record_file(served.session, id, files[0], vault, key);
     CHECK(std::string(content.begin(), content.end()) == photo);
     // The upload is gone; a prepared registration is approved once.
     CHECK(prepare({{"place", "Again"}}, one).status == 400);
@@ -1641,8 +1638,8 @@ http::Response proof(ConsoleWorld& w, const std::string& token, const nlohmann::
 }
 
 /// The photo story's record, registered by the owner from the console.
-cexchain::protocol::Id register_photo(FirstRunWorld& f, const std::string& token,
-                                      const std::string& photo) {
+kanhe::protocol::Id register_photo(FirstRunWorld& f, const std::string& token,
+                                   const std::string& photo) {
     REQUIRE(f.w.post_as("/console/api/kinds", photo_kind, token).status == 200);
     const auto file = nlohmann::json::parse(body(upload(f.w, token, "photo.jpg", photo)));
     const auto prepared = f.w.post_as(
@@ -1656,8 +1653,8 @@ cexchain::protocol::Id register_photo(FirstRunWorld& f, const std::string& token
     REQUIRE(prepared.status == 200);
     const auto approved = approve(f.w, token, nlohmann::json::parse(body(prepared)), f.alice);
     REQUIRE(approved.status == 201);
-    return *cexchain::protocol::to_id(*cexchain::from_hex(
-        nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
+    return *kanhe::protocol::to_id(
+        *kanhe::from_hex(nlohmann::json::parse(body(approved))["statement_id"].get<std::string>()));
 }
 
 } // namespace
@@ -1668,7 +1665,7 @@ TEST_CASE("a thing's page shows private data to those allowed", "[console][thing
     const std::string owner = f.made["session"].get<std::string>();
     const std::string photo = "the photo itself";
     const auto id = register_photo(f, owner, photo);
-    const std::string path = "/console/api/records/" + cexchain::to_hex(id.bytes());
+    const std::string path = "/console/api/records/" + kanhe::to_hex(id.bytes());
 
     const auto page = nlohmann::json::parse(body(f.w.get(path, owner)));
     CHECK(page["type"] == "example.org.photo/1");
@@ -1707,7 +1704,7 @@ TEST_CASE("a claim confirms a condition on a document's fields, checked against 
     Served served(f);
     const std::string owner = f.made["session"].get<std::string>();
     const auto id = register_photo(f, owner, "the photo itself");
-    const std::string record = cexchain::to_hex(id.bytes());
+    const std::string record = kanhe::to_hex(id.bytes());
     CHECK(nlohmann::json::parse(
               body(f.w.get("/console/api/records/" + record, owner)))["may_claim"] == true);
     auto prepare = [&](nlohmann::json conditions, bool allow_no, const std::string& as) {
@@ -1724,7 +1721,7 @@ TEST_CASE("a claim confirms a condition on a document's fields, checked against 
     const auto prepared_answer = prepare(before, false, owner);
     REQUIRE(prepared_answer.status == 200);
     const auto prepared = nlohmann::json::parse(body(prepared_answer));
-    CHECK(prepared["summary"]["record_type"] == "cexchain.claim/1");
+    CHECK(prepared["summary"]["record_type"] == "kanhe.claim/1");
     CHECK(prepared["summary"]["claim"]["text"] == "taken is below 2026-12-01 and place is given");
     CHECK(prepared["summary"]["claim"]["holds"] == true);
     // The claim's own fields are the values it checked, never shown publicly.
@@ -1766,27 +1763,27 @@ TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[conso
     const std::string owner = f.made["session"].get<std::string>();
     const std::string photo = "the photo itself";
     const auto id = register_photo(f, owner, photo);
-    const auto record = cexchain::to_hex(id.bytes());
+    const auto record = kanhe::to_hex(id.bytes());
 
     const auto made =
         proof(f.w, owner, {{"record", record}, {"disclose", {"taken"}}, {"files", true}});
     REQUIRE(made.status == 200);
     CHECK(header(made, "Content-Disposition").starts_with("attachment;"));
-    cexchain::protocol::VerifyOptions options;
+    kanhe::protocol::VerifyOptions options;
     options.expected_ledger = served.session.state().ledger_id();
-    options.attachment_contents["photo.jpg"] = cexchain::Bytes(photo.begin(), photo.end());
-    const auto report = cexchain::ledger::verify_bundle(provider(), made.body, options);
+    options.attachment_contents["photo.jpg"] = kanhe::Bytes(photo.begin(), photo.end());
+    const auto report = kanhe::ledger::verify_bundle(provider(), made.body, options);
     REQUIRE(report);
     REQUIRE(report->disclosed_fields.size() == 1);
     CHECK(report->disclosed_fields[0].name == "taken");
     REQUIRE(report->attachments.size() == 1);
-    CHECK(report->attachments[0].status == cexchain::protocol::AttachmentStatus::verified);
+    CHECK(report->attachments[0].status == kanhe::protocol::AttachmentStatus::verified);
     // A forged photo is caught.
     options.attachment_contents["photo.jpg"] =
-        cexchain::as_bytes("a forged photo") | std::ranges::to<cexchain::Bytes>();
-    const auto forged = cexchain::ledger::verify_bundle(provider(), made.body, options);
+        kanhe::as_bytes("a forged photo") | std::ranges::to<kanhe::Bytes>();
+    const auto forged = kanhe::ledger::verify_bundle(provider(), made.body, options);
     REQUIRE(forged);
-    CHECK(forged->attachments[0].status == cexchain::protocol::AttachmentStatus::mismatch);
+    CHECK(forged->attachments[0].status == kanhe::protocol::AttachmentStatus::mismatch);
 
     // A viewer may prove what the ledger holds, and disclose nothing.
     const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
@@ -1801,7 +1798,7 @@ TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[conso
 namespace {
 
 std::string lending_source() {
-    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR).parent_path() / "examples" /
+    std::ifstream in(std::filesystem::path(KANHE_TESTVECTORS_DIR).parent_path() / "examples" /
                          "lending" / "lending.bo",
                      std::ios::binary);
     std::stringstream out;
@@ -1870,7 +1867,7 @@ TEST_CASE("rules are deployed and retired with a passkey tap", "[console][rules]
         "/console/api/prepare", {{"action", "contract.deploy"}, {"source", "parties we\n"}}, owner);
     CHECK(broken.status == 422);
 
-    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    f.w.clock.set(kanhe::ledger::SystemClock{}.now());
     const auto prepared_answer =
         f.w.post_as("/console/api/prepare",
                     {{"action", "contract.deploy"}, {"source", lending_source()}}, owner);
@@ -1909,8 +1906,8 @@ TEST_CASE("rules are deployed and retired with a passkey tap", "[console][rules]
 namespace {
 
 std::string golden_source(const std::string& name) {
-    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR).parent_path() / "tests" /
-                         "bo" / "golden" / "form" / name / "source.bo",
+    std::ifstream in(std::filesystem::path(KANHE_TESTVECTORS_DIR).parent_path() / "tests" / "bo" /
+                         "golden" / "form" / name / "source.bo",
                      std::ios::binary);
     std::stringstream out;
     out << in.rdbuf();
@@ -1946,9 +1943,9 @@ TEST_CASE("a thing with rules: created, acted on, and answered by hand, each wit
     FirstRunWorld f;
     Served served(f);
     const std::string owner = f.made["session"].get<std::string>();
-    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    f.w.clock.set(kanhe::ledger::SystemClock{}.now());
     const std::string contract = deploy(f, owner, golden_source("requests"));
-    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    const std::string ours = kanhe::to_hex(served.session.state().ledger_id().bytes());
     const std::string partner(64, '2');
 
     // The contract's page: what its calls take.
@@ -2016,9 +2013,9 @@ TEST_CASE("a thing with rules: created, acted on, and answered by hand, each wit
     // Its proof: every call, verified as anyone would.
     const auto made = proof(f.w, owner, {{"instance", thing}});
     REQUIRE(made.status == 200);
-    cexchain::protocol::VerifyOptions options;
+    kanhe::protocol::VerifyOptions options;
     options.expected_ledger = served.session.state().ledger_id();
-    const auto report = cexchain::ledger::verify_contract_evidence(provider(), made.body, options);
+    const auto report = kanhe::ledger::verify_contract_evidence(provider(), made.body, options);
     REQUIRE(report);
 
     // A viewer reads it, and acts on nothing.
@@ -2035,9 +2032,9 @@ TEST_CASE("a call that needs another ledger's consent is not prepared", "[consol
     FirstRunWorld f;
     Served served(f);
     const std::string owner = f.made["session"].get<std::string>();
-    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    f.w.clock.set(kanhe::ledger::SystemClock{}.now());
     const std::string contract = deploy(f, owner, lending_source());
-    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    const std::string ours = kanhe::to_hex(served.session.state().ledger_id().bytes());
     const std::string camera = act(f, owner,
                                    {{"action", "contract.create"},
                                     {"contract", contract},
@@ -2060,9 +2057,9 @@ TEST_CASE("a time rule that is due is shown, and called with a tap", "[console][
     FirstRunWorld f;
     Served served(f);
     const std::string owner = f.made["session"].get<std::string>();
-    f.w.clock.set(cexchain::ledger::SystemClock{}.now());
+    f.w.clock.set(kanhe::ledger::SystemClock{}.now());
     const std::string contract = deploy(f, owner, golden_source("time"));
-    const std::string ours = cexchain::to_hex(served.session.state().ledger_id().bytes());
+    const std::string ours = kanhe::to_hex(served.session.state().ledger_id().bytes());
     // Due long ago: three days overdue now, so the rule suspends it.
     const std::string plan =
         act(f, owner,
@@ -2075,19 +2072,19 @@ TEST_CASE("a time rule that is due is shown, and called with a tap", "[console][
     CHECK(view["due"][0]["function"] == "when.suspend");
     // The console's machine, which the node runs as the keeper, may make
     // that call: its delegation covers it.
-    served.session.ledger().read_state([&](const cexchain::protocol::LedgerState& state) {
-        std::optional<cexchain::protocol::Id> machine;
+    served.session.ledger().read_state([&](const kanhe::protocol::LedgerState& state) {
+        std::optional<kanhe::protocol::Id> machine;
         for (const auto& [key, a] : state.actors()) {
             if (a.display_name == "console") {
-                machine = cexchain::protocol::Id(a.id);
+                machine = kanhe::protocol::Id(a.id);
             }
         }
         REQUIRE(machine);
-        cexchain::node::DueOptions options;
-        options.now = cexchain::ledger::SystemClock{}.now();
+        kanhe::node::DueOptions options;
+        options.now = kanhe::ledger::SystemClock{}.now();
         options.keeper = machine;
         options.expiries = false;
-        const auto work = cexchain::node::find_due(provider(), state, options);
+        const auto work = kanhe::node::find_due(provider(), state, options);
         REQUIRE(work);
         REQUIRE(work->rules.size() == 1);
         CHECK(work->rules[0].function == "when.suspend");
@@ -2110,7 +2107,7 @@ http::Response post_async(ConsoleWorld& w, const std::string& path, const std::s
 
 /// Uploads a file to a console: its upload id.
 std::string uploaded(ConsoleWorld& w, const std::string& token, const std::string& name,
-                     const cexchain::Bytes& content) {
+                     const kanhe::Bytes& content) {
     const auto answer =
         upload(w, token, name,
                std::string_view(reinterpret_cast<const char*>(content.data()), content.size()));
@@ -2128,8 +2125,8 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
     Served bob(fb);
     const std::string a = fa.made["session"].get<std::string>();
     const std::string b = fb.made["session"].get<std::string>();
-    const std::string bob_ledger = cexchain::to_hex(bob.session.state().ledger_id().bytes());
-    const std::string alice_ledger = cexchain::to_hex(alice.session.state().ledger_id().bytes());
+    const std::string bob_ledger = kanhe::to_hex(bob.session.state().ledger_id().bytes());
+    const std::string alice_ledger = kanhe::to_hex(alice.session.state().ledger_id().bytes());
 
     // Alice's camera, and a loan to Bob that waits for his consent.
     const std::string contract = deploy(fa, a, lending_source());
@@ -2145,12 +2142,12 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
                               {"note", "For your trip"}};
     const auto proposed = post_async(fa.w, "/console/api/exchange/proposal", a, lend);
     REQUIRE(proposed.status == 200);
-    CHECK(header(proposed, "Content-Disposition").find(".cexchain") != std::string::npos);
-    const auto proposal = cexchain::protocol::decode_exchange_file(proposed.body);
+    CHECK(header(proposed, "Content-Disposition").find(".kanhe") != std::string::npos);
+    const auto proposal = kanhe::protocol::decode_exchange_file(proposed.body);
     REQUIRE(proposal);
-    CHECK(proposal->kind == cexchain::protocol::ExchangeKind::proposal);
+    CHECK(proposal->kind == kanhe::protocol::ExchangeKind::proposal);
     REQUIRE(proposal->needs.size() == 1);
-    CHECK(cexchain::to_hex(proposal->needs[0].bytes()) == bob_ledger);
+    CHECK(kanhe::to_hex(proposal->needs[0].bytes()) == bob_ledger);
     // A call that waits for no one is no proposal.
     const std::string lens = act(fa, a,
                                  {{"action", "contract.create"},
@@ -2162,7 +2159,7 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
               .status == 422);
 
     // Bob reads it: verified, asked of his ledger, the call in the contract's words.
-    const std::string on_bob = uploaded(fb.w, b, "lend.cexchain", proposed.body);
+    const std::string on_bob = uploaded(fb.w, b, "lend.kanhe", proposed.body);
     const auto read =
         answer_of(fb.w.post_as("/console/api/exchange/read", {{"upload", on_bob}}, b));
     CHECK(read["kind"] == "proposal");
@@ -2188,7 +2185,7 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
     REQUIRE(answered.status == 200);
 
     // Alice reads the consent, and records the loan with it.
-    const std::string on_alice = uploaded(fa.w, a, "lend-consent.cexchain", answered.body);
+    const std::string on_alice = uploaded(fa.w, a, "lend-consent.kanhe", answered.body);
     const auto consent =
         answer_of(fa.w.post_as("/console/api/exchange/read", {{"upload", on_alice}}, a));
     CHECK(consent["kind"] == "consent");
@@ -2212,19 +2209,19 @@ TEST_CASE("consents by file between two consoles: proposed, consented, and recor
     CHECK(fa.w.post_as("/console/api/prepare",
                        {{"action", "contract.call"}, {"consents", {on_alice}}}, a)
               .status == 409);
-    const std::string own = uploaded(fa.w, a, "lend.cexchain", proposed.body);
+    const std::string own = uploaded(fa.w, a, "lend.kanhe", proposed.body);
     CHECK(fa.w.post_as("/console/api/prepare", {{"action", "contract.consent"}, {"upload", own}}, a)
               .status == 409);
     // A consent file is not consented to, nor a proposal cited.
     CHECK(fb.w.post_as("/console/api/prepare",
                        {{"action", "contract.consent"},
-                        {"upload", uploaded(fb.w, b, "c.cexchain", answered.body)}},
+                        {"upload", uploaded(fb.w, b, "c.kanhe", answered.body)}},
                        b)
               .status == 422);
     CHECK(
         fa.w.post_as("/console/api/prepare", {{"action", "contract.call"}, {"consents", {own}}}, a)
             .status == 409);
-    const std::string junk = uploaded(fa.w, a, "junk.cexchain", cexchain::Bytes{1, 2, 3});
+    const std::string junk = uploaded(fa.w, a, "junk.kanhe", kanhe::Bytes{1, 2, 3});
     CHECK(fa.w.post_as("/console/api/exchange/read", {{"upload", junk}}, a).status == 422);
 }
 
@@ -2239,8 +2236,8 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     const auto invited = fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a);
     REQUIRE(invited.status == 200);
     const std::string code = answer_of(invited)["code"].get<std::string>();
-    CHECK(code.starts_with("cxp_"));
-    const auto read = cexchain::client::decode_invitation(code);
+    CHECK(code.starts_with("khp_"));
+    const auto read = kanhe::client::decode_invitation(code);
     REQUIRE(read);
     CHECK(read->ledger == alice.session.state().ledger_id());
     CHECK(read->url == std::optional<std::string>("http://localhost:7470"));
@@ -2263,8 +2260,7 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     REQUIRE(listed["peers"].size() == 1);
     CHECK(listed["peers"][0]["name"] == "bob");
     CHECK(listed["peers"][0]["online"] == true);
-    CHECK(listed["peers"][0]["ledger"] ==
-          cexchain::to_hex(bob.session.state().ledger_id().bytes()));
+    CHECK(listed["peers"][0]["ledger"] == kanhe::to_hex(bob.session.state().ledger_id().bytes()));
     CHECK(listed["waiting"].empty());
     // Bob's console is not listening here: the inbox says so, by party.
     const auto inbox = answer_of(fb.w.get("/console/api/inbox?refresh=1", b));
@@ -2273,7 +2269,7 @@ TEST_CASE("two consoles become parties with one code each way", "[console][parti
     CHECK(inbox["problems"][0]["peer"] == "alice");
 
     // Refused: not a code, a name taken, a viewer.
-    CHECK(fb.w.post_as("/console/api/parties", {{"accept", "cxp_nonsense"}, {"name", "x"}}, b)
+    CHECK(fb.w.post_as("/console/api/parties", {{"accept", "khp_nonsense"}, {"name", "x"}}, b)
               .status == 400);
     CHECK(fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b).status ==
           409);
@@ -2304,24 +2300,24 @@ http::Response post_waiting(ConsoleWorld& w, const std::string& path, const std:
 }
 
 /// A record's evidence from a served ledger, as its node exports it.
-cexchain::Bytes evidence_of(FirstRunWorld& f, Served& s, const std::string& record) {
+kanhe::Bytes evidence_of(FirstRunWorld& f, Served& s, const std::string& record) {
     const auto log = f.w.keys.open("log");
     REQUIRE(s.session.ledger().checkpoint(log));
-    const auto bundle = s.session.ledger().export_evidence(
-        log, *cexchain::protocol::to_id(*cexchain::from_hex(record)));
+    const auto bundle =
+        s.session.ledger().export_evidence(log, *kanhe::protocol::to_id(*kanhe::from_hex(record)));
     REQUIRE(bundle);
-    return *cexchain::protocol::encode_bundle(*bundle);
+    return *kanhe::protocol::encode_bundle(*bundle);
 }
 
 /// Writes a file as a node or a poll would, its folder made first.
-void put(const std::filesystem::path& path, const cexchain::Bytes& content) {
+void put(const std::filesystem::path& path, const kanhe::Bytes& content) {
     std::filesystem::create_directories(path.parent_path());
-    cexchain::client::write_file(path, content, true);
+    kanhe::client::write_file(path, content, true);
 }
 
 /// What a step's approval registered: its statement id.
 std::string approved_id(ConsoleWorld& w, const std::string& token, const http::Response& prepared,
-                        const cexchain::test::SoftPasskey& passkey) {
+                        const kanhe::test::SoftPasskey& passkey) {
     REQUIRE(prepared.status == 200);
     const auto approved = approve(w, token, answer_of(prepared), passkey);
     REQUIRE(approved.status == 201);
@@ -2349,7 +2345,7 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
         fa.w.post_as("/console/api/parties", {{"accept", accepted["reply"]}, {"name", "bob"}}, a)
             .status == 200);
     const std::string photo = "the photo itself";
-    const std::string record = cexchain::to_hex(register_photo(fa, a, photo).bytes());
+    const std::string record = kanhe::to_hex(register_photo(fa, a, photo).bytes());
 
     // Bob asks for it with a tap: a request on his ledger, its key kept
     // sealed to his vault key.
@@ -2425,7 +2421,7 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     CHECK(alices["asked_of_us"][0]["granted"] == true);
 
     // Bob's console fetches it (as its poll would), and reads it verified.
-    put(fb.w.state / "access" / (request + ".cbor"), cexchain::client::read_file(outbox));
+    put(fb.w.state / "access" / (request + ".cbor"), kanhe::client::read_file(outbox));
     CHECK(answer_of(fb.w.get("/console/api/access", b))["asked_by_us"][0]["status"] == "delivered");
     const auto opened = answer_of(fb.w.get("/console/api/access/deliveries/" + request, b));
     CHECK(opened["organization"] == "Alice");
@@ -2450,9 +2446,9 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     CHECK(bobs["asked_by_us"][0]["receipt"] == receipt);
     CHECK(answer_of(fb.w.get("/console/api/access/deliveries/" + request, b))["accepted"] == true);
     // The receipt reaches Alice, as her node's POST /v1/access/receipts keeps it.
-    REQUIRE(cexchain::node::store_receipt(alice_dir,
-                                          *cexchain::protocol::to_id(*cexchain::from_hex(granted)),
-                                          evidence_of(fb, bob, receipt)));
+    REQUIRE(kanhe::node::store_receipt(alice_dir,
+                                       *kanhe::protocol::to_id(*kanhe::from_hex(granted)),
+                                       evidence_of(fb, bob, receipt)));
     CHECK(answer_of(fa.w.get("/console/api/access", a))["granted"][0]["status"] == "acknowledged");
 
     // Sending needs the party online: Bob's alice has a URL nobody listens on.
@@ -2486,7 +2482,7 @@ TEST_CASE("a question between two consoles: asked, answered with a claim, read, 
     REQUIRE(
         fa.w.post_as("/console/api/parties", {{"accept", accepted["reply"]}, {"name", "bob"}}, a)
             .status == 200);
-    const std::string record = cexchain::to_hex(register_photo(fa, a, "the photo").bytes());
+    const std::string record = kanhe::to_hex(register_photo(fa, a, "the photo").bytes());
 
     // Bob asks whether the photo was taken before 2027, not for its fields:
     // no key is made, nothing will be sealed to him.
@@ -2557,7 +2553,7 @@ TEST_CASE("a question between two consoles: asked, answered with a claim, read, 
     CHECK(alices["asked_of_us"][0]["granted"] == true);
 
     // Bob's console fetches it, and reads the answer verified: no fields.
-    put(fb.w.state / "access" / (request + ".cbor"), cexchain::client::read_file(outbox));
+    put(fb.w.state / "access" / (request + ".cbor"), kanhe::client::read_file(outbox));
     const auto opened = answer_of(fb.w.get("/console/api/access/deliveries/" + request, b));
     CHECK(opened["kind"] == "claim");
     CHECK(opened["organization"] == "Alice");
@@ -2577,9 +2573,8 @@ TEST_CASE("a question between two consoles: asked, answered with a claim, read, 
     const auto bobs = answer_of(fb.w.get("/console/api/access", b));
     CHECK(bobs["asked_by_us"][0]["status"] == "accepted");
     CHECK(bobs["asked_by_us"][0]["receipt"] == receipt);
-    REQUIRE(cexchain::node::store_receipt(alice_dir,
-                                          *cexchain::protocol::to_id(*cexchain::from_hex(claim)),
-                                          evidence_of(fb, bob, receipt)));
+    REQUIRE(kanhe::node::store_receipt(alice_dir, *kanhe::protocol::to_id(*kanhe::from_hex(claim)),
+                                       evidence_of(fb, bob, receipt)));
     CHECK(answer_of(fa.w.get("/console/api/access", a))["answered"][0]["status"] == "acknowledged");
 
     // A condition that does not hold is answered only on purpose.
@@ -2631,7 +2626,7 @@ TEST_CASE("a question between two consoles: asked, answered with a claim, read, 
     CHECK_FALSE(answered(later)); // it does not hold: a person decides
     // The machine's answer, read by Bob: no passkey, the console's device.
     put(fb.w.state / "access" / (early + ".cbor"),
-        cexchain::client::read_file(alice_dir / "access" / "outbox" / (early + ".cbor")));
+        kanhe::client::read_file(alice_dir / "access" / "outbox" / (early + ".cbor")));
     const auto automatic = answer_of(fb.w.get("/console/api/access/deliveries/" + early, b));
     CHECK(automatic["kind"] == "claim");
     CHECK(automatic["holds"] == true);
@@ -2648,16 +2643,16 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
     REQUIRE(alice.session.ledger().checkpoint(fa.w.keys.open("log")));
     REQUIRE(bob.session.ledger().checkpoint(fb.w.keys.open("log")));
     TempDirectory dir;
-    auto key = cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    auto key = kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::ed25519);
     REQUIRE(key);
-    cexchain::client::PublicWitnessLimits limits;
+    kanhe::client::PublicWitnessLimits limits;
     limits.max_ledgers = 1;
-    cexchain::client::PublicWitness witness(
-        dir.path / "state", std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*key)),
+    kanhe::client::PublicWitness witness(
+        dir.path / "state", std::make_shared<kanhe::crypto::openssl::KeyPair>(std::move(*key)),
         "unit", limits);
-    const cexchain::protocol::Timestamp t = 1'800'000'000'000;
-    auto post = [&](const std::string& path, const cexchain::Bytes& body,
-                    cexchain::protocol::Timestamp now) {
+    const kanhe::protocol::Timestamp t = 1'800'000'000'000;
+    auto post = [&](const std::string& path, const kanhe::Bytes& body,
+                    kanhe::protocol::Timestamp now) {
         http::Request r;
         r.method = "POST";
         r.target = r.path = path;
@@ -2666,12 +2661,11 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
         REQUIRE(answer);
         return *answer;
     };
-    auto registration = [](const cexchain::ledger::Ledger& ledger, cexchain::Bytes request) {
-        return *cexchain::client::encode_witness_registration(
-            {*ledger.entry(0), std::move(request)});
+    auto registration = [](const kanhe::ledger::Ledger& ledger, kanhe::Bytes request) {
+        return *kanhe::client::encode_witness_registration({*ledger.entry(0), std::move(request)});
     };
     const auto bob_request =
-        *cexchain::protocol::encode_cosign_request(*bob.session.ledger().cosign_request(0));
+        *kanhe::protocol::encode_cosign_request(*bob.session.ledger().cosign_request(0));
 
     // Not a registration, or one whose checkpoint the log key did not sign:
     // refused, and nothing followed.
@@ -2693,7 +2687,7 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
         post("/v1/witness/register", registration(bob.session.ledger(), bob_request), t);
     REQUIRE(registered.status == 201);
     CHECK(registered.content_type == "application/cose");
-    CHECK(cexchain::protocol::parse_cosignature(registered.body));
+    CHECK(kanhe::protocol::parse_cosignature(registered.body));
     CHECK(witness.ledgers() == 1);
     // Asked again at once: wait.
     const auto soon = post("/v1/witness/cosign", bob_request, t + 1'000);
@@ -2707,7 +2701,7 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
               .status == 200);
     // As many ledgers as it takes: Alice's is refused.
     const auto alice_request =
-        *cexchain::protocol::encode_cosign_request(*alice.session.ledger().cosign_request(0));
+        *kanhe::protocol::encode_cosign_request(*alice.session.ledger().cosign_request(0));
     CHECK(post("/v1/witness/register", registration(alice.session.ledger(), alice_request), t)
               .status == 503);
 
@@ -2724,7 +2718,7 @@ TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas
 }
 
 TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers", "[relay]") {
-    using cexchain::client::RelayId;
+    using kanhe::client::RelayId;
     FirstRunWorld fa;
     Served alice(fa);
     FirstRunWorld fb;
@@ -2736,31 +2730,29 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     const auto a = alice.session.state().ledger_id();
     const auto b = bob.session.state().ledger_id();
     TempDirectory dir;
-    const cexchain::protocol::Timestamp t = 1'800'000'000'000;
+    const kanhe::protocol::Timestamp t = 1'800'000'000'000;
     // Both registered with the server's public witness, which the relay
     // reads their log keys from.
-    auto witness_key =
-        cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519);
+    auto witness_key = kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::ed25519);
     REQUIRE(witness_key);
-    cexchain::client::PublicWitness witness(
+    kanhe::client::PublicWitness witness(
         dir.path / "state",
-        std::make_shared<cexchain::crypto::openssl::KeyPair>(std::move(*witness_key)), "w", {});
-    for (const cexchain::ledger::Ledger* ledger :
-         {&alice.session.ledger(), &bob.session.ledger()}) {
+        std::make_shared<kanhe::crypto::openssl::KeyPair>(std::move(*witness_key)), "w", {});
+    for (const kanhe::ledger::Ledger* ledger : {&alice.session.ledger(), &bob.session.ledger()}) {
         http::Request r;
         r.method = "POST";
         r.target = r.path = "/v1/witness/register";
-        r.body = *cexchain::client::encode_witness_registration(
+        r.body = *kanhe::client::encode_witness_registration(
             {*ledger->entry(0),
-             *cexchain::protocol::encode_cosign_request(*ledger->cosign_request(0))});
+             *kanhe::protocol::encode_cosign_request(*ledger->cosign_request(0))});
         REQUIRE(witness.handle(r, "192.0.2.1", t)->status == 201);
     }
-    cexchain::client::RelayLimits limits;
+    kanhe::client::RelayLimits limits;
     limits.mailbox_messages = 3;
-    cexchain::client::Relay relay(dir.path / "relay", dir.path / "state", limits);
+    kanhe::client::Relay relay(dir.path / "relay", dir.path / "state", limits);
     std::optional<http::Response> got;
-    auto call = [&](const std::string& method, const std::string& path, cexchain::Bytes body,
-                    std::optional<std::string> authorization, cexchain::protocol::Timestamp now) {
+    auto call = [&](const std::string& method, const std::string& path, kanhe::Bytes body,
+                    std::optional<std::string> authorization, kanhe::protocol::Timestamp now) {
         http::Request r;
         r.method = method;
         r.target = path;
@@ -2782,54 +2774,54 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         CHECK(relay.handle(r, now, [&](http::Response response) { got = std::move(response); }));
         return got;
     };
-    auto auth = [&](const cexchain::crypto::Signer& log, const cexchain::protocol::Id& ledger,
-                    cexchain::protocol::Timestamp now) {
-        return *cexchain::client::relay_authorization(log, ledger, now);
+    auto auth = [&](const kanhe::crypto::Signer& log, const kanhe::protocol::Id& ledger,
+                    kanhe::protocol::Timestamp now) {
+        return *kanhe::client::relay_authorization(log, ledger, now);
     };
     auto messages = [](const http::Response& r) {
-        std::vector<cexchain::client::RelayMessage> out;
-        const auto list = cexchain::cbor::decode(r.body);
+        std::vector<kanhe::client::RelayMessage> out;
+        const auto list = kanhe::cbor::decode(r.body);
         REQUIRE(list);
         for (const auto& item : *list->as_array()) {
-            auto m = cexchain::client::parse_relay_message(*item.as_bytes());
+            auto m = kanhe::client::parse_relay_message(*item.as_bytes());
             REQUIRE(m);
             out.push_back(std::move(*m));
         }
         return out;
     };
-    const std::string mailbox_a = "/v1/relay/messages?to=" + cexchain::to_hex(a.bytes());
-    const std::string mailbox_b = "/v1/relay/messages?to=" + cexchain::to_hex(b.bytes());
+    const std::string mailbox_a = "/v1/relay/messages?to=" + kanhe::to_hex(a.bytes());
+    const std::string mailbox_b = "/v1/relay/messages?to=" + kanhe::to_hex(b.bytes());
 
     // Alice asks Bob's API for his genesis entry, sealed to his relay key.
-    auto bob_relay_key = cexchain::crypto::openssl::HpkeKey::generate();
-    auto answer_key = cexchain::crypto::openssl::HpkeKey::generate();
+    auto bob_relay_key = kanhe::crypto::openssl::HpkeKey::generate();
+    auto answer_key = kanhe::crypto::openssl::HpkeKey::generate();
     REQUIRE(bob_relay_key);
     REQUIRE(answer_key);
     const RelayId id{1, 2, 3};
-    const cexchain::client::RelayRequest request{
+    const kanhe::client::RelayRequest request{
         "GET",
         "/v1/genesis",
         "",
         {},
-        "cxt_peer-token",
-        cexchain::Bytes(answer_key->public_key().begin(), answer_key->public_key().end())};
-    cexchain::client::RelayEnvelope envelope{
+        "kht_peer-token",
+        kanhe::Bytes(answer_key->public_key().begin(), answer_key->public_key().end())};
+    kanhe::client::RelayEnvelope envelope{
         b,
         a,
         id,
-        *cexchain::client::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
+        *kanhe::client::seal_relay_request(bob_relay_key->public_key(), b, a, id, request),
         std::nullopt,
         t + 60'000};
     // Signed by another ledger's key, it is refused.
-    CHECK(call("POST", "/v1/relay/messages",
-               *cexchain::client::sign_relay_message(bob_log, envelope), std::nullopt, t)
+    CHECK(call("POST", "/v1/relay/messages", *kanhe::client::sign_relay_message(bob_log, envelope),
+               std::nullopt, t)
               ->status == 422);
     REQUIRE(call("POST", "/v1/relay/messages",
-                 *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                 *kanhe::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                 ->status == 201);
     // Sent again: kept once.
     CHECK(call("POST", "/v1/relay/messages",
-               *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
+               *kanhe::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
               ->status == 200);
     CHECK(relay.mailbox(b).first == 1);
 
@@ -2841,11 +2833,11 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     REQUIRE(fetched->status == 200);
     const auto inbox = messages(*fetched);
     REQUIRE(inbox.size() == 1);
-    CHECK_FALSE(cexchain::client::open_relay_request(*answer_key, inbox[0].envelope));
-    const auto opened = cexchain::client::open_relay_request(*bob_relay_key, inbox[0].envelope);
+    CHECK_FALSE(kanhe::client::open_relay_request(*answer_key, inbox[0].envelope));
+    const auto opened = kanhe::client::open_relay_request(*bob_relay_key, inbox[0].envelope);
     REQUIRE(opened);
     CHECK(opened->path == "/v1/genesis");
-    CHECK(opened->token == "cxt_peer-token");
+    CHECK(opened->token == "kht_peer-token");
 
     // Alice waits for the answer: a long poll that the answer ends.
     REQUIRE_FALSE(call("GET", mailbox_a + "&wait=20", {}, auth(alice_log, a, t), t));
@@ -2855,18 +2847,18 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         r.method = "GET";
         r.target = mailbox_a + "&wait=20";
         r.path = "/v1/relay/messages";
-        r.query["to"] = cexchain::to_hex(a.bytes());
+        r.query["to"] = kanhe::to_hex(a.bytes());
         r.query["wait"] = "20";
         r.headers.emplace_back("authorization", auth(alice_log, a, t));
         CHECK(relay.handle(r, t, [&](http::Response response) { woken = std::move(response); }));
         CHECK_FALSE(woken);
     }
     const RelayId answer_id{9, 9};
-    const cexchain::client::RelayAnswer reply{200, "application/cbor", {0xa0}};
-    const cexchain::client::RelayEnvelope back{
-        a,  b,         answer_id, *cexchain::client::seal_relay_answer(*opened, b, a, id, reply),
+    const kanhe::client::RelayAnswer reply{200, "application/cbor", {0xa0}};
+    const kanhe::client::RelayEnvelope back{
+        a,  b,         answer_id, *kanhe::client::seal_relay_answer(*opened, b, a, id, reply),
         id, t + 60'000};
-    REQUIRE(call("POST", "/v1/relay/messages", *cexchain::client::sign_relay_message(bob_log, back),
+    REQUIRE(call("POST", "/v1/relay/messages", *kanhe::client::sign_relay_message(bob_log, back),
                  std::nullopt, t + 1'000)
                 ->status == 201);
     REQUIRE(woken);
@@ -2874,18 +2866,17 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     REQUIRE(answers.size() == 1);
     CHECK(answers[0].envelope.answers == id);
     const auto read =
-        cexchain::client::open_relay_answer(*answer_key, b, a, id, answers[0].envelope.sealed);
+        kanhe::client::open_relay_answer(*answer_key, b, a, id, answers[0].envelope.sealed);
     REQUIRE(read);
     CHECK(read->status == 200);
-    CHECK(read->body == cexchain::Bytes{0xa0});
+    CHECK(read->body == kanhe::Bytes{0xa0});
     // Bound to its request: under another id it does not open.
-    CHECK_FALSE(cexchain::client::open_relay_answer(*answer_key, b, a, answer_id,
-                                                    answers[0].envelope.sealed));
+    CHECK_FALSE(
+        kanhe::client::open_relay_answer(*answer_key, b, a, answer_id, answers[0].envelope.sealed));
 
     // Taken: gone from the mailbox.
-    const std::string taken = "/v1/relay/messages/" +
-                              cexchain::to_hex(cexchain::ByteView(answer_id)) +
-                              "?to=" + cexchain::to_hex(a.bytes());
+    const std::string taken = "/v1/relay/messages/" + kanhe::to_hex(kanhe::ByteView(answer_id)) +
+                              "?to=" + kanhe::to_hex(a.bytes());
     CHECK(call("DELETE", taken, {}, auth(bob_log, a, t), t)->status == 401);
     CHECK(call("DELETE", taken, {}, auth(alice_log, a, t), t)->status == 200);
     CHECK(relay.mailbox(a).first == 0);
@@ -2894,7 +2885,7 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
         http::Request r;
         r.method = "GET";
         r.path = "/v1/relay/messages";
-        r.query["to"] = cexchain::to_hex(a.bytes());
+        r.query["to"] = kanhe::to_hex(a.bytes());
         r.query["wait"] = "5";
         r.headers.emplace_back("authorization", auth(alice_log, a, t));
         std::optional<http::Response> late;
@@ -2910,18 +2901,18 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     envelope.id = RelayId{7};
     envelope.until = t - 1;
     CHECK(call("POST", "/v1/relay/messages",
-               *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
+               *kanhe::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
               ->status == 422);
     envelope.until = t + 30'000;
     REQUIRE(call("POST", "/v1/relay/messages",
-                 *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                 *kanhe::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                 ->status == 201);
     CHECK(relay.mailbox(b).first == 2);
     CHECK(messages(*call("GET", mailbox_b, {}, auth(bob_log, b, t + 31'000), t + 31'000)).size() ==
           1);
     REQUIRE(call("DELETE",
-                 "/v1/relay/messages/" + cexchain::to_hex(cexchain::ByteView(RelayId{7})) +
-                     "?to=" + cexchain::to_hex(b.bytes()),
+                 "/v1/relay/messages/" + kanhe::to_hex(kanhe::ByteView(RelayId{7})) +
+                     "?to=" + kanhe::to_hex(b.bytes()),
                  {}, auth(bob_log, b, t + 31'000), t + 31'000)
                 ->status == 404); // gone with its time
     envelope.until = t + 60'000;
@@ -2930,7 +2921,7 @@ TEST_CASE("a relay carries sealed requests and answers between witnessed ledgers
     for (std::uint8_t n = 10; n < 13; ++n) {
         envelope.id = RelayId{n};
         CHECK(call("POST", "/v1/relay/messages",
-                   *cexchain::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
+                   *kanhe::client::sign_relay_message(alice_log, envelope), std::nullopt, t)
                   ->status == (n < 12 ? 201 : 429));
     }
     // Kept 14 days at most.
@@ -2957,27 +2948,26 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
 
     // Alice follows Bob's ledger from its genesis, as her poll does from his
     // API: pinned to his ledger id.
-    cexchain::Bytes genesis;
+    kanhe::Bytes genesis;
     REQUIRE(bob.session.ledger().visit_entry(
-        0, [&](cexchain::ByteView e) { genesis.assign(e.begin(), e.end()); }));
+        0, [&](kanhe::ByteView e) { genesis.assign(e.begin(), e.end()); }));
     const auto bob_id = bob.session.state().ledger_id();
     CHECK_THROWS(
-        cexchain::client::state_from_genesis(genesis, "bob", alice.session.state().ledger_id()));
-    cexchain::client::add_witnessed(fa.w.state / "witness",
-                                    cexchain::client::state_from_genesis(genesis, "bob", bob_id));
+        kanhe::client::state_from_genesis(genesis, "bob", alice.session.state().ledger_id()));
+    kanhe::client::add_witnessed(fa.w.state / "witness",
+                                 kanhe::client::state_from_genesis(genesis, "bob", bob_id));
 
     const auto root = fb.w.keys.open("root");
     const auto log = fb.w.keys.open("log");
-    auto cosign = [&](const cexchain::ledger::Ledger& ledger, std::uint64_t old) {
+    auto cosign = [&](const kanhe::ledger::Ledger& ledger, std::uint64_t old) {
         const auto request = ledger.cosign_request(old);
         REQUIRE(request);
-        return fa.w.web.witness_cosign(*cexchain::protocol::encode_cosign_request(*request));
+        return fa.w.web.witness_cosign(*kanhe::protocol::encode_cosign_request(*request));
     };
     auto device = [](const std::string& name) {
-        return cexchain::protocol::ActorRegisterBody{
-            cexchain::protocol::ActorKind::device, name,
-            cexchain::crypto::openssl::KeyPair::generate(cexchain::crypto::SigAlg::ed25519)
-                ->public_key(),
+        return kanhe::protocol::ActorRegisterBody{
+            kanhe::protocol::ActorKind::device, name,
+            kanhe::crypto::openssl::KeyPair::generate(kanhe::crypto::SigAlg::ed25519)->public_key(),
             std::nullopt, std::nullopt};
     };
     REQUIRE(bob.session.ledger().checkpoint(log));
@@ -3017,13 +3007,13 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
     // The copy goes another way: the same size, another history. Refused,
     // and the Parties screen says so.
     {
-        cexchain::client::Session forked(cexchain::client::Location{fork.path / "ledger"});
+        kanhe::client::Session forked(kanhe::client::Location{fork.path / "ledger"});
         static_cast<void>(forked.submit(root, device("scanner"), std::nullopt));
         REQUIRE(forked.ledger().checkpoint(log));
         REQUIRE(forked.ledger().latest_checkpoint()->checkpoint.tree_size == cosigned);
         const auto refused = cosign(forked.ledger(), cosigned);
         REQUIRE_FALSE(refused);
-        CHECK(refused.error().code == cexchain::Errc::verification_failed);
+        CHECK(refused.error().code == kanhe::Errc::verification_failed);
     }
     view = answer_of(fa.w.get("/console/api/parties", a))["peers"][0];
     CHECK(view["we_witness"]["size"] == cosigned);
@@ -3042,7 +3032,7 @@ TEST_CASE("a console witnesses its parties' ledgers, and refuses a fork", "[cons
 
 TEST_CASE("what someone may do: the kinds chosen bound every document statement",
           "[console][people]") {
-    using cexchain::protocol::StatementType;
+    using kanhe::protocol::StatementType;
     console::Permissions endorse;
     endorse.endorse = true;
     endorse.kinds = std::vector<std::string>{"example.document/1"};
@@ -3078,9 +3068,9 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
         f.w.post_as("/console/api/people", {{"invite", "Bob"}, {"role", "member"}}, owner);
     REQUIRE(invited.status == 200);
     const std::string link = answer_of(invited)["link"].get<std::string>();
-    REQUIRE(link.starts_with("http://localhost:7470/console/#/enroll/cxi_"));
+    REQUIRE(link.starts_with("http://localhost:7470/console/#/enroll/khi_"));
     const auto bob_key = passkey(2);
-    const auto enrolled = f.w.enroll(bob_key, link.substr(link.find("cxi_")), "Bob");
+    const auto enrolled = f.w.enroll(bob_key, link.substr(link.find("khi_")), "Bob");
     REQUIRE(enrolled.status == 200);
     const std::string bob = answer_of(enrolled)["session"].get<std::string>();
     auto person = [&](const std::string& name) {
@@ -3160,7 +3150,7 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
     // Endorsing is not his to do.
     CHECK(f.w.post_as("/console/api/prepare",
                       {{"action", "record.endorse"},
-                       {"record", cexchain::to_hex(photo.bytes())},
+                       {"record", kanhe::to_hex(photo.bytes())},
                        {"role", "checked"}},
                       bob)
               .status == 409);
@@ -3185,7 +3175,7 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
         f.w.post_as("/console/api/people", {{"invite", "Bob"}, {"role", "admin"}}, owner);
     REQUIRE(again.status == 200);
     const std::string again_link = answer_of(again)["link"].get<std::string>();
-    REQUIRE(f.w.enroll(passkey(3), again_link.substr(again_link.find("cxi_")), "Bob").status ==
+    REQUIRE(f.w.enroll(passkey(3), again_link.substr(again_link.find("khi_")), "Bob").status ==
             200);
     CHECK(f.w.get("/console/api/tokens", bob).status == 401);
     CHECK(f.w.get("/console/api/people", bob).status == 401);
@@ -3194,7 +3184,7 @@ TEST_CASE("people: invited, approved with three taps, and acting in person withi
     const auto made =
         f.w.post_as("/console/api/tokens", {{"create", "robot"}, {"scopes", {"read"}}}, owner);
     REQUIRE(made.status == 200);
-    CHECK(answer_of(made)["token"].get<std::string>().starts_with("cxt_"));
+    CHECK(answer_of(made)["token"].get<std::string>().starts_with("kht_"));
     CHECK(f.w.post_as("/console/api/tokens", {{"create", "robot"}, {"scopes", {"read"}}}, owner)
               .status == 409);
     const auto tokens = answer_of(f.w.get("/console/api/tokens", owner))["tokens"];
@@ -3265,12 +3255,12 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
                                       {"kinds", {"notify"}},
                                       {"functions", {"result"}}});
     const auto* delegation =
-        served.session.state().delegation(*cexchain::protocol::to_id(*cexchain::from_hex(granted)));
+        served.session.state().delegation(*kanhe::protocol::to_id(*kanhe::from_hex(granted)));
     REQUIRE(delegation != nullptr);
     CHECK_FALSE(delegation->scope.require_presence);
     CHECK(delegation->scope.request_kinds == std::optional(std::vector<std::string>{"notify"}));
     CHECK(delegation->scope.statement_types ==
-          std::vector{cexchain::protocol::StatementType::contract_call});
+          std::vector{kanhe::protocol::StatementType::contract_call});
 
     // Its key, once: encrypted with the passphrase, the actor's key; its token
     // an executor's; its config the actor's and the delegation's.
@@ -3284,24 +3274,23 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
     REQUIRE(handed.status == 200);
     const auto out = answer_of(handed);
     TempDirectory keep;
-    put(keep.path / "notifier.key", *cexchain::from_base64url(out["key"].get<std::string>()));
+    put(keep.path / "notifier.key", *kanhe::from_base64url(out["key"].get<std::string>()));
     const auto key = [&] {
         try {
-            return cexchain::client::load_key(keep.path / "notifier.key",
-                                              [] { return std::string("a long passphrase"); });
-        } catch (const cexchain::client::ActionError& e) {
+            return kanhe::client::load_key(keep.path / "notifier.key",
+                                           [] { return std::string("a long passphrase"); });
+        } catch (const kanhe::client::ActionError& e) {
             FAIL(e.message);
             throw;
         }
     }();
-    CHECK(key.public_key() == served.session.state()
-                                  .actor(*cexchain::protocol::to_id(*cexchain::from_hex(notifier)))
-                                  ->key);
-    CHECK(out["token"].get<std::string>().starts_with("cxt_"));
-    const auto config = cexchain::node::executor::parse_config(out["config"].get<std::string>());
+    CHECK(key.public_key() ==
+          served.session.state().actor(*kanhe::protocol::to_id(*kanhe::from_hex(notifier)))->key);
+    CHECK(out["token"].get<std::string>().starts_with("kht_"));
+    const auto config = kanhe::node::executor::parse_config(out["config"].get<std::string>());
     REQUIRE(config);
-    CHECK(cexchain::to_hex(config->actor.bytes()) == notifier);
-    CHECK(cexchain::to_hex(config->delegation.bytes()) == granted);
+    CHECK(kanhe::to_hex(config->actor.bytes()) == notifier);
+    CHECK(kanhe::to_hex(config->delegation.bytes()) == granted);
     CHECK(setup(notifier, granted, "a long passphrase").status == 404); // once
     const auto tokens = answer_of(f.w.get("/console/api/tokens", owner))["tokens"];
     CHECK(std::ranges::any_of(tokens, [](const auto& t) {
@@ -3317,7 +3306,7 @@ TEST_CASE("automation: an executor and an AI agent added with two taps, keys han
     const std::string allowed =
         step({{"action", "machine.delegate"}, {"actor", helper}, {"may", {{"register", true}}}});
     const auto agent = answer_of(setup(helper, allowed, "another passphrase"));
-    CHECK(agent["mcp"]["mcpServers"]["cexchain"]["args"][0] == "mcp");
+    CHECK(agent["mcp"]["mcpServers"]["kanhe"]["args"][0] == "mcp");
     CHECK_FALSE(agent.contains("config"));
 
     const auto view = answer_of(f.w.get("/console/api/automation", owner));
@@ -3353,7 +3342,7 @@ TEST_CASE("backups: a restore writes only the files a backup holds, by their nam
          {"vault/vault.pub", "witnesses.json", "console/users.json", "console/slots/recovery.p8",
           "console/slots/passkey-AbC_4-x.p8", "console/keys/witness.sealed"}) {
         INFO(path);
-        CHECK(cexchain::client::backup_path_allowed(path));
+        CHECK(kanhe::client::backup_path_allowed(path));
     }
     // A name with ".." in it, even inside one name (found by fuzzing), a
     // hidden one, another folder, or not a name a console writes.
@@ -3363,7 +3352,7 @@ TEST_CASE("backups: a restore writes only the files a backup holds, by their nam
           "vault\\vault.pub", "console/users.json/", "console/slots/a b.p8", "console/other.json",
           "vault/files/00/1.cbor"}) {
         INFO(path);
-        CHECK_FALSE(cexchain::client::backup_path_allowed(path));
+        CHECK_FALSE(kanhe::client::backup_path_allowed(path));
     }
 }
 
@@ -3389,7 +3378,7 @@ TEST_CASE("backups: sealed for the recovery code, written once a day, restored w
     }
     REQUIRE(files.size() == 1);
     CHECK(files[0].extension() == ".cexbackup");
-    const auto sealed = cexchain::client::read_file(files[0]);
+    const auto sealed = kanhe::client::read_file(files[0]);
     CHECK(console::sealed_backup_info(sealed).ledger == served.session.state().ledger_id());
     // Home shows it; a member may not back up.
     CHECK(answer_of(f.w.get("/console/api/home", owner))["backup"]["file"] ==
@@ -3411,7 +3400,7 @@ TEST_CASE("backups: sealed for the recovery code, written once a day, restored w
     REQUIRE(restored);
     CHECK(restored->is_signed);
     {
-        cexchain::client::Session session(cexchain::client::Location{elsewhere.path / "ledger"});
+        kanhe::client::Session session(kanhe::client::Location{elsewhere.path / "ledger"});
         CHECK(session.ledger().audit());
         CHECK(session.state().ledger_id() == served.session.state().ledger_id());
     }
@@ -3427,7 +3416,7 @@ TEST_CASE("backups: sealed for the recovery code, written once a day, restored w
     // Pruning: the newest 7, then the newest of each of 4 weeks before.
     TempDirectory many;
     const auto id = served.session.state().ledger_id();
-    const std::string prefix = "cexchain-" + cexchain::to_hex(id.bytes()).substr(0, 12) + "-";
+    const std::string prefix = "kanhe-" + kanhe::to_hex(id.bytes()).substr(0, 12) + "-";
     std::vector<std::string> names;
     for (int day = 0; day < 40; ++day) {
         // 2026-09-01 plus `day` days.

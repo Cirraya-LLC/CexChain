@@ -7,15 +7,15 @@
 # derived from its log, for searches and reports. It is never the ledger's
 # truth and holds no private data. Served beside a ledger as an extension of
 # its server (served.hpp).
-add_library(cexchain_search
+add_library(kanhe_search
     src/index.cpp
     src/query.cpp
     src/served.cpp
     src/sqlite.cpp)
-add_library(cexchain::search ALIAS cexchain_search)
-target_include_directories(cexchain_search PUBLIC
+add_library(kanhe::search ALIAS kanhe_search)
+target_include_directories(kanhe_search PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(cexchain_search PUBLIC cexchain::ledger cexchain::node nlohmann_json::nlohmann_json
-    PRIVATE cexchain_sqlite)
-target_compile_features(cexchain_search PUBLIC cxx_std_26)
-cexchain_target_defaults(cexchain_search)
+target_link_libraries(kanhe_search PUBLIC kanhe::ledger kanhe::node nlohmann_json::nlohmann_json
+    PRIVATE kanhe_sqlite)
+target_compile_features(kanhe_search PUBLIC cxx_std_26)
+kanhe_target_defaults(kanhe_search)

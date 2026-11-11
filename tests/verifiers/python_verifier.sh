@@ -3,7 +3,7 @@
 # Copyright 2026 Cirraya
 #
 # The independent Python verifier (verifiers/python), written from the
-# specification only, against `cexchain verify` and `cexchain contract
+# specification only, against `kanhe verify` and `kanhe contract
 # verify`: both read the same evidence, made here with the command line, and
 # must reach the same verdict and report the same facts (the record or the
 # instance, its events or calls with their outcomes, consents, requests and
@@ -15,23 +15,23 @@
 # the specification's edges show where the two agree and where the text
 # leaves the outcome open.
 #
-# Usage: python_verifier.sh CEXCHAIN [PYTHON]
+# Usage: python_verifier.sh KANHE [PYTHON]
 #   PYTHON: a Python 3.11+ with the packages of
-#   verifiers/python/requirements.txt; default $CEXCHAIN_PYTHON, or python3.
+#   verifiers/python/requirements.txt; default $KANHE_PYTHON, or python3.
 #   `openssl` (3.5+) must be on PATH.
 # Without such a Python the test is skipped (exit 77), unless PYTHON or
-# CEXCHAIN_PYTHON names one: then it fails.
+# KANHE_PYTHON names one: then it fails.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-PYTHON="${2:-${CEXCHAIN_PYTHON:-python3}}"
+KANHE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+PYTHON="${2:-${KANHE_PYTHON:-python3}}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERIFIER="$REPO/verifiers/python"
 if ! "$PYTHON" -c 'import sys; from cryptography.hazmat.primitives.asymmetric import mldsa
 sys.exit(sys.version_info < (3, 11))' 2> /dev/null; then
     echo "$PYTHON is not a Python 3.11+ with verifiers/python/requirements.txt installed"
-    [ -z "${2:-${CEXCHAIN_PYTHON:-}}" ] || exit 1
+    [ -z "${2:-${KANHE_PYTHON:-}}" ] || exit 1
     echo "skipped"
     exit 77
 fi
@@ -44,12 +44,12 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="python verifier test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
-export CEXCHAIN_LEDGER="$WORK/a"
+export KANHE_PASSPHRASE="python verifier test"
+unset KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
+export KANHE_LEDGER="$WORK/a"
 
-run() { "$CEXCHAIN" "$@"; }
-pyverify() { PYTHONPATH="$VERIFIER" "$PYTHON" -m cexchain_verify "$@"; }
+run() { "$KANHE" "$@"; }
+pyverify() { PYTHONPATH="$VERIFIER" "$PYTHON" -m kanhe_verify "$@"; }
 mutate() { "$PYTHON" "$VERIFIER/tests/mutate.py" "$@"; }
 json() { "$PYTHON" -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 fail() { echo "FAIL: $*"; exit 1; }
@@ -153,7 +153,7 @@ run export "$R2" --log-key log.key --out a-r2-witnessed.cbor > /dev/null
 compare "two cosignatures, one witness trusted" a-r2-witnessed.cbor verified --witness wit1.pub
 run ledger rotate-log-key --as root.key --new-key log2.pub > /dev/null
 run ledger rotate-root-key --as root.key --new-key root2.pub > /dev/null
-REQ="$(issue --as reviewer2.key --type cexchain.access-request/1 --field note="ask for the logs" --meta purpose=audit)"
+REQ="$(issue --as reviewer2.key --type kanhe.access-request/1 --field note="ask for the logs" --meta purpose=audit)"
 run record transition "$REQ" --as dev2.key --to withdrawn > /dev/null
 run record endorse "$R2" --as root2.key --role approver > /dev/null
 run checkpoint create --log-key log2.key > /dev/null
@@ -174,7 +174,7 @@ compare "an untouched record after the rotations" a-other.cbor verified --ledger
 
 # --- Ledger B: SM3, SM2 keys, an ML-DSA log key, an SM2 witness ------------
 echo "Ledger B: SM3 with SM2 keys"
-export CEXCHAIN_LEDGER="$WORK/b"
+export KANHE_LEDGER="$WORK/b"
 key broot sm2-sm3; key blog sm2-sm3; key blog2 ml-dsa-44; key officer sm2-sm3; key bdev esp256; key bwit sm2-sm3
 LEDGER_B="$(run init --name "Example Registry" --hash sm3 --root-key broot.key --log-key blog.key --json | json 'd["ledger_id"]')"
 OFFICER="$(actor --as broot.key --kind person --name Officer --key officer.pub)"
@@ -242,7 +242,7 @@ stamp() { # CNF HASH: stamp the ledger's latest checkpoint
 }
 authority one
 authority two
-export CEXCHAIN_LEDGER="$WORK/c"
+export KANHE_LEDGER="$WORK/c"
 key croot; key clog
 run init --name "Stamped Org" --root-key croot.key --log-key clog.key > /dev/null
 C1="$(issue --as croot.key --type example.org.deed/1 --field parcel=12)"
@@ -263,7 +263,7 @@ compare "anchors, one authority trusted" c-c1.cbor verified --tsa-root one-root.
 compare "anchors, both authorities trusted" c-c1.cbor verified --tsa-root one-root.pem --tsa-root two-root.pem
 compare "more trusted authorities required than stamped" c-c1.cbor failed --tsa-root two-root.pem --min-timestamps 2
 compare "a record registered after the first stamp" c-c2.cbor verified --tsa-root one-root.pem --tsa-root two-root.pem
-export CEXCHAIN_LEDGER="$WORK/d"
+export KANHE_LEDGER="$WORK/d"
 key droot sm2-sm3; key dlog sm2-sm3
 run init --name "Stamped SM3 Org" --hash sm3 --root-key droot.key --log-key dlog.key > /dev/null
 D1="$(issue --as droot.key --type example.org.deed/1 --field parcel=1)"
@@ -273,12 +273,12 @@ run export "$D1" --log-key dlog.key --out d-d1.cbor > /dev/null
 compare "an SM3 ledger's anchor, an SM3 imprint" d-d1.cbor verified --tsa-root one-root.pem
 # The clock rule: a ledger whose clock runs ten minutes ahead dates entries
 # later than the authority saw them.
-export CEXCHAIN_LEDGER="$WORK/e"
+export KANHE_LEDGER="$WORK/e"
 key eroot; key elog
-CEXCHAIN_CLOCK_OFFSET=10m run init --name "Fast Clock Org" --root-key eroot.key --log-key elog.key > /dev/null
-E1="$(CEXCHAIN_CLOCK_OFFSET=10m issue --as eroot.key --type example.org.deed/1 --field parcel=9)"
-CEXCHAIN_CLOCK_OFFSET=10m run checkpoint create --log-key elog.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=10m run export "$E1" --log-key elog.key --out e-e1.cbor > /dev/null
+KANHE_CLOCK_OFFSET=10m run init --name "Fast Clock Org" --root-key eroot.key --log-key elog.key > /dev/null
+E1="$(KANHE_CLOCK_OFFSET=10m issue --as eroot.key --type example.org.deed/1 --field parcel=9)"
+KANHE_CLOCK_OFFSET=10m run checkpoint create --log-key elog.key > /dev/null
+KANHE_CLOCK_OFFSET=10m run export "$E1" --log-key elog.key --out e-e1.cbor > /dev/null
 read -r IMPRINT HASH <<< "$(mutate e-e1.cbor --imprint)"
 token one.cnf "$IMPRINT" "$HASH" e.tst
 mutate e-e1.cbor e-stamped.cbor add-anchor e.tst
@@ -320,7 +320,7 @@ start_witness() {
     run witness register "http://127.0.0.1:$(cat "$dir/port")/add-checkpoint" --vkey "$(cat "$dir/witness.vkey")" \
         --ledger "$ledger" > /dev/null
 }
-export CEXCHAIN_LEDGER="$WORK/n"
+export KANHE_LEDGER="$WORK/n"
 key nroot; key nlog; key nnote; key nwit esp256
 N_ID="$(run init --name "Network Witnessed Org" --root-key nroot.key --log-key nlog.key --json | json 'd["ledger_id"]')"
 N1="$(issue --as nroot.key --type example.org.deed/1 --field parcel=31)"
@@ -361,7 +361,7 @@ compare "a later checkpoint, the network's anchor proven consistent with it" n-n
     --witness-vkey "$NV_ED" --witness-vkey "$NV_ML" --min-witnesses 2
 run checkpoint network-cosign --note-key nnote.key --witness witness.example/ed25519 > /dev/null
 run export "$N1" --log-key nlog.key --out n-n1-two.cbor > /dev/null
-"$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor
+"$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor
 sys.exit(len([a for a in cbor.decode(open('n-n1-two.cbor', 'rb').read())[8] if 4 in a]) != 2)" \
     || fail "n-n1-two.cbor holds network cosignatures in two anchors"
 compare "network cosignatures of two sizes, in two anchors" n-n1-two.cbor verified \
@@ -393,7 +393,7 @@ N_LOG_VKEY="$(run witness network-entry --note-key nnote.key --contact x --json 
 for bad in "$N_LOG_VKEY" "${NV_ED/+/ +}" "${NV_ED^^}" "${NV_ML%=}" "not a key" ""; do
     pe=0; pyverify n-n1.cbor --witness-vkey "$bad" > /dev/null 2>&1 || pe=$?
     be=0; run verify n-n1.cbor --witness-vkey "$bad" > /dev/null 2>&1 || be=$?
-    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "--witness-vkey '$bad' is a usage error: python $pe, cexchain verify $be"
+    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "--witness-vkey '$bad' is a usage error: python $pe, kanhe verify $be"
 done
 echo "  agree: verifier keys that are no network witness's are usage errors"
 pyverify n-n1-two.cbor --witness-vkey "$NV_ED" | grep -q "witness.example/ed25519 saw size" || fail "the text report"
@@ -418,11 +418,11 @@ if [ -n "$MODULE" ] && command -v softhsm2-util > /dev/null; then
     softhsm_on
     mkdir tokens
     printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$WORK/tokens" > softhsm2.conf
-    export SOFTHSM2_CONF="$WORK/softhsm2.conf" CEXCHAIN_PKCS11_PIN=1234
-    softhsm2-util --init-token --free --label CexChain --pin 1234 --so-pin 5678 > /dev/null
-    URI="pkcs11:token=CexChain;object=ukey?module-path=$MODULE"
+    export SOFTHSM2_CONF="$WORK/softhsm2.conf" KANHE_PKCS11_PIN=1234
+    softhsm2-util --init-token --free --label Kanhe --pin 1234 --so-pin 5678 > /dev/null
+    URI="pkcs11:token=Kanhe;object=ukey?module-path=$MODULE"
     run key generate --pkcs11 "$URI" --out ukey.pub > /dev/null
-    export CEXCHAIN_LEDGER="$WORK/f"
+    export KANHE_LEDGER="$WORK/f"
     key froot; key flog; key fperson; key fperson2
     run init --name "Present Org" --root-key froot.key --log-key flog.key > /dev/null
     PERSON="$(actor --as froot.key --kind person --name Signer --key fperson.pub)"
@@ -462,14 +462,14 @@ SIZE="$(wc -c < a-r1-plain.cbor)"
 for i in $(seq 0 11); do
     damage "a-r1-plain: flipped byte $((SIZE * i / 12 + 7))" a-r1-plain.cbor failed flip "$((SIZE * i / 12 + 7))"
 done
-ENTRIES="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('a-r1.cbor','rb').read())[2]))")"
+ENTRIES="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor; print(len(cbor.decode(open('a-r1.cbor','rb').read())[2]))")"
 for i in $(seq 0 $((ENTRIES - 2))); do
     damage "a-r1: entry $i left out" a-r1.cbor failed drop-entry "$i"
 done
 damage "a-r1: the state commitment left out, its proofs kept" a-r1.cbor failed drop-last-entry
 mutate a-r1.cbor no-commitment.cbor drop-last-entry
 damage "a-r1: the state commitment and the proofs left out" no-commitment.cbor verified drop-proofs
-PROOFS="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('a-r1.cbor','rb').read())[7]))")"
+PROOFS="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor; print(len(cbor.decode(open('a-r1.cbor','rb').read())[7]))")"
 for i in $(seq 0 $((PROOFS - 1))); do
     damage "a-r1: state proof $i left out" a-r1.cbor failed drop-proof "$i"
 done
@@ -533,7 +533,7 @@ cdamage() {
     ccompare "$name" damaged.cbor "$expect" "$@"
 }
 now_ms() { "$PYTHON" -c 'import time; print(int(time.time() * 1000))'; }
-subject_of() { "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor
+subject_of() { "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor
 print(cbor.decode(open(sys.argv[1], 'rb').read())[1].hex())" "$1"; }
 "$PYTHON" - "$REPO/testvectors" << 'PY'
 import json, sys
@@ -555,13 +555,13 @@ P_ID="$(run init --name "Party One" --root-key proot.key --log-key plog.key --le
 Q_ID="$(run init --name "Party Two" --hash sm3 --root-key qroot.key --log-key qlog.key --ledger "$Q" --json | json 'd["ledger_id"]')"
 PPERSON="$(p actor add --as proot.key --kind person --name "Party Clerk" --key pperson.pub --json | json 'd["actor"]["id"]')"
 PDEVICE="$(p actor add --as proot.key --kind device --name "Party Signer" --key pdevice.pub --json | json 'd["actor"]["id"]')"
-p delegation grant --as proot.key --to "$PPERSON" --allow record-register --record-types cexchain.contract-consent/1 > /dev/null
+p delegation grant --as proot.key --to "$PPERSON" --allow record-register --record-types kanhe.contract-consent/1 > /dev/null
 p delegation grant --as proot.key --to "$PDEVICE" --allow record-register > /dev/null
 QOFFICER="$(q actor add --as qroot.key --kind person --name "Credit Officer" --key qofficer.pub --json | json 'd["actor"]["id"]')"
 q delegation grant --as qroot.key --to "$QOFFICER" --allow actor-register,delegation-grant,record-register --may-delegate > /dev/null
 QAGENT="$(q actor add --as qofficer.key --kind agent --name "Credit Agent" --key qagent.pub --responsible "$QOFFICER" \
     --model credit-model-7 --json | json 'd["actor"]["id"]')"
-q delegation grant --as qofficer.key --to "$QAGENT" --allow record-register --record-types cexchain.contract-consent/1 > /dev/null
+q delegation grant --as qofficer.key --to "$QAGENT" --allow record-register --record-types kanhe.contract-consent/1 > /dev/null
 SPLIT="$(g contract deploy split.wasm --function issue=create --function split=call --function transfer=call \
     --compiler "test_contracts.py 1" --name "Receivable" --source "$REPO/tools/testvectors/test_contracts.py" \
     --as groot.key --json | json 'd["contract"]["id"]')"
@@ -577,7 +577,7 @@ R1="$(g contract create "$SPLIT" issue --args "[h'$P_ID', 1000]" --reference INV
     | json 'd["instance"]["id"]')"
 # A time-stamp authority sees the receivable's creation, and nothing after it.
 g checkpoint create --log-key glog.key > /dev/null
-CEXCHAIN_LEDGER="$G" stamp one.cnf sha256
+KANHE_LEDGER="$G" stamp one.cnf sha256
 PARTS="[[h'$Q_ID', 600], [h'$P_ID', 400]]"
 consent p "$R1" split "$PARTS" c-split1.cbor proot.key plog.key --reference "Split approved"
 read -r A B <<< "$(g contract call "$R1" split --args "$PARTS" --consent c-split1.cbor --as groot.key --json \
@@ -629,7 +629,7 @@ g checkpoint create --log-key glog.key > /dev/null
 g checkpoint cosign-request --witness gwit.pub --out greq.cbor --from 0 > /dev/null
 run witness cosign greq.cbor --dir gw --key gwit.key --out gcosig.cbor > /dev/null
 g checkpoint add-cosignature gcosig.cbor --witness gwit.pub > /dev/null
-CEXCHAIN_LEDGER="$G" stamp one.cnf sha256
+KANHE_LEDGER="$G" stamp one.cnf sha256
 g contract evidence "$A1" --log-key glog.key --out g-A1-witnessed.cbor > /dev/null
 ccompare "home and party witnesses, both trusted" g-A1-witnessed.cbor verified --witness gwit.pub --witness pwit.pub \
     --min-witnesses 1
@@ -672,7 +672,7 @@ cdamage "the home's network cosignature damaged, not trusted" g-A1-net.cbor veri
 cdamage "the party's network cosignature damaged: no longer the consent the call pins" g-A1-net.cbor failed \
     "consents:break-network-cosignature" 0
 mutate g-A1-net.cbor g-net-consent.cbor consent "$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER')
-from cexchain_verify import cbor
+from kanhe_verify import cbor
 consents = cbor.decode(open('g-A1-net.cbor', 'rb').read())[2]
 print(next(i for i, c in enumerate(consents) if any(4 in a for a in cbor.decode(c).get(8, []))))")"
 compare "the party's consent with its network cosignature, alone" g-net-consent.cbor verified --witness-vkey "$PV" \
@@ -684,7 +684,7 @@ damage "the party's consent alone, its network cosignature damaged, not trusted"
 for bad in "$N_LOG_VKEY" "not a key"; do
     pe=0; pyverify contract g-A1-net.cbor --witness-vkey "$bad" > /dev/null 2>&1 || pe=$?
     be=0; run contract verify g-A1-net.cbor --witness-vkey "$bad" > /dev/null 2>&1 || be=$?
-    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "contract: --witness-vkey '$bad' is a usage error: python $pe, cexchain $be"
+    [ "$pe" = 1 ] && [ "$be" = 1 ] || fail "contract: --witness-vkey '$bad' is a usage error: python $pe, kanhe $be"
 done
 pyverify contract g-A1-net.cbor --witness-vkey "$GV" | grep -q "witness.example/home saw size" || fail "the contract text"
 
@@ -710,23 +710,23 @@ OPEN="<<[1, {1: \"open\", 2: \"opened\", 3: {\"customer\": h'$P_ID'}, 4: [[\"ope
 S1="$(g contract create "$REQ" open --args "$OPEN" --reference "SVC-1" --as gclerk.key --json | json 'd["instance"]["id"]')"
 rid() { g request list --instance "$1" --kind "$2" --open --json | json 'd[0]["id"]'; }
 g request answer "$(rid "$S1" notify)" --done --args '{"ref": "N-1"}' --as gagent.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=5m g request answer "$(rid "$S1" http.post)" --done --args '{"ref": "P-1"}' --as gclerk.key \
+KANHE_CLOCK_OFFSET=5m g request answer "$(rid "$S1" http.post)" --done --args '{"ref": "P-1"}' --as gclerk.key \
     > /dev/null
 g contract call "$S1" ask --args '[["notify", {"about": "bill"}, 600000], ["suspend", null, 86400000]]' --as gclerk.key \
     > /dev/null
 g request answer "$(rid "$S1" notify)" --failed --args '[["notify", {"retry": 1}, 60000]]' --as gnotifier.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S1" invoice)" --expired --as gkeeper.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S1" notify)" --expired --as gkeeper.key > /dev/null
+KANHE_CLOCK_OFFSET=3h g request answer "$(rid "$S1" invoice)" --expired --as gkeeper.key > /dev/null
+KANHE_CLOCK_OFFSET=3h g request answer "$(rid "$S1" notify)" --expired --as gkeeper.key > /dev/null
 FINAL="<<[1, {1: \"closed\", 2: \"closed\", 5: true, 7: [{1: \"notify\", 2: null, 3: $((NOW + 36000000)), 4: \"result\"}]}]>>"
-S2="$(CEXCHAIN_CLOCK_OFFSET=3h g contract create "$REQ" open --args "$FINAL" --as gclerk.key --json | json 'd["instance"]["id"]')"
-CEXCHAIN_CLOCK_OFFSET=3h g request answer "$(rid "$S2" notify)" --done --as gnotifier.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=3h g checkpoint create --log-key glog.key > /dev/null
+S2="$(KANHE_CLOCK_OFFSET=3h g contract create "$REQ" open --args "$FINAL" --as gclerk.key --json | json 'd["instance"]["id"]')"
+KANHE_CLOCK_OFFSET=3h g request answer "$(rid "$S2" notify)" --done --as gnotifier.key > /dev/null
+KANHE_CLOCK_OFFSET=3h g checkpoint create --log-key glog.key > /dev/null
 for i in S1 S2; do g contract evidence "${!i}" --log-key glog.key --out "g-$i.cbor" > /dev/null; done
 ccompare "answers done, failed, expired, on time and late; one open request" g-S1.cbor verified --ledger-id "$G_ID"
 ccompare "the same, every request answered required (one is not yet due)" g-S1.cbor verified --require-answered
 ccompare "a final instance that took an answer" g-S2.cbor verified --ledger-id "$G_ID"
-CEXCHAIN_CLOCK_OFFSET=2d g contract call "$S1" ask --args '[["notify", {"about": "late"}, 1000]]' --as gclerk.key > /dev/null
-CEXCHAIN_CLOCK_OFFSET=2d g checkpoint create --log-key glog.key > /dev/null
+KANHE_CLOCK_OFFSET=2d g contract call "$S1" ask --args '[["notify", {"about": "late"}, 1000]]' --as gclerk.key > /dev/null
+KANHE_CLOCK_OFFSET=2d g checkpoint create --log-key glog.key > /dev/null
 g contract evidence "$S1" --log-key glog.key --out g-S1-overdue.cbor > /dev/null
 ccompare "open requests overdue at the checkpoint" g-S1-overdue.cbor verified --ledger-id "$G_ID"
 ccompare "overdue requests, every request answered required" g-S1-overdue.cbor failed --require-answered
@@ -749,7 +749,7 @@ h contract call "$O" act --args '{"note": "the state becomes the hash of the inp
 "$PYTHON" - "$VERIFIER" << 'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
-from cexchain_verify import cbor
+from kanhe_verify import cbor
 T, M = cbor.Tag, cbor.Map
 values = [0, 23, 24, -1, -25, 2**64 - 1, -2**64, "", 'q"uote', "back\\slash", "nl\n\t\x01\x1f\x7f", "é中😀 ",
           b"", b"\x00\xff", [], {}, [1, [2, []]], {1: "a", -1: "b", "k": 2, b"bk": 3}, M([([1], 2)]),
@@ -771,7 +771,7 @@ if [ -n "${URI:-}" ]; then
     softhsm_on
     key ppresent
     PPRESENT="$(p actor add --as proot.key --kind person --name "Present Approver" --key ppresent.pub --json | json 'd["actor"]["id"]')"
-    p delegation grant --as proot.key --to "$PPRESENT" --allow record-register --record-types cexchain.contract-consent/1 \
+    p delegation grant --as proot.key --to "$PPRESENT" --allow record-register --record-types kanhe.contract-consent/1 \
         --require-presence > /dev/null
     run presence enroll --pkcs11 "$URI" --label "Approver UKey" --out pcred.json > /dev/null
     p actor set-presence "$PPRESENT" --as proot.key --credential pcred.json > /dev/null
@@ -786,19 +786,19 @@ if [ -n "${URI:-}" ]; then
     softhsm_off
 fi
 
-# The examples' contracts are written in Bo: they need bo beside cexchain (a
+# The examples' contracts are written in Bo: they need bo beside kanhe (a
 # GCC build).
-if [ -x "$(dirname "$CEXCHAIN")/bo" ]; then
+if [ -x "$(dirname "$KANHE")/bo" ]; then
 echo "Contracts: evidence the examples leave behind (Bo contracts, time rules, keepers, MCP, parts)"
 EXAMPLES=(lending day-student supply-agreement multi-tier-split receivable-financing events)
 [ -n "$MODULE" ] && EXAMPLES+=(shipment) # its driver's hardware key is SoftHSM's
 for ex in "${EXAMPLES[@]}"; do
-    if ! bash "$REPO/examples/$ex/$ex.sh" "$CEXCHAIN" "$WORK/ex-$ex" > "ex-$ex.log" 2>&1; then
+    if ! bash "$REPO/examples/$ex/$ex.sh" "$KANHE" "$WORK/ex-$ex" > "ex-$ex.log" 2>&1; then
         tail -20 "ex-$ex.log"
         fail "the example $ex"
     fi
     for f in "$WORK/ex-$ex"/*.cbor; do
-        if "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor, protocol
+        if "$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor, protocol
 sys.exit(0 if protocol.is_contract_evidence(cbor.decode(open(sys.argv[1], 'rb').read())) else 1)" "$f" 2> /dev/null; then
             ccompare "$ex: $(basename "$f")" "$f" verified
         fi
@@ -809,7 +809,7 @@ run contract verify "$WORK/ex-supply-agreement/closed.cbor" --deploy-out bb.boc 
 cmp -s py.boc bb.boc || fail "a Bo deploy file differs"
 echo "  agree: a Bo contract's deploy file, byte for byte"
 else
-    echo "Contracts: the examples skipped (no bo beside cexchain: it is built with GCC)"
+    echo "Contracts: the examples skipped (no bo beside kanhe: it is built with GCC)"
 fi
 
 echo "Contracts: the vectors' signed contract evidence (protocol v0.6, v0.7, v0.8)"
@@ -839,11 +839,11 @@ done < cv.txt
 
 echo "Contracts: damaged contract evidence"
 mutate g-A1.cbor inner.cbor unwrap
-ENTRIES="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[2]))")"
+ENTRIES="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[2]))")"
 for i in $(seq 1 $((ENTRIES - 2))); do
     cdamage "g-A1: entry $i of its bundle left out" g-A1.cbor failed "inner:drop-entry" "$i"
 done
-PROOFS="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from cexchain_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[7]))")"
+PROOFS="$("$PYTHON" -c "import sys; sys.path.insert(0, '$VERIFIER'); from kanhe_verify import cbor; print(len(cbor.decode(open('inner.cbor','rb').read())[7]))")"
 for i in $(seq 0 $((PROOFS - 1))); do
     cdamage "g-A1: state proof $i left out" g-A1.cbor failed "inner:drop-proof" "$i"
 done
@@ -867,13 +867,13 @@ ccompare "a record's bundle given as contract evidence" a-r1.cbor failed
 compare "contract evidence given as a bundle" g-A1.cbor failed
 
 echo "Probes of the contract rules' edges (home and party ledgers forged by the test)"
-"$PYTHON" "$VERIFIER/tests/contract_probes.py" "$CEXCHAIN"
+"$PYTHON" "$VERIFIER/tests/contract_probes.py" "$KANHE"
 
 # --- Forged ledgers at the specification's edges -----------------------------------
 echo "Probes of the specification's edges (ledgers forged by the test)"
-"$PYTHON" "$VERIFIER/tests/probes.py" "$CEXCHAIN"
+"$PYTHON" "$VERIFIER/tests/probes.py" "$KANHE"
 echo "Probes of open witness networks (anchors forged by the test, verified with the witnesses' verifier keys)"
-"$PYTHON" "$VERIFIER/tests/network_probes.py" "$CEXCHAIN"
+"$PYTHON" "$VERIFIER/tests/network_probes.py" "$KANHE"
 
 # --- The verifier's own tests against testvectors/ ---------------------------------
 echo "Unit tests against testvectors/"
@@ -912,5 +912,5 @@ code=0; pyverify a-r1.cbor --require-answered > /dev/null 2>&1 || code=$?
 [ "$code" = 1 ] || fail "a contract option for a bundle is a usage error"
 pyverify contract --help | grep -q -- "--require-answered" || fail "contract --help"
 
-echo "python verifier against cexchain verify and contract verify: $COMPARED comparisons agree" \
+echo "python verifier against kanhe verify and contract verify: $COMPARED comparisons agree" \
     "($CONTRACTS of contract evidence); passed"

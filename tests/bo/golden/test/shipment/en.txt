@@ -12,7 +12,7 @@ Test "handed over in person at every step, and delivered on time": passed
   Step 6 (line 90) passed: shipper measure with readings = (6.3 °C, 8 °C, 2 °C) -> excursions = 0
     Result: accepted, and the instance is in_transit.
   Step 7 (line 91) passed: carrier deliver in person at 2027-03-10 -> delivered, holder = consignee, late_charge = HKD 0
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
   Step 8 (line 92) passed: consignee claim -> refused "bo:requires claim 1"
     Result: refused, since requirement 1 of claim is not met (bo:requires claim 1).
     The contract text, 4.5.2: Requirement 1: excursions is more than 0.
@@ -35,7 +35,7 @@ Test "two days late: the keeper marks it late, and the delivery charges two days
   Step 6 (line 101) passed: carrier pick_up in person -> late
     Result: accepted with the consent of warehouse and carrier, and the instance is late.
   Step 7 (line 102) passed: carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
 
 Test "five days late: a charge for each of them": passed
   Step 1 (line 105) passed: shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -43,7 +43,7 @@ Test "five days late: a charge for each of them": passed
   Step 2 (line 106) passed: carrier pick_up in person at 2027-03-08
     Result: accepted with the consent of carrier, and the instance is in_transit.
   Step 3 (line 107) passed: carrier deliver in person at 2027-03-15 -> delivered, days_late = 5, late_charge = HKD 10_000
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
 
 Test "out of range on the way: the consignee claims, and the insurer pays": passed
   Step 1 (line 110) passed: shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -53,7 +53,7 @@ Test "out of range on the way: the consignee claims, and the insurer pays": pass
   Step 3 (line 112) passed: shipper measure with readings = (5.2 °C, 11.4 °C, 8.3 °C, 8 °C, 1.9 °C) -> excursions = 3
     Result: accepted, and the instance is in_transit.
   Step 4 (line 113) passed: carrier deliver in person at 2027-03-09 -> delivered
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
   Step 5 (line 114) passed: insurer compensate with payout = HKD 120_000 -> refused "bo:state compensate"
     Result: refused, since compensate is not possible in the instance's current state (bo:state compensate).
     The contract text, 4.6.5: If the instance is claimed, it becomes compensated; otherwise the call is refused.
@@ -73,7 +73,7 @@ Test "a claim comes within 7 days of delivery": passed
   Step 3 (line 122) passed: shipper measure with readings = 1.5 °C
     Result: accepted, and the instance is in_transit.
   Step 4 (line 123) passed: carrier deliver in person at 2027-03-09
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
   Step 5 (line 124) passed: consignee claim at 2027-03-16 -> refused "bo:requires claim 2"
     Result: refused, since requirement 2 of claim is not met (bo:requires claim 2).
     The contract text, 4.5.3: Requirement 2: less than 7 days has passed since the instance last changed state.
@@ -86,7 +86,7 @@ Test "the insurer may decline a claim, which ends the shipment": passed
   Step 3 (line 129) passed: shipper measure with readings = 1.5 °C
     Result: accepted, and the instance is in_transit.
   Step 4 (line 130) passed: carrier deliver in person at 2027-03-09
-    Result: accepted with the consent of carrier and consignee, and the instance is delivered.
+    Result: accepted with the consent of consignee and carrier, and the instance is delivered.
   Step 5 (line 131) passed: consignee claim at 2027-03-15 -> claimed
     Result: accepted with the consent of consignee, and the instance is claimed.
   Step 6 (line 132) passed: insurer decline -> declined

@@ -23,26 +23,26 @@
 #include <thread>
 #include <unistd.h>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/activity.hpp>
-#include <cexchain/console/backups.hpp>
-#include <cexchain/console/deferred.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/console/people.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/console/users.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/record_files.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/search/served.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/activity.hpp>
+#include <kanhe/console/backups.hpp>
+#include <kanhe/console/deferred.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/console/people.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/console/users.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/record_files.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/search/served.hpp>
 
 #include "console_commands.hpp"
 #include "output.hpp"
@@ -53,7 +53,7 @@
 // POSIX: the process's environment, for the browser it opens.
 extern char** environ;
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -199,9 +199,9 @@ int cmd_console_session_revoke(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -512,7 +512,7 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
                 std::chrono::seconds(std::max<std::uint64_t>(1, parse_number(*every, "interval")));
         }
     }
-    base.version = CEXCHAIN_VERSION;
+    base.version = KANHE_VERSION;
     base.console = [web](const node::http::Request& r, auto respond) {
         web->handle(r, std::move(respond));
     };
@@ -622,13 +622,13 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
         const std::string page =
             "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" "
             "content=\"0; url=" +
-            link + "\"><title>CexChain</title>\n";
+            link + "\"><title>Kanhe</title>\n";
         client::write_file(state / "setup.html", as_bytes(page), true);
         opener = state / "setup.html";
     }
     // Running, as `console status` says, once everything above is written.
     client::write_file(state / "pid", as_bytes(std::to_string(::getpid()) + "\n"), true);
-    const bool no_browser = args.has("no-browser") || std::getenv("CEXCHAIN_NO_BROWSER") != nullptr;
+    const bool no_browser = args.has("no-browser") || std::getenv("KANHE_NO_BROWSER") != nullptr;
     if (args.json()) {
         print_json(
             {{"url", url},
@@ -762,7 +762,7 @@ int cmd_console_run(const Args& args) {
     }
     if (const auto pid = running_console(state)) {
         throw CommandError{
-            std::format("the console runs already (process {}): cexchain-console open", *pid)};
+            std::format("the console runs already (process {}): kanhe-console open", *pid)};
     }
     std::uint64_t port = 7470;
     if (const auto asked = args.get("port")) {
@@ -825,7 +825,7 @@ int cmd_console_status(const Args& args) {
         std::println("the console runs (process {}) at {}", *pid, url.value_or("(unknown)"));
         std::println("{} session{}", sessions, sessions == 1 ? "" : "s");
     } else {
-        std::println("the console is not running (cexchain-console run)");
+        std::println("the console is not running (kanhe-console run)");
     }
     std::println("{} user{}{}", people.users.size(), people.users.size() == 1 ? "" : "s",
                  people.has_owner() ? "" : " and no owner yet (console setup-link)");
@@ -859,7 +859,7 @@ int cmd_console_stop(const Args& args) {
 
 namespace {
 
-/// Starts `cexchain-console run` for `dir` in the background, its own session, its
+/// Starts `kanhe-console run` for `dir` in the background, its own session, its
 /// output in the console's log, and waits until it answers (15 s at most).
 void start_console_process(const std::filesystem::path& dir, const std::filesystem::path& state) {
     std::filesystem::create_directories(state);
@@ -880,10 +880,10 @@ void start_console_process(const std::filesystem::path& dir, const std::filesyst
     posix_spawnattr_init(&attributes);
     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
     // The person's browser opens from here, not from the background process.
-    std::vector<std::string> environment_text{"CEXCHAIN_NO_BROWSER=1"};
+    std::vector<std::string> environment_text{"KANHE_NO_BROWSER=1"};
     std::vector<char*> envp;
     for (char** e = environ; *e != nullptr; ++e) {
-        if (!std::string_view(*e).starts_with("CEXCHAIN_NO_BROWSER=")) {
+        if (!std::string_view(*e).starts_with("KANHE_NO_BROWSER=")) {
             envp.push_back(*e);
         }
     }
@@ -994,7 +994,7 @@ std::string unlock_secret(const std::string& file) {
 
 void unlock_console_keys(console::KeyStore& keys, const Args& args) {
     if (!keys.initialized()) {
-        throw CommandError{"the console's keys are not set up (cexchain-console key init)"};
+        throw CommandError{"the console's keys are not set up (kanhe-console key init)"};
     }
     const std::string secret = args.get("unlock-file")
                                    ? unlock_secret(*args.get("unlock-file"))
@@ -1043,7 +1043,7 @@ int cmd_console_key_init(const Args& args) {
     std::println("");
     std::println("It unlocks the console's keys if every passkey and passphrase is lost.");
     if (unlock) {
-        std::println("The unlock file opens them too (cexchain-console run --unlock-file).");
+        std::println("The unlock file opens them too (kanhe-console run --unlock-file).");
     }
     return exit_ok;
 }
@@ -1052,7 +1052,7 @@ int cmd_console_setup(const Args& args) {
     const std::filesystem::path dir = args.console_ledger();
     const std::filesystem::path state = console::state_directory(dir);
     if (console::has_ledger(dir)) {
-        throw CommandError{"this directory holds a ledger already (cexchain-console run opens it)"};
+        throw CommandError{"this directory holds a ledger already (kanhe-console run opens it)"};
     }
     if (const auto pid = running_console(state)) {
         throw CommandError{std::format(
@@ -1093,7 +1093,7 @@ int cmd_console_setup(const Args& args) {
     std::println("");
     std::println("It unlocks the console's keys, and registers a new passkey, if every passkey is "
                  "lost.");
-    std::println("Start the console with: cexchain-console run{}",
+    std::println("Start the console with: kanhe-console run{}",
                  unlock ? " --unlock-file FILE" : "");
     return exit_ok;
 }
@@ -1512,7 +1512,7 @@ int cmd_console_restore(const Args& args) {
     }
     std::println("restored ledger {} with its console to {}: {} entries, audit passed",
                  hex_id(session.ledger().id()), dir.string(), audit->entries);
-    std::println("start it with: cexchain-console run --ledger {} (it starts locked: the recovery "
+    std::println("start it with: kanhe-console run --ledger {} (it starts locked: the recovery "
                  "code or the owner's passkey unlocks it)",
                  dir.string());
     return exit_ok;
@@ -1525,8 +1525,8 @@ namespace {
 // `console stop` stops it until the next login. Locked at start, it signs
 // nothing until a passkey's sign-in (or --unlock-file) unlocks it.
 
-constexpr std::string_view service_label = "com.cirraya.cexchain.console";
-constexpr std::string_view service_unit = "cexchain-console.service";
+constexpr std::string_view service_label = "com.cirraya.kanhe.console";
+constexpr std::string_view service_unit = "kanhe-console.service";
 
 struct ServicePlace {
     std::filesystem::path directory;
@@ -1610,7 +1610,7 @@ std::string service_text(const ServicePlace& place, const std::vector<std::strin
                arguments +
                "  </array>\n"
                "  <key>EnvironmentVariables</key>\n  <dict>\n"
-               "    <key>CEXCHAIN_NO_BROWSER</key>\n    <string>1</string>\n  </dict>\n"
+               "    <key>KANHE_NO_BROWSER</key>\n    <string>1</string>\n  </dict>\n"
                "  <key>RunAtLoad</key>\n  <true/>\n"
                "  <key>KeepAlive</key>\n  <dict>\n"
                "    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n"
@@ -1625,13 +1625,13 @@ std::string service_text(const ServicePlace& place, const std::vector<std::strin
         exec += (exec.empty() ? "" : " ") + unit_word(word);
     }
     return "[Unit]\n"
-           "Description=CexChain console\n"
+           "Description=Kanhe console\n"
            "After=network-online.target\n\n"
            "[Service]\n"
            "ExecStart=" +
            exec +
            "\n"
-           "Environment=CEXCHAIN_NO_BROWSER=1\n"
+           "Environment=KANHE_NO_BROWSER=1\n"
            "Restart=on-failure\n"
            "RestartSec=5\n\n"
            "[Install]\n"
@@ -1696,9 +1696,8 @@ int cmd_console_service_install(const Args& args) {
         return exit_ok;
     }
     std::println("installed {} for {}", place.file.string(), dir.string());
-    std::println("{}", started
-                           ? "it runs now, and at each login (console open opens it)"
-                           : "it runs at the next login (or start it now: cexchain-console run)");
+    std::println("{}", started ? "it runs now, and at each login (console open opens it)"
+                               : "it runs at the next login (or start it now: kanhe-console run)");
     return exit_ok;
 }
 
@@ -2051,4 +2050,4 @@ int cmd_console_kind_remove(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

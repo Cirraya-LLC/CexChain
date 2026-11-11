@@ -8,27 +8,27 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators_all.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/cose.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/cose.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace cbor = cexchain::cbor;
-namespace cose = cexchain::cose;
-namespace crypto = cexchain::crypto;
+namespace cbor = kanhe::cbor;
+namespace cose = kanhe::cose;
+namespace crypto = kanhe::crypto;
 using cbor::Value;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::hex_field;
-using cexchain::test::load_vectors;
 using crypto::SigAlg;
 using crypto::openssl::KeyPair;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::hex_field;
+using kanhe::test::load_vectors;
 
 namespace {
 

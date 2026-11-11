@@ -10,16 +10,16 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/session.hpp>
-#include <cexchain/client/support.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/session.hpp>
+#include <kanhe/client/support.hpp>
 
 #include "args.hpp"
 
 /// What the command line adds to the app library: keys, passphrases, and
 /// presence from options and the terminal, and sessions from --ledger or
 /// --server.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// The chain's command lines are built on the actions of the app library,
 /// which they share with the console: their names are the command lines' too.
@@ -31,11 +31,11 @@ using namespace client;
 [[nodiscard]] std::string passphrase(const Args& args, const std::string& purpose,
                                      bool confirm = false,
                                      std::string_view file_option = "passphrase-file",
-                                     const char* env = "CEXCHAIN_PASSPHRASE");
+                                     const char* env = "KANHE_PASSPHRASE");
 
 /// A key that signs: a private key file, or a key on a token (USB key, smart
 /// card, HSM) named by a pkcs11: URI, whose PIN comes from the URI,
-/// $CEXCHAIN_PKCS11_PIN, or a prompt.
+/// $KANHE_PKCS11_PIN, or a prompt.
 [[nodiscard]] std::unique_ptr<crypto::Signer> load_signer(const std::string& source,
                                                           const Args& args);
 
@@ -60,14 +60,14 @@ using namespace client;
 /// its passphrase if needed).
 [[nodiscard]] crypto::PublicKey public_key_of(const std::filesystem::path& path, const Args& args);
 
-/// The API token from --token-file or $CEXCHAIN_TOKEN, if any.
+/// The API token from --token-file or $KANHE_TOKEN, if any.
 [[nodiscard]] std::optional<std::string> api_token(const Args& args);
 /// A client for the API at `url`, with the API token and, if given, the CA
 /// certificates to trust.
 [[nodiscard]] node::Client client_for(const std::string& url, const Args& args,
                                       const std::optional<std::string>& ca_file);
 
-/// The server a command works through (--server, or $CEXCHAIN_SERVER), if
+/// The server a command works through (--server, or $KANHE_SERVER), if
 /// the command takes --server and one is given.
 [[nodiscard]] std::optional<std::string> server_option(const Args& args);
 
@@ -76,17 +76,17 @@ using namespace client;
 [[nodiscard]] LogKey log_key(const Args& args);
 
 /// A session for a command: the ledger directory (--ledger, or
-/// $CEXCHAIN_LEDGER), or, in client mode, a verified mirror of the ledger a
-/// server serves: with --server URL (or $CEXCHAIN_SERVER), for commands that
+/// $KANHE_LEDGER), or, in client mode, a verified mirror of the ledger a
+/// server serves: with --server URL (or $KANHE_SERVER), for commands that
 /// list --server among their options. The mirror lives in the cache (--cache,
-/// default $XDG_CACHE_HOME/cexchain or ~/.cache/cexchain); the ledger a URL
+/// default $XDG_CACHE_HOME/kanhe or ~/.cache/kanhe); the ledger a URL
 /// serves is pinned on first use (--ledger-id, required for http://).
 /// For a process that holds keys (serve, console run): no core dumps, and on
 /// Linux not dumpable, so that other processes of the user cannot read its
 /// memory either (except under the sanitizers, whose leak checker needs it).
 void keep_keys_out_of_dumps();
 
-/// $CEXCHAIN_CLOCK_OFFSET: a whole number of days, hours, minutes, or
+/// $KANHE_CLOCK_OFFSET: a whole number of days, hours, minutes, or
 /// seconds (30d, 12h, 90m, 45s) by which this process's clock runs ahead,
 /// for demonstrations and tests; the chain's programs apply it before each
 /// command.
@@ -135,4 +135,4 @@ private:
 /// recovery code); throws if there is no terminal.
 [[nodiscard]] std::string prompt_hidden(const std::string& prompt);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

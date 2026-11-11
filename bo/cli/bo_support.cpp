@@ -9,23 +9,23 @@
 #include <format>
 #include <string>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/source.hpp>
-#if defined(CEXCHAIN_HAVE_BO)
-#include <cexchain/bo/build.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/source.hpp>
+#if defined(KANHE_HAVE_BO)
+#include <kanhe/bo/build.hpp>
 #endif
 
 #include "bo_support.hpp"
 #include "commands.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 bool have_bo_compiler() noexcept {
-#if defined(CEXCHAIN_HAVE_BO)
+#if defined(KANHE_HAVE_BO)
     return true;
 #else
     return false;
@@ -35,7 +35,7 @@ bool have_bo_compiler() noexcept {
 SourceCheck check_bo_source(const protocol::ContractDeployBody& deploy,
                             const crypto::Provider& provider, const crypto::HashAlg hash) {
     SourceCheck check;
-#if defined(CEXCHAIN_HAVE_BO)
+#if defined(KANHE_HAVE_BO)
     bo::Rebuild rebuilt = bo::rebuild(deploy, provider, hash);
     check.status = bo::rebuild_status_names[static_cast<std::size_t>(rebuilt.status)];
     check.detail = std::move(rebuilt.detail);
@@ -67,7 +67,7 @@ SourceCheck check_bo_source(const protocol::ContractDeployBody& deploy,
         return malformed(opened.detail);
     }
     check.status = "not-rebuilt";
-    check.detail = "this build of cexchain has no Bo compiler (it needs GCC 16), so the source "
+    check.detail = "this build of kanhe has no Bo compiler (it needs GCC 16), so the source "
                    "was not rebuilt: run contract verify with a build that has it";
     if (opened.problem != bo::OpenProblem::none) {
         check.detail += "; also, " + opened.detail;
@@ -80,7 +80,7 @@ const bo::Pack* reader_language(const std::optional<std::string>& want,
                                 const std::span<const bo::Pack> extra) {
     std::optional<std::string> chosen = want;
     if (!chosen) {
-        if (const char* env = std::getenv("CEXCHAIN_LANGUAGE"); env != nullptr && *env != '\0') {
+        if (const char* env = std::getenv("KANHE_LANGUAGE"); env != nullptr && *env != '\0') {
             chosen = env;
         }
     }
@@ -98,7 +98,7 @@ const bo::Pack* reader_language(const std::optional<std::string>& want,
 }
 
 const bo::Pack* environment_language() noexcept {
-    if (const char* env = std::getenv("CEXCHAIN_LANGUAGE"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_LANGUAGE"); env != nullptr && *env != '\0') {
         if (const bo::Pack* pack = bo::find_language(bo::official_packs(), env)) {
             return pack;
         }
@@ -222,7 +222,7 @@ Json source_check_json(const SourceCheck& check, const protocol::ContractDeployB
         edition = check.bundle->edition;
         size = check.bundle->source.size();
     }
-#if defined(CEXCHAIN_HAVE_BO)
+#if defined(KANHE_HAVE_BO)
     const Json ours = bo::compiler_string();
 #else
     const Json ours = nullptr;
@@ -238,11 +238,11 @@ Json source_check_json(const SourceCheck& check, const protocol::ContractDeployB
             {"packs", packs}};
 }
 
-#if !defined(CEXCHAIN_HAVE_BO)
+#if !defined(KANHE_HAVE_BO)
 BoDeploy bo_deploy_body(const Args&, const std::string&, const crypto::Provider&, crypto::HashAlg) {
-    throw CommandError{"this build of cexchain has no Bo compiler (it needs GCC 16): deploy Bo "
+    throw CommandError{"this build of kanhe has no Bo compiler (it needs GCC 16): deploy Bo "
                        "contracts with a build that has it"};
 }
 #endif
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -19,7 +19,7 @@ Test "goods redeemed in parts": passed
   Step 8 (line 29) passed: bank1 release -> active
     Result: accepted with the consent of bank1, and the instance is active.
   Step 9 (line 30) passed: depositor transfer to trader1 -> active
-    Result: accepted with the consent of trader1 and depositor, and the instance is active.
+    Result: accepted with the consent of depositor and trader1, and the instance is active.
   Step 10 (line 31) passed: trader1 redeem with portion = 15 tonne -> redeemed
     Result: accepted with the consent of trader1, and the instance is redeemed; it is final and takes no more calls.
   Step 11 (line 32) passed: trader1 redeem with portion = 1 tonne -> refused

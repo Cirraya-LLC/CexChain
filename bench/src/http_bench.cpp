@@ -21,17 +21,17 @@
 #include <unistd.h>
 #include <vector>
 
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "bench.hpp"
 #include "fixture.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 namespace {
 
@@ -199,7 +199,7 @@ int http_bench(const Options& options) {
     }
     const std::filesystem::path dir =
         options.text("dir", (std::filesystem::temp_directory_path() /
-                             std::format("cexchain-bench-http-{}", ::getpid()))
+                             std::format("kanhe-bench-http-{}", ::getpid()))
                                 .string());
     Results results;
     raise_descriptor_limit(connections * 2 + 256);
@@ -493,4 +493,4 @@ int http_bench(const Options& options) {
     return errors == 0 ? 0 : 1;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

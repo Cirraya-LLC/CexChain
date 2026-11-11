@@ -4,9 +4,9 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/node/network_witnesses.hpp>
+#include <kanhe/node/network_witnesses.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace network = protocol::network;
 
@@ -93,4 +93,4 @@ ask_network_witness(const crypto::Provider& provider, const protocol::SignedChec
     return fail(Errc::unavailable, "the witness disagreed twice about the size it cosigned");
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

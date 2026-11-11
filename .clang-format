@@ -14,7 +14,7 @@ AlwaysBreakTemplateDeclarations: Yes
 BreakBeforeBraces: Attach
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^<cexchain/'
+  - Regex: '^<kanhe/'
     Priority: 3
   - Regex: '^<(openssl|catch2|nlohmann)/'
     Priority: 2

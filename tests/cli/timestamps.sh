@@ -8,11 +8,11 @@
 # the record existed by, and one that does not relies on nothing. A token got
 # by hand is kept too. A server stamps by itself (serve --tsa), replicas copy
 # the tokens, and backups carry them.
-# Usage: timestamps.sh CEXCHAIN
+# Usage: timestamps.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -22,17 +22,17 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="timestamps test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_PASSPHRASE="timestamps test"
+unset KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
+export KANHE_LEDGER="$WORK/ledger"
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -169,7 +169,7 @@ run audit --json | json 'd["timestamps"]' | contains -x 2
 run token create replica --scope read --out replica.token > /dev/null
 # The program itself, not the run function: a function in the background
 # is a subshell, and killing it would leave the server running.
-"$CEXCHAIN" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
+"$KANHE" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
     --tsa "$TSA" --timestamp-interval 1 > serve.json 2> serve.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
@@ -188,7 +188,7 @@ contains '"event":"timestamp"' serve.log
 run serve --help | contains -- '--timestamp-interval'
 expect_exit 1 serve --timestamp-interval 5 # needs --tsa
 
-CEXCHAIN_TOKEN="$(cat replica.token)" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
+KANHE_TOKEN="$(cat replica.token)" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
     --ledger replica > /dev/null
 PRIMARY_TOKENS="$(run checkpoint timestamps --json | json 'len(d)')"
 REPLICA_TOKENS="$(run checkpoint timestamps --ledger replica --json | json 'len(d)')"

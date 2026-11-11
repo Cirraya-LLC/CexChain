@@ -23,14 +23,14 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/parser.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -1110,4 +1110,4 @@ Formatted format_source(std::string_view source, const PackSet& packs, const Lex
     return formatted(source, packs, lexicon, language);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

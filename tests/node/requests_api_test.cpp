@@ -22,22 +22,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-namespace node = cexchain::node;
-using cexchain::Bytes;
+using namespace kanhe::test;
+namespace node = kanhe::node;
+using kanhe::Bytes;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
@@ -45,7 +45,7 @@ std::filesystem::path fresh_directory() {
     static int counter = 0;
     const auto dir =
         std::filesystem::temp_directory_path() /
-        ("cexchain-requests-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+        ("kanhe-requests-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -273,7 +273,7 @@ json body_json(const node::http::ClientResponse& r) {
 }
 
 std::string hex_id(const protocol::Id& id) {
-    return cexchain::to_hex(id.bytes());
+    return kanhe::to_hex(id.bytes());
 }
 
 std::vector<std::string> ids(const json& answer) {

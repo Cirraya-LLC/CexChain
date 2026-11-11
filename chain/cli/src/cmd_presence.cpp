@@ -9,13 +9,13 @@
 
 #include <print>
 
-#include <cexchain/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/presence.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "webauthn.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 int cmd_presence_enroll(const Args& args) {
     const std::filesystem::path out = args.need("out");
@@ -50,9 +50,8 @@ int cmd_presence_enroll(const Args& args) {
         std::println("hardware key enrolled: {} key on the token",
                      crypto::name(credential.key.algorithm));
         std::println("Give {} to your administrator, who registers it with:", out.string());
-        std::println(
-            "  cexchain actor set-presence <your actor id> --credential {} --as <their key>",
-            out.string());
+        std::println("  kanhe actor set-presence <your actor id> --credential {} --as <their key>",
+                     out.string());
         std::println("then prove presence with: --presence-key \"{}\"", redact_pin(*uri));
         return exit_ok;
     }
@@ -70,9 +69,9 @@ int cmd_presence_enroll(const Args& args) {
         {"challenge", to_base64url(challenge)},
         {"userId", to_base64url(user_id)},
         {"userName", name},
-        {"title", "Create a CexChain passkey for " + name},
+        {"title", "Create a Kanhe passkey for " + name},
         {"summary", "This passkey will prove that you, in person, approved what is signed "
-                    "in your name on a CexChain ledger."}};
+                    "in your name on a Kanhe ledger."}};
     const nlohmann::json response = run_webauthn_ceremony(request, !args.has("no-browser"));
     auto field = [&](const char* key) {
         if (!response.contains(key) || !response[key].is_string()) {
@@ -99,7 +98,7 @@ int cmd_presence_enroll(const Args& args) {
     std::println("passkey enrolled: {} key, credential {}", crypto::name(credential.key.algorithm),
                  to_base64url(credential.credential_id).substr(0, 16));
     std::println("Give {} to your administrator, who registers it with:", out.string());
-    std::println("  cexchain actor set-presence <your actor id> --credential {} --as <their key>",
+    std::println("  kanhe actor set-presence <your actor id> --credential {} --as <their key>",
                  out.string());
     return exit_ok;
 }
@@ -136,4 +135,4 @@ int cmd_actor_set_presence(const Args& args) {
                                         state.display_name, body.credentials.size()));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

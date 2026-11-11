@@ -2,7 +2,7 @@
   第 1 步（第 29 行）通過：we create at 2026-10-12 with goods = "Bearings 6204-2RS", pieces = 20_000, price = CNY 1_250_000, deliver_by = 2026-12-01
     結果：調用獲接納，實例現為已提議。
   第 2 步（第 30 行）通過：we sign -> signed
-    結果：經供應商及銀行同意，調用獲接納，實例現為 signed。
+    結果：經銀行及供應商同意，調用獲接納，實例現為 signed。
   第 3 步（第 31 行）通過：we close at 2026-12-01 -> closed
     結果：經供應商同意，調用獲接納，實例現為 closed；此為最終狀態，實例不再接受調用。
 

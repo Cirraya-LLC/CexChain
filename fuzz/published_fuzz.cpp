@@ -10,9 +10,9 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/node/published.hpp>
+#include <kanhe/node/published.hpp>
 
-namespace node = cexchain::node;
+namespace node = kanhe::node;
 
 namespace {
 

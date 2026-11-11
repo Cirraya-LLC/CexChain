@@ -27,12 +27,12 @@
 #   - anyone verifies the whole history offline: who signed each step (a
 #     device, a person present, the keeper), every consent on its own ledger.
 # Consents travel as files, by any channel; the shipper's server runs only
-# while the executor answers its request. It needs a cexchain
+# while the executor answers its request. It needs a kanhe
 # built with the Bo compiler (GCC 16; the release build and the Docker image
 # have it) and SoftHSM (brew install softhsm, or apt install softhsm2).
 #
-# Usage: shipment.sh [CEXCHAIN] [DIR] [PKCS11_MODULE]
-#   CEXCHAIN       the command-line tool (default: cexchain on the PATH)
+# Usage: shipment.sh [KANHE] [DIR] [PKCS11_MODULE]
+#   KANHE       the command-line tool (default: kanhe on the PATH)
 #   DIR            where to keep the ledgers (default: a temporary directory,
 #                  removed at the end; give one to look around afterwards)
 #   PKCS11_MODULE  SoftHSM's module (default: $PKCS11_MODULE, or found where
@@ -40,9 +40,9 @@
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
+KANHE="${1:-kanhe}"
 # A path relative to where the script starts works too.
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE="${3:-${PKCS11_MODULE:-}}"
 if [ -z "$MODULE" ]; then
@@ -74,17 +74,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
@@ -138,8 +138,8 @@ for org in carrier warehouse consignee insurer; do
 done
 
 step "2. The shipper writes the rules, tests them, and deploys them on its ledger"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside kanhe (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/shipment.bo" .
@@ -165,7 +165,7 @@ step "3. Who signs: a driver in person, a data logger, a keeper"
 mkdir tokens
 printf 'directories.tokendir = %s/tokens\nobjectstore.backend = file\nlog.level = ERROR\n' \
     "$WORK" > softhsm2.conf
-export SOFTHSM2_CONF="$WORK/softhsm2.conf" CEXCHAIN_PKCS11_PIN=123456
+export SOFTHSM2_CONF="$WORK/softhsm2.conf" KANHE_PKCS11_PIN=123456
 softhsm2-util --init-token --free --label Driver --pin 123456 --so-pin 12345678 > /dev/null
 UKEY="pkcs11:token=Driver;object=presence?module-path=$MODULE"
 run key generate --pkcs11 "$UKEY" --alg esp256 --out driver-ukey.pub > /dev/null
@@ -177,7 +177,7 @@ run actor set-presence "$DRIVER" --credential driver.credential --as carrier-roo
     --ledger "$(dir carrier)" > /dev/null
 # He may consent for the carrier, and only in person.
 run delegation grant --to "$DRIVER" --allow record-register \
-    --record-types cexchain.contract-consent/1 --require-presence --as carrier-root.key \
+    --record-types kanhe.contract-consent/1 --require-presence --as carrier-root.key \
     --ledger "$(dir carrier)" > /dev/null
 say "Carrier: Driver Lee, a person, who consents for the carrier and only in person"
 say "         (a hardware key with a PIN; a passkey would do the same in a browser)."
@@ -331,13 +331,13 @@ say "Picked up again in person: the carrier holds the goods; still late."
 
 step "8. Delivery: the consignee scans a QR code, verifies, and receives"
 # A QR code on the cartons opens the packing list's evidence in the browser
-# verifier (cexchain-verify.html), which checks it on the phone itself. The
+# verifier (kanhe-verify.html), which checks it on the phone itself. The
 # shipper publishes the evidence, disclosing the product and the cartons
 # only; the batch stays sealed.
 run export "$PACKING" --log-key shipper-log.key --disclose product,cartons --out packing-list.cbor \
     --ledger "$(dir shipper)" > /dev/null
 BUNDLE_URL="https://shipper.example/evidence/packing-list.cbor"
-VERIFIER_URL="https://verify.example/cexchain-verify.html"
+VERIFIER_URL="https://verify.example/kanhe-verify.html"
 run qr "$PACKING" --bundle-url "$BUNDLE_URL" --verifier-url "$VERIFIER_URL" --out label-qr.svg \
     --ledger "$(dir shipper)" --json > qr.json
 say "QR code on the cartons: label-qr.svg, opening"
@@ -359,7 +359,7 @@ check chain.txt 'rebuilds'
 check chain.txt 'present: hardware key'
 say "The consignee verifies the chain of custody offline: shipper, driver in person,"
 say "warehouse, driver in person; the contract rebuilds from its source. The page"
-say "checks it too, from a link naming the instance (cexchain qr draws records only):"
+say "checks it too, from a link naming the instance (kanhe qr draws records only):"
 say "  $VERIFIER_URL#l=${SHIPPER_ID:0:8}...&r=${SHIPMENT:0:8}...&b=.../shipment.cbor"
 # The consignee consents to receive the goods; the driver hands them over in
 # person. Two days late: the contract counts the whole days late and charges

@@ -3,12 +3,12 @@
 
 #include <algorithm>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/presence.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/presence.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -133,8 +133,7 @@ Result<std::string> check_client_data(ByteView json, std::string_view type, Byte
 
 Status check_rp_id_hash(const crypto::Provider& provider, ByteView authenticator_data,
                         std::string_view rp_id) {
-    CEXCHAIN_TRY(crypto::Digest expected,
-                 provider.digest(crypto::HashAlg::sha256, as_bytes(rp_id)));
+    KANHE_TRY(crypto::Digest expected, provider.digest(crypto::HashAlg::sha256, as_bytes(rp_id)));
     if (!std::ranges::equal(expected.bytes(), authenticator_data.first(rp_id_hash_size))) {
         return fail(Errc::verification_failed, "the WebAuthn response is for another site");
     }
@@ -156,19 +155,19 @@ Result<crypto::PublicKey> public_key_from_cose(const cbor::Value& value) {
         }
         return *v->as_bytes();
     };
-    CEXCHAIN_TRY(std::int64_t kty, need_int(cose_kty));
-    CEXCHAIN_TRY(std::int64_t alg, need_int(cose_alg));
-    CEXCHAIN_TRY(std::int64_t crv, need_int(cose_crv));
+    KANHE_TRY(std::int64_t kty, need_int(cose_kty));
+    KANHE_TRY(std::int64_t alg, need_int(cose_alg));
+    KANHE_TRY(std::int64_t crv, need_int(cose_crv));
     if (kty == kty_ec2 && alg == alg_es256 && crv == crv_p256) {
-        CEXCHAIN_TRY(Bytes x, need_bytes(cose_x, p256_scalar));
-        CEXCHAIN_TRY(Bytes y, need_bytes(cose_y, p256_scalar));
+        KANHE_TRY(Bytes x, need_bytes(cose_x, p256_scalar));
+        KANHE_TRY(Bytes y, need_bytes(cose_y, p256_scalar));
         Bytes point{0x04};
         point.insert(point.end(), x.begin(), x.end());
         point.insert(point.end(), y.begin(), y.end());
         return crypto::PublicKey{crypto::SigAlg::esp256, std::move(point)};
     }
     if (kty == kty_okp && alg == alg_eddsa && crv == crv_ed25519) {
-        CEXCHAIN_TRY(Bytes x, need_bytes(cose_x, 32));
+        KANHE_TRY(Bytes x, need_bytes(cose_x, 32));
         return crypto::PublicKey{crypto::SigAlg::ed25519, std::move(x)};
     }
     return fail(Errc::unsupported, "the passkey uses an algorithm other than ES256 or EdDSA");
@@ -214,9 +213,9 @@ Result<Bytes> presence_challenge(const crypto::Provider& provider, crypto::HashA
     }
     Statement bare = statement;
     bare.presence.reset();
-    CEXCHAIN_TRY(Bytes payload, encode_payload(bare));
-    CEXCHAIN_TRY(crypto::Digest digest,
-                 provider.digest(ledger_hash, {as_bytes(presence_context), kid.bytes(), payload}));
+    KANHE_TRY(Bytes payload, encode_payload(bare));
+    KANHE_TRY(crypto::Digest digest,
+              provider.digest(ledger_hash, {as_bytes(presence_context), kid.bytes(), payload}));
     return Bytes(digest.bytes().begin(), digest.bytes().end());
 }
 
@@ -238,7 +237,7 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
             return fail(Errc::verification_failed,
                         "a hardware key's proof carries no WebAuthn data");
         }
-        CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
+        KANHE_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
         if (auto s = provider.verify(credential->key, challenge, proof.signature); !s) {
             return fail(Errc::verification_failed, "the hardware key's signature does not verify");
         }
@@ -246,7 +245,7 @@ Result<PresenceCheck> verify_presence(const crypto::Provider& provider, crypto::
         // entered (spec section 7).
         return PresenceCheck{true, {}, {}, credential->label, PresenceMethod::hardware_key};
     }
-    CEXCHAIN_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
+    KANHE_TRY(Bytes challenge, presence_challenge(provider, ledger_hash, statement, kid));
     return verify_webauthn(provider, *credential, proof, challenge);
 }
 
@@ -277,22 +276,22 @@ Result<PresenceCheck> verify_webauthn(const crypto::Provider& provider,
     if (data.size() < authenticator_data_header) {
         return fail(Errc::malformed, "the WebAuthn authenticator data is too short");
     }
-    CEXCHAIN_CHECK(check_rp_id_hash(provider, data, credential.rp_id));
+    KANHE_CHECK(check_rp_id_hash(provider, data, credential.rp_id));
     const std::uint8_t flags = data[rp_id_hash_size];
     if ((flags & flag_user_present) == 0) {
         return fail(Errc::verification_failed,
                     "the authenticator did not confirm that a person was present");
     }
-    CEXCHAIN_TRY(std::string origin, check_client_data(proof.client_data_json, "webauthn.get",
-                                                       challenge, credential.rp_id));
-    CEXCHAIN_TRY(crypto::Digest client_hash,
-                 provider.digest(crypto::HashAlg::sha256, proof.client_data_json));
+    KANHE_TRY(std::string origin, check_client_data(proof.client_data_json, "webauthn.get",
+                                                    challenge, credential.rp_id));
+    KANHE_TRY(crypto::Digest client_hash,
+              provider.digest(crypto::HashAlg::sha256, proof.client_data_json));
     Bytes message(data.begin(), data.end());
     message.insert(message.end(), client_hash.bytes().begin(), client_hash.bytes().end());
     Bytes signature = proof.signature;
     if (credential.key.algorithm == crypto::SigAlg::esp256) {
         // Authenticators sign in DER and need not use low-S.
-        CEXCHAIN_TRY(signature, der_ecdsa_to_raw(proof.signature));
+        KANHE_TRY(signature, der_ecdsa_to_raw(proof.signature));
         crypto::canonicalize_signature(crypto::SigAlg::esp256, signature);
     }
     if (auto s = provider.verify(credential.key, message, signature); !s) {
@@ -309,10 +308,10 @@ Result<PresenceCredential> credential_from_registration(const crypto::Provider& 
                                                         ByteView client_data_json,
                                                         ByteView challenge, std::string_view rp_id,
                                                         std::optional<std::string> label) {
-    CEXCHAIN_TRY(std::string origin,
-                 check_client_data(client_data_json, "webauthn.create", challenge, rp_id));
+    KANHE_TRY(std::string origin,
+              check_client_data(client_data_json, "webauthn.create", challenge, rp_id));
     static_cast<void>(origin);
-    CEXCHAIN_TRY(cbor::Value object, cbor::decode(attestation_object));
+    KANHE_TRY(cbor::Value object, cbor::decode(attestation_object));
     const cbor::Value* auth_data_value = object.find(std::string_view("authData"));
     if (auth_data_value == nullptr || auth_data_value->as_bytes() == nullptr) {
         return fail(Errc::malformed, "the attestation object has no authenticator data");
@@ -321,7 +320,7 @@ Result<PresenceCredential> credential_from_registration(const crypto::Provider& 
     if (data.size() < authenticator_data_header + aaguid_size + 2) {
         return fail(Errc::malformed, "the authenticator data is too short");
     }
-    CEXCHAIN_CHECK(check_rp_id_hash(provider, data, rp_id));
+    KANHE_CHECK(check_rp_id_hash(provider, data, rp_id));
     const std::uint8_t flags = data[rp_id_hash_size];
     if ((flags & flag_user_present) == 0) {
         return fail(Errc::verification_failed,
@@ -344,15 +343,15 @@ Result<PresenceCredential> credential_from_registration(const crypto::Provider& 
     credential.credential_id.assign(data.begin() + static_cast<std::ptrdiff_t>(i),
                                     data.begin() + static_cast<std::ptrdiff_t>(i + id_length));
     i += id_length;
-    CEXCHAIN_TRY(cbor::Value cose_key, cbor::decode(data.subspan(i)));
-    CEXCHAIN_TRY(credential.key, public_key_from_cose(cose_key));
+    KANHE_TRY(cbor::Value cose_key, cbor::decode(data.subspan(i)));
+    KANHE_TRY(credential.key, public_key_from_cose(cose_key));
     if (crypto::is_weak_public_key(credential.key.algorithm, credential.key.bytes)) {
         return fail(Errc::rejected, "the passkey's public key is weak");
     }
     credential.label = std::move(label);
     // Round-trips through the statement encoding, which checks every limit.
-    CEXCHAIN_TRY(Bytes encoded, encode_presence_credential(credential));
+    KANHE_TRY(Bytes encoded, encode_presence_credential(credential));
     return decode_presence_credential(encoded);
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

@@ -17,11 +17,11 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/executor.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/executor.hpp>
 
-namespace executor = cexchain::node::executor;
-namespace openssl = cexchain::crypto::openssl;
+namespace executor = kanhe::node::executor;
+namespace openssl = kanhe::crypto::openssl;
 
 namespace {
 
@@ -78,7 +78,7 @@ void cursor(std::string_view text) {
 }
 
 void sealed(std::string_view text) {
-    const cexchain::ByteView file(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+    const kanhe::ByteView file(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
     const auto parsed = executor::parse_sealed_secret(file);
     const auto opened = executor::open_sealed_secret("hook-key", file, secrets_key());
     if (!parsed) {
@@ -86,7 +86,7 @@ void sealed(std::string_view text) {
         return;
     }
     require(parsed->encapsulated_key.size() == openssl::hpke_public_key_size);
-    const cexchain::Bytes printed = executor::encode_sealed_secret(*parsed);
+    const kanhe::Bytes printed = executor::encode_sealed_secret(*parsed);
     const auto again = executor::parse_sealed_secret(printed);
     require(again.has_value() && again->encapsulated_key == parsed->encapsulated_key &&
             again->ciphertext == parsed->ciphertext);

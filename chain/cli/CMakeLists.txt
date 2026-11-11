@@ -2,28 +2,28 @@
 # Copyright 2026 Cirraya
 
 # The shared command line, and the chain's program. Four programs, each with
-# its own command table, stand on it: cexchain (here), bo (bo/cli),
-# cexchain-console (apps/console/cli), and cexchain-index (apps/index/cli).
+# its own command table, stand on it: kanhe (here), bo (bo/cli),
+# kanhe-console (apps/console/cli), and kanhe-index (apps/index/cli).
 # They are written to the build's bin/ directory, side by side, as packages
 # install them.
 
 # What every program's command line shares: arguments, JSON output, the
 # registry (dispatch, help, completion), and the general commands.
-add_library(cexchain_cli_base STATIC
+add_library(kanhe_cli_base STATIC
     src/args.cpp
     src/cmd_general.cpp
     src/json_output.cpp
     src/registry.cpp)
-target_include_directories(cexchain_cli_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(cexchain_cli_base
-    PUBLIC cexchain::core cexchain::crypto_openssl nlohmann_json::nlohmann_json)
-target_compile_definitions(cexchain_cli_base PUBLIC CEXCHAIN_VERSION="${PROJECT_VERSION}")
-target_compile_features(cexchain_cli_base PUBLIC cxx_std_26)
-cexchain_target_defaults(cexchain_cli_base)
+target_include_directories(kanhe_cli_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(kanhe_cli_base
+    PUBLIC kanhe::core kanhe::crypto_openssl nlohmann_json::nlohmann_json)
+target_compile_definitions(kanhe_cli_base PUBLIC KANHE_VERSION="${PROJECT_VERSION}")
+target_compile_features(kanhe_cli_base PUBLIC cxx_std_26)
+kanhe_target_defaults(kanhe_cli_base)
 
 # What the chain's programs share: sessions on a ledger or a server's
 # mirror (the app library), prompts and the passkey page, serving the API.
-add_library(cexchain_cli_chain STATIC
+add_library(kanhe_cli_chain STATIC
     src/clock_offset.cpp
     src/contracts.cpp
     src/output.cpp
@@ -32,24 +32,24 @@ add_library(cexchain_cli_chain STATIC
     src/serve.cpp
     src/support.cpp
     src/webauthn.cpp)
-target_link_libraries(cexchain_cli_chain
-    PUBLIC cexchain_cli_base cexchain::client cexchain::ledger cexchain::node cexchain::verifier)
-cexchain_target_defaults(cexchain_cli_chain)
+target_link_libraries(kanhe_cli_chain
+    PUBLIC kanhe_cli_base kanhe::client kanhe::ledger kanhe::node kanhe::verifier)
+kanhe_target_defaults(kanhe_cli_chain)
 # Keys on PKCS #11 tokens, when the build has them.
-if(TARGET cexchain_crypto_pkcs11)
-    target_link_libraries(cexchain_cli_chain PUBLIC cexchain::crypto_pkcs11)
-    target_compile_definitions(cexchain_cli_chain PUBLIC CEXCHAIN_HAVE_PKCS11=1)
+if(TARGET kanhe_crypto_pkcs11)
+    target_link_libraries(kanhe_cli_chain PUBLIC kanhe::crypto_pkcs11)
+    target_compile_definitions(kanhe_cli_chain PUBLIC KANHE_HAVE_PKCS11=1)
 endif()
 
 # A program: the shared main, and its own table and commands.
-function(cexchain_program name)
+function(kanhe_program name)
     add_executable(${name} ${PROJECT_SOURCE_DIR}/chain/cli/src/main.cpp ${ARGN})
     set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-    cexchain_target_defaults(${name})
+    kanhe_target_defaults(${name})
 endfunction()
 
 # The chain.
-cexchain_program(cexchain
+kanhe_program(kanhe
     src/program_chain.cpp
     src/commands_chain.cpp
     src/cmd_access.cpp
@@ -75,4 +75,4 @@ cexchain_program(cexchain
     src/cmd_trust.cpp
     src/cmd_witness.cpp
     src/mcp.cpp)
-target_link_libraries(cexchain PRIVATE cexchain_cli_chain cexchain_qrcodegen)
+target_link_libraries(kanhe PRIVATE kanhe_cli_chain kanhe_qrcodegen)

@@ -3,12 +3,12 @@
 
 #include <algorithm>
 
-#include <cexchain/client/access.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
+#include <kanhe/client/access.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 std::filesystem::path request_key_path(const std::filesystem::path& dir,
                                        const protocol::Id& request) {
@@ -53,7 +53,7 @@ node::Peer peer_for_bundle(const std::filesystem::path& dir, ByteView bundle) {
         }
     }
     throw ActionError{"the evidence comes from ledger " + hex_id(*ledger) +
-                      ", which is not a peer (cexchain peer add)"};
+                      ", which is not a peer (kanhe peer add)"};
 }
 
 std::string acted_by(const protocol::EvidenceReport& report) {
@@ -289,4 +289,4 @@ bool plain_file_name(std::string_view name) {
            name.find('\\') == std::string_view::npos && name != ".." && name != ".";
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

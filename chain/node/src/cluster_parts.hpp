@@ -28,17 +28,17 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/contracts.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/contracts.hpp>
 
 #include "crc32c.hpp"
 #include "files.hpp"
 
-namespace cexchain::node::cluster_detail {
+namespace kanhe::node::cluster_detail {
 
 using nuraft::buffer;
 using nuraft::cs_new;
@@ -128,7 +128,7 @@ inline void write_quick(const std::filesystem::path& path, ByteView data) {
 }
 
 [[noreturn]] inline void fatal(std::string_view what) {
-    std::fprintf(stderr, "cexchain cluster: fatal: %.*s\n", static_cast<int>(what.size()),
+    std::fprintf(stderr, "kanhe cluster: fatal: %.*s\n", static_cast<int>(what.size()),
                  what.data());
     std::abort();
 }
@@ -137,12 +137,12 @@ inline void write_quick(const std::filesystem::path& path, ByteView data) {
 // The Raft log: an append-only file with a checksum per record, synced on
 // every append; write_at truncates, compaction rewrites it.
 //
-//   header  "CXRAFT1\0" || start index (u64)
+//   header  "KHRAFT1\0" || start index (u64)
 //   record  length (u32) || crc32c(payload) (u32) || payload
 //   payload index (u64) || NuRaft's serialized log entry
 // ---------------------------------------------------------------------------
 
-constexpr std::array<std::uint8_t, 8> log_magic{'C', 'X', 'R', 'A', 'F', 'T', '1', 0};
+constexpr std::array<std::uint8_t, 8> log_magic{'K', 'H', 'R', 'A', 'F', 'T', '1', 0};
 constexpr std::size_t log_header = 16;
 
 class RaftLog final : public nuraft::log_store {
@@ -1177,4 +1177,4 @@ private:
     std::set<std::string> install_pending_;
 };
 
-} // namespace cexchain::node::cluster_detail
+} // namespace kanhe::node::cluster_detail

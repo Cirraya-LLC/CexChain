@@ -13,7 +13,7 @@
 // reads the answer verified, the day never shown, and acknowledges it. And
 // each console witnesses the other's ledger: it follows it from its genesis
 // and cosigns its checkpoints.
-// Usage: node console_access_test.js CEXCHAIN
+// Usage: node console_access_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -23,13 +23,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-access-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-access-"));
 
 function freePort() {
   return new Promise((resolve) => {
@@ -45,15 +45,15 @@ function freePort() {
 async function person(browser, name) {
   const ledger = path.join(work, name.toLowerCase(), "ledger");
   fs.mkdirSync(path.dirname(ledger), { recursive: true });
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1",
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1",
                 HOME: path.dirname(ledger) };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
   const port = await freePort();
-  const process_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const process_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300; i++) {
     try {
-      if (JSON.parse(run("cexchain-console", "status", "--json")).running) break;
+      if (JSON.parse(run("kanhe-console", "status", "--json")).running) break;
     } catch {
       // Not yet.
     }
@@ -149,7 +149,7 @@ async function until(page, locator, tries = 20) {
       sheet: 1, kind: "document", type: "example.org.photo/1", name: "Photo",
       fields: [{ name: "place", required: true }, { name: "taken", type: "date" }],
       files: "required" }));
-    alice.run("cexchain-console", "kind", "add", sheet);
+    alice.run("kanhe-console", "kind", "add", sheet);
     const photo = path.join(work, "photo.jpg");
     fs.writeFileSync(photo, "the photo itself, as bytes");
     await a.getByRole("link", { name: "Things" }).click();
@@ -302,7 +302,7 @@ async function until(page, locator, tries = 20) {
     await browser.close();
     for (const p of people) {
       try {
-        p.run("cexchain-console", "stop");
+        p.run("kanhe-console", "stop");
       } catch {
         // Not running: nothing to stop.
       }

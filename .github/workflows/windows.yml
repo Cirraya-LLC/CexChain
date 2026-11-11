@@ -2,7 +2,7 @@
 # Copyright 2026 Cirraya
 
 # Windows: the core, its OpenSSL backend, the verifier, and their tests
-# (CEXCHAIN_CORE_ONLY), with MSYS2's UCRT64 GCC. Runs by hand.
+# (KANHE_CORE_ONLY), with MSYS2's UCRT64 GCC. Runs by hand.
 name: Windows
 
 on:
@@ -39,6 +39,6 @@ jobs:
       - name: The core and its tests
         run: |
           cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-              -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_CORE_ONLY=ON -DCEXCHAIN_WARNINGS_AS_ERRORS=ON
+              -DCMAKE_CXX_COMPILER=g++ -DKANHE_CORE_ONLY=ON -DKANHE_WARNINGS_AS_ERRORS=ON
           cmake --build build/windows
           ctest --test-dir build/windows --output-on-failure

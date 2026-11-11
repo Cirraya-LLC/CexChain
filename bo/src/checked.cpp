@@ -19,14 +19,14 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/model.hpp>
-#include <cexchain/bo/names.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/model.hpp>
+#include <kanhe/bo/names.hpp>
+#include <kanhe/bo/vocab.hpp>
 
 #include "reflection.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -221,4 +221,4 @@ cbor::Value to_cbor(const model::Model& model) {
     return to_value(model);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

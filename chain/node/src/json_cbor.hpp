@@ -9,13 +9,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/error.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
 /// JSON for executors and connectors: integers only, bounded nesting,
 /// and the CBOR it maps to.
-namespace cexchain::node::detail {
+namespace kanhe::node::detail {
 
 using json = nlohmann::json;
 
@@ -34,4 +34,4 @@ using json = nlohmann::json;
 /// A full id in lowercase or uppercase hex.
 [[nodiscard]] std::optional<protocol::Id> id_from_hex(std::string_view hex);
 
-} // namespace cexchain::node::detail
+} // namespace kanhe::node::detail

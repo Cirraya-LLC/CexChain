@@ -18,19 +18,19 @@
 #     call run again, every consent checked, the contract's code rebuilt from
 #     its source.
 # No server and no platform: the files go between them by any channel. It
-# needs a cexchain built with the Bo compiler (GCC 16; the release build and
+# needs a kanhe built with the Bo compiler (GCC 16; the release build and
 # the Docker image have it).
 #
-# Usage: lending.sh [CEXCHAIN] [DIR]
-#   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
+# Usage: lending.sh [KANHE] [DIR]
+#   KANHE  the command-line tool (default: kanhe on the PATH)
 #   DIR       where to keep the ledgers (default: a temporary directory,
 #             removed at the end; give one to look around afterwards)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
+KANHE="${1:-kanhe}"
 # A path relative to where the script starts works too.
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
@@ -44,17 +44,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
@@ -85,8 +85,8 @@ run peer add bob --ledger-id "$BOB_ID" --ledger "$ALICE" > /dev/null
 run peer add alice --ledger-id "$ALICE_ID" --ledger "$BOB" > /dev/null
 
 step "2. Alice writes the rules, tests them, and deploys them on her ledger"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside kanhe (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/lending.bo" .
@@ -125,21 +125,21 @@ indent < dry.txt
 # and the camera's evidence, so that Bob checks it offline before he agrees
 # (the contract's code rebuilt from its source, every call run again).
 run contract proposal "$CAMERA" lend --args "$LEND" --note "The camera, for your trip" \
-    --as alice-root.key --log-key alice-log.key --out lend.cexchain --ledger "$ALICE" > /dev/null
-say "Alice sends Bob lend.cexchain: the call's terms and the camera's evidence."
-run contract file show lend.cexchain > shown.txt
-check shown.txt 'proposal lend.cexchain, verified'
+    --as alice-root.key --log-key alice-log.key --out lend.kanhe --ledger "$ALICE" > /dev/null
+say "Alice sends Bob lend.kanhe: the call's terms and the camera's evidence."
+run contract file show lend.kanhe > shown.txt
+check shown.txt 'proposal lend.kanhe, verified'
 check shown.txt 'The camera, for your trip'
 say "Bob reads it: the evidence verifies for Alice's ledger, and the call is the one named."
 # His consent is a record on his own ledger naming that one call: the
 # instance, its head, the function, and a digest of the arguments. It counts
 # once, for this call only. He sends back the consent file.
-run contract consent --proposal lend.cexchain --as bob-root.key --log-key bob-log.key \
-    --out lend-consent.cexchain --ledger "$BOB" > /dev/null
-run contract file show lend-consent.cexchain > consent.txt
-check consent.txt 'consent lend-consent.cexchain, verified'
-say "Bob consents on his ledger and sends Alice lend-consent.cexchain."
-run contract call "$CAMERA" lend --consent lend-consent.cexchain --as alice-root.key \
+run contract consent --proposal lend.kanhe --as bob-root.key --log-key bob-log.key \
+    --out lend-consent.kanhe --ledger "$BOB" > /dev/null
+run contract file show lend-consent.kanhe > consent.txt
+check consent.txt 'consent lend-consent.kanhe, verified'
+say "Bob consents on his ledger and sends Alice lend-consent.kanhe."
+run contract call "$CAMERA" lend --consent lend-consent.kanhe --as alice-root.key \
     --ledger "$ALICE" > lend.txt
 check lend.txt 'status: lent'
 indent < lend.txt
@@ -157,10 +157,10 @@ step "6. Bob brings it back"
 # Only the holder starts it: Alice records it with Bob's consent, asked the
 # same way.
 run contract proposal "$CAMERA" bring_back --args "{}" --as alice-root.key \
-    --log-key alice-log.key --out back.cexchain --ledger "$ALICE" > /dev/null
-run contract consent --proposal back.cexchain --as bob-root.key --log-key bob-log.key \
-    --out back-consent.cexchain --ledger "$BOB" > /dev/null
-run contract call "$CAMERA" bring_back --consent back-consent.cexchain --as alice-root.key \
+    --log-key alice-log.key --out back.kanhe --ledger "$ALICE" > /dev/null
+run contract consent --proposal back.kanhe --as bob-root.key --log-key bob-log.key \
+    --out back-consent.kanhe --ledger "$BOB" > /dev/null
+run contract call "$CAMERA" bring_back --consent back-consent.kanhe --as alice-root.key \
     --ledger "$ALICE" > back.txt
 check back.txt 'status: active'
 indent < back.txt

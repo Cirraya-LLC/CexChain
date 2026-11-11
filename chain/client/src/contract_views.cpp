@@ -6,13 +6,13 @@
 #include <format>
 #include <variant>
 
-#include <cexchain/client/contracts.hpp>
-#include <cexchain/client/requests.hpp>
-#include <cexchain/client/views.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
+#include <kanhe/client/contracts.hpp>
+#include <kanhe/client/requests.hpp>
+#include <kanhe/client/views.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -234,4 +234,4 @@ Json instance_json_with(const Session& session, const protocol::InstanceState& i
             {"open_requests", std::move(open)}};
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

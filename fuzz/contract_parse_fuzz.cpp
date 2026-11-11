@@ -14,15 +14,15 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/verifier/report.hpp>
 
-namespace protocol = cexchain::protocol;
-namespace cbor = cexchain::cbor;
+namespace protocol = kanhe::protocol;
+namespace cbor = kanhe::cbor;
 
 namespace {
 
@@ -35,8 +35,8 @@ void require(bool condition) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    static const cexchain::crypto::openssl::Provider provider;
-    const cexchain::ByteView input(data, size);
+    static const kanhe::crypto::openssl::Provider provider;
+    const kanhe::ByteView input(data, size);
     if (const auto evidence = protocol::decode_contract_evidence(input)) {
         const auto again = protocol::encode_contract_evidence(*evidence);
         require(again && std::ranges::equal(*again, input));
@@ -45,9 +45,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         // evidence about an instance. On all cores, with signatures
         // remembered across inputs, exactly as core alone.
         const auto verified = protocol::verify_contract_evidence(provider, input);
-        static cexchain::ledger::SignatureCache remembered;
+        static kanhe::ledger::SignatureCache remembered;
         const auto on_cores =
-            cexchain::ledger::verify_contract_evidence(provider, input, {}, {true, &remembered});
+            kanhe::ledger::verify_contract_evidence(provider, input, {}, {true, &remembered});
         require(verified.has_value() == on_cores.has_value());
         require(verified ? *verified == *on_cores : verified.error() == on_cores.error());
         if (const auto& report = verified) {
@@ -89,18 +89,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                 require(!r.overdue || !r.status);
             }
             // The reports render, with the chain only for a child.
-            const auto json = cexchain::verifier::contract_report_json(*report, false);
+            const auto json = kanhe::verifier::contract_report_json(*report, false);
             require(json["calls"].size() == report->steps.size());
             require(json["instance"].contains("ancestors") == i.parent.has_value());
             require(json["instance"]["requests"].size() == i.requests.size());
-            require(!json.dump(-1, ' ', false, cexchain::verifier::Json::error_handler_t::replace)
+            require(!json.dump(-1, ' ', false, kanhe::verifier::Json::error_handler_t::replace)
                          .empty());
-            const std::string text = cexchain::verifier::contract_report_text(*report, false);
+            const std::string text = kanhe::verifier::contract_report_text(*report, false);
             require(text.contains("Ancestors") || !i.parent);
         }
     }
     // A home ledger id the outputs may not name.
-    static const protocol::Id home = *protocol::to_id(cexchain::Bytes(32, 0x5A));
+    static const protocol::Id home = *protocol::to_id(kanhe::Bytes(32, 0x5A));
     if (const auto output = protocol::decode_contract_output(input, home)) {
         const auto again = protocol::encode_contract_output(*output);
         require(again && std::ranges::equal(*again, input));
@@ -125,9 +125,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (const auto value = cbor::decode(input)) {
         if (const auto consent = protocol::decode_contract_consent(*value)) {
             const auto again = protocol::encode_contract_consent(*consent);
-            const auto encoded =
-                again ? cbor::encode(*again)
-                      : cexchain::Result<cexchain::Bytes>(std::unexpected(again.error()));
+            const auto encoded = again
+                                     ? cbor::encode(*again)
+                                     : kanhe::Result<kanhe::Bytes>(std::unexpected(again.error()));
             require(encoded && std::ranges::equal(*encoded, input));
         }
     }

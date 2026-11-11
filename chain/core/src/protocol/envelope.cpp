@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace cexchain::protocol::detail {
+namespace kanhe::protocol::detail {
 
 Result<Bytes> sign_envelope(const crypto::Signer& signer, const crypto::Provider& provider,
                             crypto::HashAlg hash, ByteView payload, std::string_view content_type) {
@@ -70,4 +70,4 @@ Status verify_envelope(const crypto::Provider& provider, crypto::HashAlg hash,
     return cose::verify(provider, envelope.message, key);
 }
 
-} // namespace cexchain::protocol::detail
+} // namespace kanhe::protocol::detail

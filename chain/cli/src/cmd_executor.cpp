@@ -23,19 +23,19 @@
 #include <set>
 #include <string>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/connector.hpp>
-#include <cexchain/node/connectors.hpp>
-#include <cexchain/node/executor.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/connector.hpp>
+#include <kanhe/node/connectors.hpp>
+#include <kanhe/node/executor.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 #include "requests.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -271,7 +271,7 @@ int cmd_executor_run(const Args& args) {
     options.server = args.need("server");
     options.client.bearer_token = api_token(args);
     if (!options.client.bearer_token) {
-        throw UsageError{"give the executor's API token: --token-file FILE or $CEXCHAIN_TOKEN"};
+        throw UsageError{"give the executor's API token: --token-file FILE or $KANHE_TOKEN"};
     }
     if (const auto ca = args.get("ca-file")) {
         options.client.ca_file = *ca;
@@ -282,7 +282,7 @@ int cmd_executor_run(const Args& args) {
     options.channels = executor::process_channels(self_path());
     options.signer = signer.get();
     options.provider = &shared_provider();
-    options.tool = std::string("cexchain/") + CEXCHAIN_VERSION;
+    options.tool = std::string("kanhe/") + KANHE_VERSION;
     options.once = args.has("once");
     if (const auto wait = args.get("wait")) {
         const auto seconds = parse_number(*wait, "--wait");
@@ -447,8 +447,8 @@ int cmd_executor_connector_add(const Args& args) {
                      args.need("kinds"));
         const auto& added = checked->connectors.back();
         for (const std::string& secret : added.secrets) {
-            std::println("it needs the secret {}: cexchain executor secret set {} --state DIR",
-                         secret, secret);
+            std::println("it needs the secret {}: kanhe executor secret set {} --state DIR", secret,
+                         secret);
         }
     }
     return exit_ok;
@@ -698,7 +698,7 @@ int serve_stdio(std::string_view name, const connector::PerformerFactory& make) 
         std::cout.flush();
         return static_cast<bool>(std::cout);
     };
-    return connector::serve(io, name, CEXCHAIN_VERSION, make);
+    return connector::serve(io, name, KANHE_VERSION, make);
 }
 
 } // namespace
@@ -711,4 +711,4 @@ int cmd_connector_command(const Args&) {
     return serve_stdio("command", connector::make_command);
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

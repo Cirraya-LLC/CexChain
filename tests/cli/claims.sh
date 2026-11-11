@@ -7,20 +7,20 @@
 # them; a condition that does not hold gets no claim unless asked for; the
 # claim's evidence states the condition in words and says when its source
 # was revoked since; claims are listed, shown, and withdrawn.
-# Usage: claims.sh CEXCHAIN
+# Usage: claims.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="claims test"
-export CEXCHAIN_LEDGER="$WORK/ledger"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="claims test"
+export KANHE_LEDGER="$WORK/ledger"
+unset KANHE_SERVER KANHE_TOKEN
 
-run() { "$CEXCHAIN" "$@"; }
+run() { "$KANHE" "$@"; }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
@@ -95,5 +95,5 @@ for command in "claim issue" "claim list" "claim show" "claim revoke"; do
     run "${words[@]}" --help | contains -- '--json'
 done
 run completion bash | contains 'claim'
-run record types --json | contains "cexchain.claim/1"
+run record types --json | contains "kanhe.claim/1"
 echo "claims: passed"

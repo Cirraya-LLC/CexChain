@@ -16,18 +16,18 @@
 #     file at hand;
 #   - the fan checks in at the door; anyone verifies the whole history
 #     offline.
-# It needs a cexchain built with the Bo compiler (GCC 16; the release build
+# It needs a kanhe built with the Bo compiler (GCC 16; the release build
 # and the Docker image have it).
 #
-# Usage: events.sh [CEXCHAIN] [DIR]
-#   CEXCHAIN  the command-line tool (default: cexchain on the PATH)
+# Usage: events.sh [KANHE] [DIR]
+#   KANHE  the command-line tool (default: kanhe on the PATH)
 #   DIR       where to keep the ledgers (default: a temporary directory,
 #             removed at the end; give one to look around afterwards)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="${1:-cexchain}"
-case "$CEXCHAIN" in */*) CEXCHAIN="$(cd "$(dirname "$CEXCHAIN")" && pwd)/$(basename "$CEXCHAIN")" ;; esac
+KANHE="${1:-kanhe}"
+case "$KANHE" in */*) KANHE="$(cd "$(dirname "$KANHE")" && pwd)/$(basename "$KANHE")" ;; esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${2:-}" ]; then
     WORK="$2"; KEEP=1; mkdir -p "$WORK"
@@ -41,17 +41,17 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="demo only: use real passphrases or hardware keys"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_LANGUAGE
+export KANHE_PASSPHRASE="demo only: use real passphrases or hardware keys"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN KANHE_LANGUAGE
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 say() { printf '   %s\n' "$*"; }
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
@@ -81,8 +81,8 @@ run peer add fan --ledger-id "$FAN_ID" --ledger "$ORG" > /dev/null
 run peer add organizer --ledger-id "$ORG_ID" --ledger "$FAN" > /dev/null
 
 step "2. The organizer's own words: a vocabulary pack"
-if [ ! -x "$(dirname "$CEXCHAIN")/bo" ]; then
-    echo "This example needs bo, the Bo compiler, beside cexchain (it is built with GCC 16)." >&2
+if [ ! -x "$(dirname "$KANHE")/bo" ]; then
+    echo "This example needs bo, the Bo compiler, beside kanhe (it is built with GCC 16)." >&2
     exit 1
 fi
 cp "$HERE/events.vocab" "$HERE/tickets.bo" .

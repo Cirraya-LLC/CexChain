@@ -9,11 +9,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/core/bytes.hpp>
 
 // The console's answers, each with its security headers.
-namespace cexchain::console {
+namespace kanhe::console {
 
 /// Every console answer: no framing, no sniffing, no referrer, no caching
 /// (no stale page code), and the CSP.
@@ -77,4 +77,4 @@ inline http::Response download(Bytes content, std::string_view name, std::string
     return r;
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

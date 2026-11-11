@@ -13,10 +13,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/network.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/protocol/network.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-namespace cexchain::test {
+namespace kanhe::test {
 
 class NetworkWitness {
 public:
@@ -80,4 +80,4 @@ private:
     protocol::network::VerifierKey vkey_;
 };
 
-} // namespace cexchain::test
+} // namespace kanhe::test

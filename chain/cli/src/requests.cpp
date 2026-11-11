@@ -7,7 +7,7 @@
 #include <print>
 #include <variant>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -137,4 +137,4 @@ std::optional<protocol::Timestamp> validity_end(const Args& args) {
     return std::nullopt;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

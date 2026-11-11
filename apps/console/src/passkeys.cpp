@@ -19,16 +19,16 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/console/users.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/console/users.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/ledger/storage.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -188,7 +188,7 @@ nlohmann::json Console::registration_options(ByteView challenge, std::string_vie
     }
     const auto handle = services_.entropy->bytes<16>();
     return {{"challenge", to_base64url(challenge)},
-            {"rp", {{"id", rp_id}, {"name", "CexChain"}}},
+            {"rp", {{"id", rp_id}, {"name", "Kanhe"}}},
             {"user", {{"id", to_base64url(handle)}, {"name", name}, {"displayName", name}}},
             {"pubKeyCredParams",
              {{{"type", "public-key"}, {"alg", -7}}, {{"type", "public-key"}, {"alg", -8}}}},
@@ -418,4 +418,4 @@ http::Response Console::sign_in_finish(const http::Request& request) const {
     return json(200, fields);
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

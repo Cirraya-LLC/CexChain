@@ -23,5 +23,5 @@ What it shows:
 
 ```sh
 bo test examples/multi-tier-split/multi-tier-split.bo
-examples/multi-tier-split/multi-tier-split.sh [CEXCHAIN] [DIR]   # CTest: demo_multi_tier_split
+examples/multi-tier-split/multi-tier-split.sh [KANHE] [DIR]   # CTest: demo_multi_tier_split
 ```

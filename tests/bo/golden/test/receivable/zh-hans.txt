@@ -12,7 +12,7 @@
   第 5 步（第 30 行）通过：bank1 release -> active
     结果：经 bank1 同意，调用被接受，实例现为正常。
   第 6 步（第 31 行）通过：supplier transfer to factor1 -> active
-    结果：经供应商和 factor1 同意，调用被接受，实例现为正常。
+    结果：经 factor1 和供应商同意，调用被接受，实例现为正常。
   第 7 步（第 32 行）通过：supplier transfer to factor2 -> consent of factor1
     结果：调用正在等待 factor1 同意。
   第 8 步（第 33 行）通过：issuer pay -> paid

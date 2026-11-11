@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/core/error.hpp>
+#include <kanhe/core/error.hpp>
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 using Clock = std::chrono::steady_clock;
 
@@ -95,4 +95,4 @@ int registrar_bench(const Options& options);
 int bo_bench(const Options& options);
 int search_bench(const Options& options);
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

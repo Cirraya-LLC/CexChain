@@ -11,22 +11,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-namespace cbor = cexchain::cbor;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+namespace cbor = kanhe::cbor;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 

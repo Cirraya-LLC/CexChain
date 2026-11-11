@@ -5,22 +5,22 @@
 #include <optional>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/ledger/backup.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/ledger/backup.hpp>
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace {
 
-constexpr std::string_view magic = "cexchain-backup";
+constexpr std::string_view magic = "kanhe-backup";
 constexpr std::uint64_t version = 2;
 constexpr std::size_t max_item = 16 * 1024 * 1024; // a log record's limit
 constexpr std::size_t restore_batch = 1000;
 /// Entries after the last checkpoint wait in memory for the signature that
 /// vouches for them: at most this much.
 constexpr std::size_t max_tail_bytes = 64 * 1024 * 1024;
-constexpr std::string_view signature_context = "CexChain backup v2 signature";
+constexpr std::string_view signature_context = "Kanhe backup v2 signature";
 
 cbor::MapEntry entry(std::uint64_t key, cbor::Value value) {
     return {cbor::Value::unsigned_integer(key), std::move(value)};
@@ -30,7 +30,7 @@ cbor::MapEntry entry(std::uint64_t key, cbor::Value value) {
 class Chain {
 public:
     explicit Chain(const crypto::Provider& provider) : provider_(&provider) {
-        auto first = provider.digest(crypto::HashAlg::sha256, as_bytes("CexChain backup v1"));
+        auto first = provider.digest(crypto::HashAlg::sha256, as_bytes("Kanhe backup v1"));
         if (first) {
             value_.assign(first->bytes().begin(), first->bytes().end());
         }
@@ -294,7 +294,7 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
     const cbor::Value* name = map != nullptr ? value_at(*map, 1) : nullptr;
     if (map == nullptr || name == nullptr || name->as_text() == nullptr ||
         *name->as_text() != magic) {
-        return fail(Errc::malformed, "this is not a CexChain backup");
+        return fail(Errc::malformed, "this is not a Kanhe backup");
     }
     if (uint_at(*map, 2) != version) {
         return fail(Errc::unsupported,
@@ -539,4 +539,4 @@ Result<BackupSummary> restore_backup(std::istream& in, FileSystem& fs, Clock& cl
     return summary;
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

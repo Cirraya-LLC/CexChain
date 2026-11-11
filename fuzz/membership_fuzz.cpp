@@ -9,23 +9,23 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const auto value = cexchain::cbor::decode({data, size});
+    const auto value = kanhe::cbor::decode({data, size});
     if (!value) {
         return 0;
     }
-    const auto membership = cexchain::protocol::decode_membership(*value);
+    const auto membership = kanhe::protocol::decode_membership(*value);
     if (!membership) {
         return 0;
     }
-    const auto again = cexchain::protocol::encode_membership(*membership);
-    if (!again || cexchain::protocol::decode_membership(*again) != membership) {
+    const auto again = kanhe::protocol::encode_membership(*membership);
+    if (!again || kanhe::protocol::decode_membership(*again) != membership) {
         __builtin_trap();
     }
-    if (cexchain::protocol::member_kind_name(membership->kind).empty()) {
+    if (kanhe::protocol::member_kind_name(membership->kind).empty()) {
         __builtin_trap();
     }
     return 0;

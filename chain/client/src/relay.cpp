@@ -5,11 +5,11 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/client/relay.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/client/relay.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -225,13 +225,13 @@ Result<std::string> relay_authorization(const crypto::Signer& log_key, const pro
     if (!signed_message) {
         return std::unexpected(signed_message.error());
     }
-    return "CexChain-Relay " + to_base64url(*signed_message);
+    return "Kanhe-Relay " + to_base64url(*signed_message);
 }
 
 Result<RelayFetcher> parse_relay_authorization(std::string_view header) {
-    constexpr std::string_view scheme = "CexChain-Relay ";
+    constexpr std::string_view scheme = "Kanhe-Relay ";
     if (!header.starts_with(scheme) || header.size() > 4096) {
-        return fail(Errc::malformed, "send Authorization: CexChain-Relay <signed fetch>");
+        return fail(Errc::malformed, "send Authorization: Kanhe-Relay <signed fetch>");
     }
     auto bytes = from_base64url(header.substr(scheme.size()));
     if (!bytes) {
@@ -261,4 +261,4 @@ Status verify_relay_fetcher(const crypto::Provider& provider, const RelayFetcher
     return cose::verify(provider, fetcher.signed_message, log_key, text_bytes(relay_fetch_context));
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

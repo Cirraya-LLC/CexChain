@@ -17,12 +17,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/vocab.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace detail {
 
@@ -414,4 +414,4 @@ const Pack* find_language(std::span<const Pack> packs, std::string_view want) no
     return found;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

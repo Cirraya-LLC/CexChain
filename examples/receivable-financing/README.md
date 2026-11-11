@@ -25,5 +25,5 @@ What it shows:
 
 ```sh
 bo test examples/receivable-financing/receivable-financing.bo
-examples/receivable-financing/receivable-financing.sh [CEXCHAIN] [DIR]   # CTest: demo_receivable_financing
+examples/receivable-financing/receivable-financing.sh [KANHE] [DIR]   # CTest: demo_receivable_financing
 ```

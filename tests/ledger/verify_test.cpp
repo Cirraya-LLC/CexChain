@@ -21,11 +21,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/ledger/verify.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/ledger/verify.hpp>
 
 #include "signature_table.hpp"
 #include "support/ledger_world.hpp"
@@ -33,11 +33,11 @@
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::Status;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::Status;
 
 /// The checks a verification makes, counted (each passed to `inner`).
 class Counting final : public crypto::Provider {
@@ -52,7 +52,7 @@ public:
     [[nodiscard]] std::size_t checks() const noexcept { return checks_.load(); }
 
 private:
-    [[nodiscard]] cexchain::Result<crypto::Digest>
+    [[nodiscard]] kanhe::Result<crypto::Digest>
     do_digest(crypto::HashAlg alg, std::span<const ByteView> parts) const override {
         return inner_.digest(alg, parts);
     }
@@ -61,8 +61,8 @@ private:
         ++checks_;
         return inner_.verify(key, message, signature);
     }
-    [[nodiscard]] cexchain::Result<crypto::TimestampToken>
-    do_read_timestamp(ByteView token, std::span<const cexchain::Bytes> roots) const override {
+    [[nodiscard]] kanhe::Result<crypto::TimestampToken>
+    do_read_timestamp(ByteView token, std::span<const kanhe::Bytes> roots) const override {
         return inner_.read_timestamp(token, roots);
     }
     const crypto::Provider& inner_;
@@ -112,7 +112,7 @@ neighbours(const crypto::PublicKey& key, const Bytes& message, const Bytes& sign
 }
 
 template <class T>
-void same(const cexchain::Result<T>& expected, const cexchain::Result<T>& got) {
+void same(const kanhe::Result<T>& expected, const kanhe::Result<T>& got) {
     REQUIRE(expected.has_value() == got.has_value());
     if (expected) {
         CHECK(*expected == *got);
@@ -125,10 +125,10 @@ void same(const cexchain::Result<T>& expected, const cexchain::Result<T>& got) {
 /// checked ahead, remembered, both, and with `pristine` (remembered from the
 /// evidence before it was damaged); each must give core's outcome.
 template <class T, class Core, class Ledger>
-cexchain::Result<T> every_way(ByteView encoded, const protocol::VerifyOptions& options,
-                              ledger::SignatureCache& pristine, bool fresh_too, const Core& core,
-                              const Ledger& on_cores) {
-    const cexchain::Result<T> expected = core(encoded, options);
+kanhe::Result<T> every_way(ByteView encoded, const protocol::VerifyOptions& options,
+                           ledger::SignatureCache& pristine, bool fresh_too, const Core& core,
+                           const Ledger& on_cores) {
+    const kanhe::Result<T> expected = core(encoded, options);
     same(expected, on_cores(encoded, options, ledger::Verifying{true, nullptr}));
     same(expected, on_cores(encoded, options, ledger::Verifying{false, &pristine}));
     same(expected, on_cores(encoded, options, ledger::Verifying{true, &pristine}));
@@ -147,9 +147,10 @@ cexchain::Result<T> every_way(ByteView encoded, const protocol::VerifyOptions& o
     return expected;
 }
 
-cexchain::Result<protocol::ContractReport>
-every_way_evidence(ByteView encoded, const protocol::VerifyOptions& options,
-                   ledger::SignatureCache& pristine, bool fresh_too = true) {
+kanhe::Result<protocol::ContractReport> every_way_evidence(ByteView encoded,
+                                                           const protocol::VerifyOptions& options,
+                                                           ledger::SignatureCache& pristine,
+                                                           bool fresh_too = true) {
     return every_way<protocol::ContractReport>(
         encoded, options, pristine, fresh_too,
         [](ByteView e, const protocol::VerifyOptions& o) {
@@ -160,10 +161,10 @@ every_way_evidence(ByteView encoded, const protocol::VerifyOptions& options,
         });
 }
 
-cexchain::Result<protocol::EvidenceReport> every_way_bundle(ByteView encoded,
-                                                            const protocol::VerifyOptions& options,
-                                                            ledger::SignatureCache& pristine,
-                                                            bool fresh_too = true) {
+kanhe::Result<protocol::EvidenceReport> every_way_bundle(ByteView encoded,
+                                                         const protocol::VerifyOptions& options,
+                                                         ledger::SignatureCache& pristine,
+                                                         bool fresh_too = true) {
     return every_way<protocol::EvidenceReport>(
         encoded, options, pristine, fresh_too,
         [](ByteView e, const protocol::VerifyOptions& o) {
@@ -242,7 +243,7 @@ std::vector<Bytes> damaged(const protocol::ContractEvidence& evidence, bool full
 TEST_CASE("a remembered signature counts only for the same algorithm, key, message, and signature",
           "[ledger][verify][signatures][security]") {
     const auto signer = key("signer");
-    const auto text = cexchain::as_bytes("a message");
+    const auto text = kanhe::as_bytes("a message");
     const Bytes message(text.begin(), text.end());
     const Bytes signature = *signer.sign(message);
     const crypto::PublicKey& k = signer.public_key();
@@ -256,7 +257,7 @@ TEST_CASE("a remembered signature counts only for the same algorithm, key, messa
         CHECK_FALSE(cache.find(k2, m2, s2));
     }
     // Failures are never kept.
-    const Status failed = std::unexpected(cexchain::Error{Errc::verification_failed, "no"});
+    const Status failed = std::unexpected(kanhe::Error{Errc::verification_failed, "no"});
     for (const auto& [k2, m2, s2] : neighbours(k, message, signature)) {
         cache.checked(k2, m2, s2, failed);
     }
@@ -469,7 +470,7 @@ TEST_CASE("a remembered module is found only for the same code", "[ledger][verif
     const Bytes oracle = hex(contracts["oracle"].get<std::string>());
     ledger::LoadedModules modules(1);
     CHECK_FALSE(modules.find(split));
-    const auto loaded = cexchain::vm::load(split);
+    const auto loaded = kanhe::vm::load(split);
     REQUIRE(loaded);
     modules.loaded(*loaded);
     const auto found = modules.find(split);
@@ -481,7 +482,7 @@ TEST_CASE("a remembered module is found only for the same code", "[ledger][verif
         CHECK_FALSE(modules.find(other));
     }
     CHECK_FALSE(modules.find(Bytes(split.begin(), split.end() - 1)));
-    modules.loaded(*cexchain::vm::load(oracle)); // capacity 1: split goes
+    modules.loaded(*kanhe::vm::load(oracle)); // capacity 1: split goes
     CHECK_FALSE(modules.find(split));
     CHECK(modules.find(oracle));
     CHECK(modules.size() == 1);

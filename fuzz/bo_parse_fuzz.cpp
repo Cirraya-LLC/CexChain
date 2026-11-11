@@ -29,16 +29,16 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 const bo::PackSet& packs() {
     static const bo::PackSet instance = [] {

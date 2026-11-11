@@ -2,7 +2,7 @@
 // Copyright 2026 Cirraya
 
 // Language packs: the official packs, their
-// digests, and every rule a pack must keep. Set CEXCHAIN_UPDATE_GOLDENS=1 to
+// digests, and every rule a pack must keep. Set KANHE_UPDATE_GOLDENS=1 to
 // rewrite tests/bo/golden/pack-digests.txt after a deliberate change.
 
 #include <algorithm>
@@ -20,20 +20,20 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::string golden_digests = std::string(CEXCHAIN_BO_GOLDEN_DIR) + "/pack-digests.txt";
+const std::string golden_digests = std::string(KANHE_BO_GOLDEN_DIR) + "/pack-digests.txt";
 
 /// A word for a concept that no official pack uses: "q" and the id's
 /// letters ("kw.can" gives "qcan").
@@ -200,7 +200,7 @@ TEST_CASE("the official packs read, and their digests match the goldens", "[bo][
             lines += std::format("{} {} {} {}\n", pack.id, pack.version, name, to_hex(d->bytes()));
         }
     }
-    if (std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr) {
+    if (std::getenv("KANHE_UPDATE_GOLDENS") != nullptr) {
         std::ofstream(golden_digests) << lines;
     }
     std::ifstream in(golden_digests);

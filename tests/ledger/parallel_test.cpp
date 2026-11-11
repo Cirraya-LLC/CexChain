@@ -25,18 +25,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/vectors.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::ByteView;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::ByteView;
 
 const nlohmann::json& vectors() {
     static const nlohmann::json document = load_vectors("protocol-v0.8.json");
@@ -459,7 +459,7 @@ TEST_CASE("ledger: pipelined groups give what one at a time gives, each answered
     std::vector<Bytes> sent;
     std::vector<std::vector<Bytes>> groups;
     std::mutex mutex;
-    std::vector<std::vector<cexchain::Result<ledger::Registration>>> answers;
+    std::vector<std::vector<kanhe::Result<ledger::Registration>>> answers;
     bool durable_first = true;
     std::vector<std::vector<std::optional<std::uint64_t>>> single;
     // A reader alongside: whatever it finds registered is in the log.
@@ -498,7 +498,7 @@ TEST_CASE("ledger: pipelined groups give what one at a time gives, each answered
             p.batch.ledger().hold_commits();
         }
         p.batch.ledger().submit_batch_pipelined(
-            views, [&, size = group.size()](std::vector<cexchain::Result<ledger::Registration>> r) {
+            views, [&, size = group.size()](std::vector<kanhe::Result<ledger::Registration>> r) {
                 // Called once its entries are durable: the readers' size
                 // covers every one.
                 const std::uint64_t durable = p.batch.ledger().size();

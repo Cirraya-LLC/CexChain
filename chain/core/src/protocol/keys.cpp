@@ -4,13 +4,13 @@
 #include <algorithm>
 #include <variant>
 
-#include <cexchain/core/protocol/keys.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/statement.hpp>
+#include <kanhe/core/protocol/keys.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/statement.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -24,11 +24,11 @@ struct Rotation {
 
 Result<std::optional<Rotation>> rotation_in(const crypto::Provider& provider,
                                             const LedgerKeys& keys, ByteView encoded) {
-    CEXCHAIN_TRY(LogEntry entry, decode_log_entry(encoded));
+    KANHE_TRY(LogEntry entry, decode_log_entry(encoded));
     if (entry.is_state_commitment()) {
         return std::nullopt;
     }
-    CEXCHAIN_TRY(SignedStatement statement, parse_statement(provider, entry.statement, keys.hash));
+    KANHE_TRY(SignedStatement statement, parse_statement(provider, entry.statement, keys.hash));
     if (statement.id != entry.statement_id) {
         return fail(Errc::verification_failed, "a log entry has the wrong statement id");
     }
@@ -57,11 +57,11 @@ const crypto::PublicKey& key_in_effect(std::span<const KeyEpoch> epochs, std::ui
 }
 
 Result<LedgerKeys> keys_from_genesis(const crypto::Provider& provider, ByteView genesis_entry) {
-    CEXCHAIN_TRY(LogEntry entry, decode_log_entry(genesis_entry));
+    KANHE_TRY(LogEntry entry, decode_log_entry(genesis_entry));
     if (entry.is_state_commitment()) {
         return fail(Errc::verification_failed, "a ledger begins with its genesis statement");
     }
-    CEXCHAIN_TRY(SignedStatement genesis, parse_statement(provider, entry.statement));
+    KANHE_TRY(SignedStatement genesis, parse_statement(provider, entry.statement));
     const auto* body = std::get_if<GenesisBody>(&genesis.statement.body);
     if (body == nullptr || genesis.id != entry.statement_id) {
         return fail(Errc::verification_failed, "the entry is not a ledger's genesis");
@@ -113,4 +113,4 @@ Status follow_key_rotation(const crypto::Provider& provider, LedgerKeys& keys, s
     return {};
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

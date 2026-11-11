@@ -15,11 +15,11 @@
 # revoked executor, and a delegation wider than its grantor's. Beta fetches
 # Alpha's instance as its party and verifies every request and answer
 # offline; Alpha verifies Beta's.
-# Usage: requests.sh CEXCHAIN
+# Usage: requests.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 SERVERS=()
@@ -30,15 +30,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="requests test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="requests test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -53,7 +53,7 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json; json.load(open('$out'))" 2> /dev/null; then
@@ -179,7 +179,7 @@ CURSOR="$(json 'd["cursor"]' < wait.json)"
 run request wait "${WAIT[@]}" --kind notify --timeout 0 | contains 'notify .* open'
 run request wait "${WAIT[@]}" --instance "$I" --timeout 0 --json | json 'len(d["requests"])' | contains -x 2
 # A long poll: nothing new yet, until a call asks for another notice.
-"$CEXCHAIN" request wait "${WAIT[@]}" --kind notify --after "$CURSOR" --timeout 20 --json > polled.json &
+"$KANHE" request wait "${WAIT[@]}" --kind notify --after "$CURSOR" --timeout 20 --json > polled.json &
 POLL=$!
 sleep 1
 a contract call "$I" ask --args '[["notify", {"about": "reminder"}, 3600000]]' --as clerk.key > /dev/null

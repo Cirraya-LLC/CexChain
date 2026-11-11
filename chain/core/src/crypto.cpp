@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <compare>
 
-#include <cexchain/core/crypto.hpp>
+#include <kanhe/core/crypto.hpp>
 
-namespace cexchain::crypto {
+namespace kanhe::crypto {
 
 namespace {
 
@@ -271,4 +271,4 @@ Result<TimestampToken> Provider::do_read_timestamp(ByteView /*token*/,
     return fail(Errc::unsupported, "this provider does not read time-stamp tokens (RFC 3161)");
 }
 
-} // namespace cexchain::crypto
+} // namespace kanhe::crypto

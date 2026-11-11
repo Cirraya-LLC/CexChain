@@ -21,9 +21,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
-from cexchain_verify import cbor, claims, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
-from cexchain_verify import access, cli, memberships, timestamps, evidence, report  # noqa: E402
-from cexchain_verify.errors import VerifyError  # noqa: E402
+from kanhe_verify import cbor, claims, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
+from kanhe_verify import access, cli, memberships, timestamps, evidence, report  # noqa: E402
+from kanhe_verify.errors import VerifyError  # noqa: E402
 
 import vector_bundles  # noqa: E402
 

@@ -20,16 +20,16 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/console/users.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/console/users.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -39,55 +39,55 @@ namespace {
 #pragma clang diagnostic ignored "-Wc23-extensions"
 #endif
 constexpr unsigned char index_html[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/index.html"
 #else
 #include "index.html.inc"
 #endif
 };
 constexpr unsigned char console_css[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/console.css"
 #else
 #include "console.css.inc"
 #endif
 };
 constexpr unsigned char console_js[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/console.js"
 #else
 #include "console.js.inc"
 #endif
 };
 constexpr unsigned char catalog_en[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/i18n/en.json"
 #else
 #include "en.json.inc"
 #endif
 };
 constexpr unsigned char catalog_zh_Hant_HK[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/i18n/zh-Hant-HK.json"
 #else
 #include "zh-Hant-HK.json.inc"
 #endif
 };
 constexpr unsigned char catalog_zh_Hans_CN[] = {
-#if CEXCHAIN_CONSOLE_EMBED
+#if KANHE_CONSOLE_EMBED
 #embed "../web/i18n/zh-Hans-CN.json"
 #else
 #include "zh-Hans-CN.json.inc"
 #endif
 };
-#if CEXCHAIN_CONSOLE_WASM
+#if KANHE_CONSOLE_WASM
 // The console's checks in the browser (tools/wasm/build.sh), when the build
 // was given them.
 constexpr unsigned char console_wasm_module[] = {
-#embed "cexchain-console.mjs"
+#embed "kanhe-console.mjs"
 };
 constexpr unsigned char console_wasm_binary[] = {
-#embed "cexchain-console.wasm"
+#embed "kanhe-console.wasm"
 };
 #endif
 #if defined(__clang__)
@@ -107,10 +107,9 @@ constexpr std::array files{
     File{"/console/i18n/en.json", "application/json; charset=utf-8", catalog_en},
     File{"/console/i18n/zh-Hant-HK.json", "application/json; charset=utf-8", catalog_zh_Hant_HK},
     File{"/console/i18n/zh-Hans-CN.json", "application/json; charset=utf-8", catalog_zh_Hans_CN},
-#if CEXCHAIN_CONSOLE_WASM
-    File{"/console/wasm/cexchain-console.mjs", "text/javascript; charset=utf-8",
-         console_wasm_module},
-    File{"/console/wasm/cexchain-console.wasm", "application/wasm", console_wasm_binary},
+#if KANHE_CONSOLE_WASM
+    File{"/console/wasm/kanhe-console.mjs", "text/javascript; charset=utf-8", console_wasm_module},
+    File{"/console/wasm/kanhe-console.wasm", "application/wasm", console_wasm_binary},
 #endif
 };
 
@@ -611,4 +610,4 @@ http::Response Console::session_route(const http::Request& request) const {
                       {"keys", key_state()}});
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

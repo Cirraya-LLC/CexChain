@@ -5,10 +5,10 @@
 #include <cstdint>
 #include <string>
 
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/node/timestamps.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/timestamps.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 Result<Bytes> request_timestamp(const crypto::Provider& provider, std::string_view url,
                                 crypto::HashAlg hash, const protocol::SignedCheckpoint& checkpoint,
@@ -51,4 +51,4 @@ Result<Bytes> request_timestamp(const crypto::Provider& provider, std::string_vi
     return crypto::openssl::timestamp_from_response(answer->body, hash, imprint->bytes(), nonce);
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

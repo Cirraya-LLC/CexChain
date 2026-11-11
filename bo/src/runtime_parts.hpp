@@ -8,10 +8,10 @@
 
 #include <cstdint>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
 
-namespace cexchain::bo::runtime::detail {
+namespace kanhe::bo::runtime::detail {
 
 using wasm::FunctionBuilder;
 
@@ -70,4 +70,4 @@ void define_expect_bool(Runtime& rt, FunctionBuilder& b);
 void define_fail_numbered(Runtime& rt, FunctionBuilder& b);
 void define_out_finish_at(Runtime& rt, FunctionBuilder& b);
 
-} // namespace cexchain::bo::runtime::detail
+} // namespace kanhe::bo::runtime::detail

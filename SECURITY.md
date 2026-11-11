@@ -1,6 +1,6 @@
 # Security policy
 
-CexChain is software for proving things: a flaw that lets evidence verify when it should not,
+Kanhe is software for proving things: a flaw that lets evidence verify when it should not,
 leaks private data, or lets someone act without authority matters to everyone who relies on it.
 Thank you for helping keep it sound.
 
@@ -17,7 +17,7 @@ discussion for them.
 ### What to include
 
 - The affected part: the protocol (`spec/`), the core verification library, a crypto backend,
-  the `cexchain` tool, the ledger server or its HTTP API, replicas and backups, clusters, the
+  the `kanhe` tool, the ledger server or its HTTP API, replicas and backups, clusters, the
   browser verifier, the Bo compiler or runtime, the MCP server, or the deploy files.
 - The version or commit, the platform, and the build (compiler and preset).
 - What is wrong and its impact: which guarantee it breaks (for example, evidence that verifies
@@ -39,7 +39,7 @@ discussion for them.
 
 ## Supported versions
 
-CexChain is an alpha: pre-release software whose protocol specification is a draft and may
+Kanhe is an alpha: pre-release software whose protocol specification is a draft and may
 change, and which has not been audited. Security fixes go to the latest alpha release and to
 the `main` branch only.
 
@@ -51,9 +51,9 @@ the `main` branch only.
 ## Verification code is open source
 
 Everything that verifies evidence is open source in this repository: the core library, the
-crypto backends, the `cexchain verify` and `contract verify` commands, and the browser verifier.
+crypto backends, the `kanhe verify` and `contract verify` commands, and the browser verifier.
 The protocol is defined by its specification ([`spec/`](spec/)) and the test vectors in
-[`testvectors/`](testvectors/), which come from implementations independent of CexChain.
+[`testvectors/`](testvectors/), which come from implementations independent of Kanhe.
 Nobody needs to trust a service run by Cirraya to check evidence: anyone can build the verifier
 from source and check evidence offline.
 
@@ -69,4 +69,4 @@ Known open items are listed in the README under
 but new ways to exploit them are welcome.
 
 Vulnerabilities in third-party components ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md))
-belong with their projects; please tell us too if CexChain is affected.
+belong with their projects; please tell us too if Kanhe is affected.

@@ -10,15 +10,15 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/ledger/storage.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -126,7 +126,7 @@ Kind parse_kind(const nlohmann::json& sheet) {
     }
     if (protocol::is_reserved_record_type(kind.type) ||
         protocol::find_record_type(kind.type) != nullptr) {
-        bad("record types beginning with cexchain. belong to the protocol");
+        bad("record types beginning with kanhe. belong to the protocol");
     }
     kind.name = text_of(sheet, "name", true);
     if (!plain_text(kind.name, 64)) {
@@ -378,4 +378,4 @@ http::Response Console::kinds_route(const http::Request& request) const {
     return json(200, kind_json(kind));
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

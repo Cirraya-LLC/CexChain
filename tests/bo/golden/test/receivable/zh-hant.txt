@@ -12,7 +12,7 @@
   第 5 步（第 30 行）通過：bank1 release -> active
     結果：經 bank1 同意，調用獲接納，實例現為正常。
   第 6 步（第 31 行）通過：supplier transfer to factor1 -> active
-    結果：經供應商及 factor1 同意，調用獲接納，實例現為正常。
+    結果：經 factor1 及供應商同意，調用獲接納，實例現為正常。
   第 7 步（第 32 行）通過：supplier transfer to factor2 -> consent of factor1
     結果：調用正等待 factor1 同意。
   第 8 步（第 33 行）通過：issuer pay -> paid

@@ -9,13 +9,13 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/core/protocol/record.hpp>
+#include <kanhe/core/protocol/record.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -93,7 +93,7 @@ int cmd_record_published(const Args& args) {
         return exit_ok;
     }
     if (list.empty()) {
-        std::println("no published records (cexchain record publish)");
+        std::println("no published records (kanhe record publish)");
     }
     for (const auto& p : list) {
         std::println("{}  {}  {}  {}", p.token, short_id(p.record), format_time(p.published_at),
@@ -114,4 +114,4 @@ int cmd_record_unpublish(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

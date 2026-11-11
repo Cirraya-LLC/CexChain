@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 //
-// Drives cexchain-verify.html in a real browser, as a verifier would use it:
+// Drives kanhe-verify.html in a real browser, as a verifier would use it:
 // opened from a QR link that names the ledger, the record, and the bundle's
 // URL; opened from disk with files chosen by hand; fed a forged attachment;
 // and given a contract instance's evidence, a part's, and one whose calls
 // made requests and answered them; and in Chinese, as a certificate's QR code
 // opens it.
-// Usage: node page_test.js PAGE EVIDENCE_DIR CEXCHAIN
+// Usage: node page_test.js PAGE EVIDENCE_DIR KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -16,13 +16,13 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { chromium } = require("playwright");
 
-const [pagePath, dir, cexchain] = process.argv.slice(2).map((p) => path.resolve(p));
+const [pagePath, dir, kanhe] = process.argv.slice(2).map((p) => path.resolve(p));
 const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
 const ledgerId = text("ledger-id");
 const recordId = text("record-id");
 
 function serve() {
-  const files = { "/cexchain-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor"),
+  const files = { "/kanhe-verify.html": pagePath, "/bundle.cbor": path.join(dir, "bundle.cbor"),
                   "/contract.cbor": path.join(dir, "contract.cbor"), "/part.cbor": path.join(dir, "part.cbor"),
                   "/claim.cbor": path.join(dir, "claim.cbor") };
   const server = http.createServer((req, res) => {
@@ -67,11 +67,11 @@ async function verdict(page) {
     return page;
   };
   try {
-    // 1. The link in a QR code from `cexchain qr`: everything is checked, and
+    // 1. The link in a QR code from `kanhe qr`: everything is checked, and
     // the result is green.
-    const qr = JSON.parse(execFileSync(cexchain, [
+    const qr = JSON.parse(execFileSync(kanhe, [
       "qr", recordId, "--ledger", path.join(dir, "ledger"), "--json",
-      "--bundle-url", base + "/bundle.cbor", "--verifier-url", base + "/cexchain-verify.html"]));
+      "--bundle-url", base + "/bundle.cbor", "--verifier-url", base + "/kanhe-verify.html"]));
     const link = qr.url;
     let page = await open(link);
     let v = await verdict(page);
@@ -127,7 +127,7 @@ async function verdict(page) {
 
     // 6. A contract instance's evidence: every call, what the contract made
     // of it, and each consent with who gave it. The page's report is the one
-    // `cexchain contract verify --json` gives for the same evidence.
+    // `kanhe contract verify --json` gives for the same evidence.
     const contractLedger = text("contract-ledger-id");
     const instanceId = text("instance-id");
     page = await open("file://" + pagePath);
@@ -165,7 +165,7 @@ async function verdict(page) {
 
     // 7. A link to a contract instance's evidence, naming the home and the
     // instance, is green; one naming another instance is refused.
-    const contractLink = base + "/cexchain-verify.html#l=" + contractLedger + "&r=" + instanceId +
+    const contractLink = base + "/kanhe-verify.html#l=" + contractLedger + "&r=" + instanceId +
       "&b=" + encodeURIComponent(base + "/contract.cbor");
     page = await open(contractLink);
     v = await verdict(page);
@@ -179,7 +179,7 @@ async function verdict(page) {
 
     // 8. A tier-3 part's evidence (v0.7): the chain of its ancestors, each
     // with its calls and consents, then its own; the report is the one
-    // `cexchain contract verify --json` gives. A link naming the part is green.
+    // `kanhe contract verify --json` gives. A link naming the part is green.
     const partId = text("part-id");
     page = await open("file://" + pagePath);
     await page.fill("#ledger", contractLedger);
@@ -205,7 +205,7 @@ async function verdict(page) {
     // The ancestors' creating calls are shown once: four calls, four items.
     assert.equal(await page.locator("#events li:not(.group):not(.meta)").count(), 4);
     await page.close();
-    page = await open(base + "/cexchain-verify.html#l=" + contractLedger + "&r=" + partId + "&b=" +
+    page = await open(base + "/kanhe-verify.html#l=" + contractLedger + "&r=" + partId + "&b=" +
       encodeURIComponent(base + "/part.cbor"));
     v = await verdict(page);
     assert.equal(v.kind, "ok", v.title + ": " + v.detail);
@@ -213,7 +213,7 @@ async function verdict(page) {
 
     // 9. Requests and answers (v0.8): per call, the requests it made and the
     // answer it gives, with its status and lateness; the open requests, one
-    // overdue at the checkpoint. The report is `cexchain contract verify --json`'s.
+    // overdue at the checkpoint. The report is `kanhe contract verify --json`'s.
     page = await open("file://" + pagePath);
     await page.fill("#ledger", text("requests-ledger-id"));
     await page.dispatchEvent("#ledger", "change");
@@ -269,7 +269,7 @@ async function verdict(page) {
 
     // 11. A claim (v0.14): the condition confirmed, in words, outcome first,
     // and none of the payslip's fields.
-    const claimLink = base + "/cexchain-verify.html#l=" + ledgerId + "&r=" + text("claim-id") + "&b=" +
+    const claimLink = base + "/kanhe-verify.html#l=" + ledgerId + "&r=" + text("claim-id") + "&b=" +
       encodeURIComponent(base + "/claim.cbor");
     page = await open(claimLink + "&lang=zh-Hans");
     v = await verdict(page);

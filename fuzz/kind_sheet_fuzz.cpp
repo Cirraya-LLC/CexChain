@@ -13,7 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/console/kinds.hpp>
+#include <kanhe/console/kinds.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     const std::string_view text(reinterpret_cast<const char*>(data), size);
@@ -21,19 +21,19 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (sheet.is_discarded()) {
         return 0;
     }
-    cexchain::console::Kind kind;
+    kanhe::console::Kind kind;
     try {
-        kind = cexchain::console::parse_kind(sheet);
+        kind = kanhe::console::parse_kind(sheet);
     } catch (const std::invalid_argument&) {
         return 0; // Refused, saying why.
     }
-    const auto again = cexchain::console::parse_kind(cexchain::console::kind_json(kind));
-    if (cexchain::console::kind_json(again) != cexchain::console::kind_json(kind)) {
+    const auto again = kanhe::console::parse_kind(kanhe::console::kind_json(kind));
+    if (kanhe::console::kind_json(again) != kanhe::console::kind_json(kind)) {
         __builtin_trap();
     }
     for (const auto& field : kind.fields) {
-        static_cast<void>(cexchain::console::check_value(field, text));
-        static_cast<void>(cexchain::console::check_value(field, field.name));
+        static_cast<void>(kanhe::console::check_value(field, text));
+        static_cast<void>(kanhe::console::check_value(field, field.name));
     }
     return 0;
 }

@@ -6,11 +6,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/http.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/http.hpp>
 
-namespace http = cexchain::node::http;
-using cexchain::node::Url;
+namespace http = kanhe::node::http;
+using kanhe::node::Url;
 
 namespace {
 
@@ -141,7 +141,7 @@ TEST_CASE("responses serialize and parse back", "[node][http]") {
     REQUIRE(parsed);
     REQUIRE(*parsed);
     CHECK((*parsed)->first.status == 201);
-    CHECK((*parsed)->first.body == cexchain::Bytes{1, 2, 3});
+    CHECK((*parsed)->first.body == kanhe::Bytes{1, 2, 3});
     CHECK((*parsed)->first.header("retry-after") == "1");
     CHECK((*parsed)->second == text.size());
 
@@ -164,13 +164,13 @@ TEST_CASE("responses serialize and parse back", "[node][http]") {
 }
 
 TEST_CASE("server URLs", "[node][http]") {
-    const auto a = Url::parse("https://ledger.example.com/cexchain/");
+    const auto a = Url::parse("https://ledger.example.com/kanhe/");
     REQUIRE(a);
     CHECK(a->tls);
     CHECK(a->host == "ledger.example.com");
     CHECK(a->port == 443);
-    CHECK(a->base_path == "/cexchain");
-    CHECK(a->to_string() == "https://ledger.example.com/cexchain");
+    CHECK(a->base_path == "/kanhe");
+    CHECK(a->to_string() == "https://ledger.example.com/kanhe");
     const auto b = Url::parse("http://[::1]:8080");
     REQUIRE(b);
     CHECK(b->host == "::1");

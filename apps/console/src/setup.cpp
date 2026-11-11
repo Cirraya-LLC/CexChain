@@ -9,15 +9,15 @@
 #include <system_error>
 #include <utility>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/session.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/console/setup.hpp>
-#include <cexchain/console/users.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/session.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/console/setup.hpp>
+#include <kanhe/console/users.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 bool has_ledger(const std::filesystem::path& directory) {
     return std::filesystem::exists(directory / "statements");
@@ -189,4 +189,4 @@ FirstRun make_first_run(const SetUp& request, KeyStore& keys, ledger::Entropy& e
 
 } // namespace
 
-} // namespace cexchain::console
+} // namespace kanhe::console

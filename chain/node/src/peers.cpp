@@ -5,17 +5,17 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -240,4 +240,4 @@ Status store_receipt(const std::filesystem::path& ledger_directory, const protoc
     return detail::write_file(path, receipt, true);
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

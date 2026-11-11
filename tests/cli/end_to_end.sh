@@ -2,27 +2,27 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# End-to-end scenario through every cexchain command: an organization
+# End-to-end scenario through every kanhe command: an organization
 # delegates to an inspector, who runs an AI drafting agent; the agent issues a
 # quality certificate, the inspector endorses it, keys rotate, rights are
 # revoked, and a third party verifies the exported evidence offline.
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="correct horse battery staple"
-unset CEXCHAIN_LEDGER
+export KANHE_PASSPHRASE="correct horse battery staple"
+unset KANHE_LEDGER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -46,7 +46,7 @@ run version | contains 'SM2-SM3'
 run version --json | json 'd["protocol_version"]' | contains -x 1
 run --help | contains 'record issue'
 run help record | contains 'record transition'
-run record show --help | contains 'Usage: cexchain record show RECORD'
+run record show --help | contains 'Usage: kanhe record show RECORD'
 run help --json | json 'len(d) > 40' | contains -x True
 run completion bash > completion.bash && bash -n completion.bash
 contains 'rotate-key' completion.bash
@@ -60,7 +60,7 @@ run help --json | json '[c["command"] for c in d if "asset" in c["command"] or "
     | contains -x '\[\]'
 if contains -i asset completion.bash; then fail "completion offers asset commands"; fi
 expect_exit 1 issue
-contains "did you mean 'cexchain record issue'" out.txt
+contains "did you mean 'kanhe record issue'" out.txt
 expect_exit 1 record
 expect_exit 1 status --no-such-option
 expect_exit 1 record show
@@ -76,14 +76,14 @@ run key show pq.key --json | json 'd["encrypted"]' | contains -x False
 expect_exit 2 key generate --out root.key
 contains 'never overwritten' out.txt
 
-CEXCHAIN_PASSPHRASE=wrong expect_exit 2 key show root.key
+KANHE_PASSPHRASE=wrong expect_exit 2 key show root.key
 contains 'wrong passphrase' out.txt
 printf 'another secret\n' > new.pass
 run key passphrase bob.key --new-passphrase-file new.pass > /dev/null
 expect_exit 2 key show bob.key
 run key show bob.key --passphrase-file new.pass > /dev/null
 run key passphrase bob.key --passphrase-file new.pass --remove | contains 'WITHOUT encryption'
-CEXCHAIN_NEW_PASSPHRASE="$CEXCHAIN_PASSPHRASE" run key passphrase bob.key > /dev/null
+KANHE_NEW_PASSPHRASE="$KANHE_PASSPHRASE" run key passphrase bob.key > /dev/null
 run key show bob.key | contains 'private key (encrypted)'
 
 run key public alice.key --out alice.pub > /dev/null
@@ -100,7 +100,7 @@ contains 'not both' out.txt
 LEDGER_ID="$(run init --ledger ledger --name "Cirraya Test Factory" --root-key root.key --log-key log.key | id_from)"
 expect_exit 2 init --ledger ledger --org Again --root-key root.key --log-key log.key
 expect_exit 1 status
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_LEDGER="$WORK/ledger"
 run status --json | json 'd["ledger_id"]' | contains -x "$LEDGER_ID"
 run status | contains 'checkpoint:    none yet'
 expect_exit 2 actor add --as alice.pub --kind person --name X --key alice.pub
@@ -133,16 +133,16 @@ run delegation show "$GRANT" --json | json 'd["scope"]["may_delegate"]' | contai
 
 # --- Records -------------------------------------------------------------------
 run record types | contains 'requested -> withdrawn'
-run record types --json | json '[t["name"] for t in d]' | contains 'cexchain.contract-consent/1'
+run record types --json | json '[t["name"] for t in d]' | contains 'kanhe.contract-consent/1'
 run record types --json | json 'len(d)' | contains -x 6
 run record types | contains 'reserved for the protocol'
 # Any other type is the user's own; the protocol's own say what they are for.
 run record types | contains 'type is a name its registrant'
 run record types | contains -x '  for:         consenting to a call on a contract instance elsewhere (contract consent)'
 run record types --json | json 'all(t["purpose"] for t in d)' | contains -x True
-# Spec v0.9: "cexchain." types are the protocol's own; the industry types
+# Spec v0.9: "kanhe." types are the protocol's own; the industry types
 # it once built in are refused like any other.
-expect_exit 2 record issue --as root.key --type cexchain.certificate/1 --field result=pass
+expect_exit 2 record issue --as root.key --type kanhe.certificate/1 --field result=pass
 contains 'reserved' out.txt
 printf '%%PDF-1.7 inspection report' > report.pdf
 RECORD="$(run record issue --as agent.key --type example.document/1 \
@@ -190,7 +190,7 @@ expect_exit 2 record transition "$RECORD" --as alice.key --to suspended
 contains 'does not allow this transition' out.txt
 run record show "$RECORD" | contains 'state:      registered'
 run record history "$RECORD" > history.txt
-contains 'AI provenance: model claude-opus-5-5 2026-09, via cli:cexchain, inputs committed' history.txt
+contains 'AI provenance: model claude-opus-5-5 2026-09, via cli:kanhe, inputs committed' history.txt
 contains 'responsible: Alice Inspector' history.txt
 contains 'authorized by Alice Inspector <- Cirraya Test Factory' history.txt
 run record history "$RECORD" --json | json 'len(d)' | contains -x 2
@@ -202,7 +202,7 @@ if contains -r 'B-2026-1006' ledger; then fail "field values must not be stored 
 run inspect "ledger/vault/records/$RECORD.cbor" --json | json 'd["kind"]' | contains -x sealed-vault
 run inspect ledger/vault/vault.pub --json | json 'd["kind"]' | contains -x vault-public-key
 run vault status --json | json 'd["sealed_records"]' | contains -x 1
-CEXCHAIN_PASSPHRASE=wrong expect_exit 2 record fields "$RECORD"
+KANHE_PASSPHRASE=wrong expect_exit 2 record fields "$RECORD"
 contains 'wrong passphrase' out.txt
 
 # Move the vault key off the host, then back to a new key on the host.
@@ -217,7 +217,7 @@ contains 'no vault key' out.txt
 expect_exit 2 record fields "$RECORD" --vault-key "$OLD_VAULT/vault.key"
 contains "not this ledger's vault key" out.txt
 run record fields "$RECORD" --vault-key offhost.key | contains -x 'result = pass'
-CEXCHAIN_NEW_PASSPHRASE="$CEXCHAIN_PASSPHRASE" run vault rekey --vault-key offhost.key --json \
+KANHE_NEW_PASSPHRASE="$KANHE_PASSPHRASE" run vault rekey --vault-key offhost.key --json \
     | json 'd["records"]' | contains -x 1
 run record fields "$RECORD" | contains -x 'batch = B-2026-1006'
 run vault status | contains 'sealed:        1 records'
@@ -232,7 +232,7 @@ run init --ledger ledger2 --org "Second Site" --root-key root.key --log-key log.
 [ ! -f ledger2/vault/vault.key ] || fail "an external vault key is not copied to the host"
 # The protocol's own record types keep their transitions: an access request
 # is withdrawn.
-REQUEST="$(run record issue --ledger ledger2 --as root.key --type cexchain.access-request/1 \
+REQUEST="$(run record issue --ledger ledger2 --as root.key --type kanhe.access-request/1 \
     --field purpose=test | id_from)"
 run record show "$REQUEST" --ledger ledger2 --json | json 'd["next_states"]' | contains -x "\['withdrawn'\]"
 run record transition "$REQUEST" --ledger ledger2 --as root.key --to withdrawn --json \
@@ -266,7 +266,7 @@ run key public alice.key --out witness.pub > /dev/null
 run verify bundle.cbor --ledger-id "$LEDGER_ID" --attachment report.pdf=report.pdf > report.txt
 contains 'Cirraya Test Factory' report.txt
 contains 'result = pass' report.txt
-contains 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via cli:cexchain' report.txt
+contains 'AI agent: claude-opus-5-5; responsible: Alice Inspector; via cli:kanhe' report.txt
 contains 'authorized by Alice Inspector <- Cirraya Test Factory' report.txt
 contains 'endorsed as inspector' report.txt
 contains 'report.pdf (application/pdf, 26 bytes): matches' report.txt
@@ -286,7 +286,7 @@ expect_exit 3 verify bundle.cbor --ledger-id "$ALICE"
 cp bundle.cbor corrupted.cbor
 python3 -c 'import sys; p="corrupted.cbor"; d=bytearray(open(p,"rb").read()); d[300]^=1; open(p,"wb").write(d)'
 expect_exit 3 verify corrupted.cbor
-[ "$("$CEXCHAIN" verify corrupted.cbor --json | json 'd["verified"]' || true)" = "False" ] || fail "json failure report"
+[ "$("$KANHE" verify corrupted.cbor --json | json 'd["verified"]' || true)" = "False" ] || fail "json failure report"
 
 # QR codes that open the browser verifier.
 run qr "$RECORD" --bundle-url "https://example.com/e 1.cbor" --verifier-url https://verify.example.com/ --json \
@@ -405,7 +405,7 @@ expect_exit 2 status --ledger altered
     printf 'JPEG bytes of a photo' > photo.jpg
     run key generate --out root.key > /dev/null
     run key generate --out log.key > /dev/null
-    export CEXCHAIN_LEDGER=./ledger
+    export KANHE_LEDGER=./ledger
     run init --name "Alice" --root-key root.key --log-key log.key > /dev/null
     run key generate --out alice.key > /dev/null && run key public alice.key --out alice.pub > /dev/null
     A="$(run actor add --as root.key --kind person --name "Alice" --key alice.pub | id_from)"

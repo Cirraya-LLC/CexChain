@@ -14,17 +14,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/claims.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/claims.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace cbor = cexchain::cbor;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace cbor = kanhe::cbor;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 

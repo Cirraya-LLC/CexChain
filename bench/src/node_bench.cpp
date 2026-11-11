@@ -27,22 +27,22 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/connectors.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/executor.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/connectors.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/executor.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "bench.hpp"
 #include "fixture.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 namespace {
 
@@ -53,7 +53,7 @@ constexpr protocol::Timestamp hour = 3'600'000;
 std::filesystem::path scratch(const Options& options, const std::string& name) {
     const std::filesystem::path dir =
         options.text("dir", (std::filesystem::temp_directory_path() /
-                             std::format("cexchain-bench-{}-{}", name, ::getpid()))
+                             std::format("kanhe-bench-{}-{}", name, ::getpid()))
                                 .string());
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
@@ -140,7 +140,7 @@ int executor_bench(const Options& options) {
     // and `n` instances, each with one open request.
     Home home("executor home", ledger_dir, system_now() - 600'000);
     const json vectors = json::parse(
-        read_text(std::filesystem::path(CEXCHAIN_BENCH_TESTVECTORS_DIR) / "test-contracts.json"));
+        read_text(std::filesystem::path(KANHE_BENCH_TESTVECTORS_DIR) / "test-contracts.json"));
     protocol::ContractDeployBody deploy;
     deploy.code = must(from_hex(vectors["request"].get<std::string>()), "hex");
     for (const auto& [name, kind] : vectors["request_interface"].items()) {
@@ -208,7 +208,7 @@ int executor_bench(const Options& options) {
     }
     config.connectors.push_back(connector);
 
-    const std::string cli = options.text("cexchain", CEXCHAIN_BENCH_CLI);
+    const std::string cli = options.text("kanhe", KANHE_BENCH_CLI);
     const bool in_process = options.flag("in-process") || !std::filesystem::exists(cli);
     o.server = serving->url();
     o.client.bearer_token = token;
@@ -514,4 +514,4 @@ int registrar_bench(const Options& options) {
     return 0;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

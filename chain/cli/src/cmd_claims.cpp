@@ -13,16 +13,16 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/client/claims.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/ledger/environment.hpp>
+#include <kanhe/client/claims.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/ledger/environment.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -179,4 +179,4 @@ int cmd_claim_revoke(const Args& args) {
                             "withdrew claim " + hex_id(id));
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

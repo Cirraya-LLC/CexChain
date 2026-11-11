@@ -19,7 +19,7 @@
   第 8 步（第 29 行）通過：bank1 release -> active
     結果：經 bank1 同意，調用獲接納，實例現為正常。
   第 9 步（第 30 行）通過：depositor transfer to trader1 -> active
-    結果：經 trader1 及 depositor 同意，調用獲接納，實例現為正常。
+    結果：經 depositor 及 trader1 同意，調用獲接納，實例現為正常。
   第 10 步（第 31 行）通過：trader1 redeem with portion = 15 tonne -> redeemed
     結果：經 trader1 同意，調用獲接納，實例現為已贖回；此為最終狀態，實例不再接受調用。
   第 11 步（第 32 行）通過：trader1 redeem with portion = 1 tonne -> refused

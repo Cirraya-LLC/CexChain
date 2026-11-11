@@ -7,12 +7,12 @@
 
 #include <cstdint>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
 
 #include "runtime_parts.hpp"
 
-namespace cexchain::bo::runtime::detail {
+namespace kanhe::bo::runtime::detail {
 
 namespace {
 
@@ -326,4 +326,4 @@ void define_fail_numbered(Runtime& rt, FunctionBuilder& b) {
     b.call(rt.module().host(wasm::Host::abort)).unreachable();
 }
 
-} // namespace cexchain::bo::runtime::detail
+} // namespace kanhe::bo::runtime::detail

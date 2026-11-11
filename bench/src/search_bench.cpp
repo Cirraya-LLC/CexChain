@@ -11,16 +11,16 @@
 #include <unistd.h>
 #include <vector>
 
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/search/index.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/search/index.hpp>
 
 #include "bench.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 int search_bench(const Options& options) {
     const std::uint64_t n = options.number("records", 100'000);
@@ -79,7 +79,7 @@ int search_bench(const Options& options) {
     }
 
     const std::filesystem::path file = std::filesystem::temp_directory_path() /
-                                       std::format("cexchain-search-bench-{}.sqlite", ::getpid());
+                                       std::format("kanhe-search-bench-{}.sqlite", ::getpid());
     auto remove = [&] {
         for (const char* suffix : {"", "-wal", "-shm"}) {
             std::filesystem::remove(file.string() + suffix);
@@ -169,4 +169,4 @@ int search_bench(const Options& options) {
     return 0;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

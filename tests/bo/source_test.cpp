@@ -14,16 +14,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/vocab.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/vocab.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-using namespace cexchain;
-using namespace cexchain::bo;
+using namespace kanhe;
+using namespace kanhe::bo;
 
 namespace {
 
@@ -496,16 +496,16 @@ TEST_CASE("decoding refuses bundles of any other shape", "[bo][source]") {
 
 TEST_CASE("the compiler string", "[bo][source]") {
     const CompilerId id{"0.0.1", 1, 1};
-    CHECK(format_compiler(id) == "cexchain-bo 0.0.1; codegen 1; edition 1");
-    CHECK(parse_compiler("cexchain-bo 0.0.1; codegen 1; edition 1") == id);
-    CHECK(parse_compiler("cexchain-bo 2.10.0-rc1; codegen 12; edition 3") ==
+    CHECK(format_compiler(id) == "kanhe-bo 0.0.1; codegen 1; edition 1");
+    CHECK(parse_compiler("kanhe-bo 0.0.1; codegen 1; edition 1") == id);
+    CHECK(parse_compiler("kanhe-bo 2.10.0-rc1; codegen 12; edition 3") ==
           CompilerId{"2.10.0-rc1", 12, 3});
     for (const std::string_view other :
-         {"", "bo 1.0", "cexchain-bo", "cexchain-bo 0.0.1", "cexchain-bo 0.0.1; codegen 1",
-          "cexchain-bo 0.0.1; codegen x; edition 1", "cexchain-bo 0.0.1; codegen 01; edition 1",
-          "cexchain-bo 0.0.1; codegen 1; edition 1 ", "cexchain-bo ; codegen 1; edition 1",
-          "cexchain-bo a b; codegen 1; edition 1", "cexchain-bo 0.0.1;codegen 1; edition 1",
-          "cexchain-bo 0.0.1; codegen 99999999999999999999; edition 1",
+         {"", "bo 1.0", "kanhe-bo", "kanhe-bo 0.0.1", "kanhe-bo 0.0.1; codegen 1",
+          "kanhe-bo 0.0.1; codegen x; edition 1", "kanhe-bo 0.0.1; codegen 01; edition 1",
+          "kanhe-bo 0.0.1; codegen 1; edition 1 ", "kanhe-bo ; codegen 1; edition 1",
+          "kanhe-bo a b; codegen 1; edition 1", "kanhe-bo 0.0.1;codegen 1; edition 1",
+          "kanhe-bo 0.0.1; codegen 99999999999999999999; edition 1",
           "acme-bo 0.0.1; codegen 1; edition 1"}) {
         INFO(other);
         CHECK(!parse_compiler(other).has_value());
@@ -518,7 +518,7 @@ TEST_CASE("a built contract file (.boc) round-trips and refuses other shapes", "
     built.code = Bytes{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00};
     built.interface = {{"create", protocol::FunctionKind::create},
                        {"sign", protocol::FunctionKind::call}};
-    built.compiler = "cexchain-bo 0.0.1; codegen 1; edition 1";
+    built.compiler = "kanhe-bo 0.0.1; codegen 1; edition 1";
     built.source = encoded(bundle);
     built.name = "Deal";
     built.hash = crypto::HashAlg::sm3;

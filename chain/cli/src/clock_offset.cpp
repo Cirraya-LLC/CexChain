@@ -6,24 +6,24 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/ledger/environment.hpp>
+#include <kanhe/ledger/environment.hpp>
 
 #include "support.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
-/// $CEXCHAIN_CLOCK_OFFSET: a whole number of days, hours, minutes, or seconds
+/// $KANHE_CLOCK_OFFSET: a whole number of days, hours, minutes, or seconds
 /// (30d, 12h, 90m, 45s) by which this process's clock runs ahead of the
 /// computer's, so that time rules can be tried without waiting. For
 /// demonstrations and tests: a ledger keeps the times it records, and one
 /// that ran ahead is behind once the offset is gone.
 void apply_clock_offset() {
-    const char* env = std::getenv("CEXCHAIN_CLOCK_OFFSET");
+    const char* env = std::getenv("KANHE_CLOCK_OFFSET");
     if (env == nullptr || *env == '\0') {
         return;
     }
     const std::string_view text(env);
-    const UsageError bad{"CEXCHAIN_CLOCK_OFFSET is a whole number of days, hours, minutes, or "
+    const UsageError bad{"KANHE_CLOCK_OFFSET is a whole number of days, hours, minutes, or "
                          "seconds ahead, such as 30d, 12h, 90m, or 45s (at most 3660d), not '" +
                          std::string(text) + "'"};
     if (text.size() < 2 || text.size() > 10) {
@@ -60,4 +60,4 @@ void apply_clock_offset() {
     ledger::SystemClock::set_offset(count * unit);
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

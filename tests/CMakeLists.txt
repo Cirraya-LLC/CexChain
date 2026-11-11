@@ -1,28 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 
-# The core alone (CEXCHAIN_CORE_ONLY, Windows so far): its tests and the
+# The core alone (KANHE_CORE_ONLY, Windows so far): its tests and the
 # OpenSSL backend's.
-if(CEXCHAIN_CORE_ONLY)
+if(KANHE_CORE_ONLY)
     file(GLOB core_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/core/*_test.cpp)
-    add_executable(cexchain_core_tests ${core_tests} crypto/openssl_test.cpp
+    add_executable(kanhe_core_tests ${core_tests} crypto/openssl_test.cpp
         crypto/timestamp_test.cpp)
-    target_link_libraries(cexchain_core_tests PRIVATE
-        cexchain::core cexchain::crypto_openssl cexchain::verifier
+    target_link_libraries(kanhe_core_tests PRIVATE
+        kanhe::core kanhe::crypto_openssl kanhe::verifier
         Catch2::Catch2WithMain nlohmann_json::nlohmann_json OpenSSL::Crypto)
-    target_include_directories(cexchain_core_tests PRIVATE
+    target_include_directories(kanhe_core_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/chain/core/src)
-    target_compile_definitions(cexchain_core_tests PRIVATE
-        CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
-    target_compile_features(cexchain_core_tests PRIVATE cxx_std_26)
-    cexchain_target_defaults(cexchain_core_tests)
+    target_compile_definitions(kanhe_core_tests PRIVATE
+        KANHE_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+    target_compile_features(kanhe_core_tests PRIVATE cxx_std_26)
+    kanhe_target_defaults(kanhe_core_tests)
     list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
     include(Catch)
-    catch_discover_tests(cexchain_core_tests)
+    catch_discover_tests(kanhe_core_tests)
     return()
 endif()
 
-add_executable(cexchain_tests
+add_executable(kanhe_tests
     core/cbor_test.cpp
     core/contract_bytes_test.cpp
     core/cose_test.cpp
@@ -81,62 +81,62 @@ add_executable(cexchain_tests
     node/http_test.cpp
     node/keeper_api_test.cpp)
 
-target_link_libraries(cexchain_tests PRIVATE
-    cexchain::core
-    cexchain::crypto_openssl
-    cexchain::ledger
-    cexchain::node
-    cexchain::verifier
+target_link_libraries(kanhe_tests PRIVATE
+    kanhe::core
+    kanhe::crypto_openssl
+    kanhe::ledger
+    kanhe::node
+    kanhe::verifier
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)
 # Tests may reach into internal headers (e.g. ledger/src/crc32c.hpp,
 # core/src/vm/internal.hpp).
-target_include_directories(cexchain_tests PRIVATE
+target_include_directories(kanhe_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/chain/core/src
     ${PROJECT_SOURCE_DIR}/chain/ledger/src
     ${PROJECT_SOURCE_DIR}/chain/node/src)
 # The cluster's internals (node/src/cluster_parts.hpp) use NuRaft's headers.
-target_link_libraries(cexchain_tests PRIVATE cexchain_nuraft)
-target_compile_definitions(cexchain_tests PRIVATE
-    CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
-target_compile_features(cexchain_tests PRIVATE cxx_std_26)
-cexchain_target_defaults(cexchain_tests)
+target_link_libraries(kanhe_tests PRIVATE kanhe_nuraft)
+target_compile_definitions(kanhe_tests PRIVATE
+    KANHE_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+target_compile_features(kanhe_tests PRIVATE cxx_std_26)
+kanhe_target_defaults(kanhe_tests)
 
 list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
 include(Catch)
-catch_discover_tests(cexchain_tests)
+catch_discover_tests(kanhe_tests)
 
 # The applications' tests (the console and the search index), apart from the
-# chain's, which link no application (cmake/CexChainLayers.cmake). Labelled
+# chain's, which link no application (cmake/KanheLayers.cmake). Labelled
 # "apps", as are the applications' end-to-end tests: a change to an
 # application alone runs these.
-add_executable(cexchain_apps_tests console/console_test.cpp console/certificates_test.cpp
+add_executable(kanhe_apps_tests console/console_test.cpp console/certificates_test.cpp
     search/index_test.cpp)
-target_link_libraries(cexchain_apps_tests PRIVATE
-    cexchain::console
-    cexchain::core
-    cexchain::crypto_openssl
-    cexchain::ledger
-    cexchain::node
-    cexchain::search
-    cexchain::verifier
+target_link_libraries(kanhe_apps_tests PRIVATE
+    kanhe::console
+    kanhe::core
+    kanhe::crypto_openssl
+    kanhe::ledger
+    kanhe::node
+    kanhe::search
+    kanhe::verifier
     Catch2::Catch2WithMain
     nlohmann_json::nlohmann_json
     OpenSSL::Crypto)
-target_include_directories(cexchain_apps_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_definitions(cexchain_apps_tests PRIVATE
-    CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+target_include_directories(kanhe_apps_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(kanhe_apps_tests PRIVATE
+    KANHE_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
 # The console's rules routes run the compiler as `bo ...`: the tests run
 # this build's, where it has the compiler.
 if(TARGET bo)
-    add_dependencies(cexchain_apps_tests bo)
-    target_compile_definitions(cexchain_apps_tests PRIVATE BO_PROGRAM="$<TARGET_FILE:bo>")
+    add_dependencies(kanhe_apps_tests bo)
+    target_compile_definitions(kanhe_apps_tests PRIVATE BO_PROGRAM="$<TARGET_FILE:bo>")
 endif()
-target_compile_features(cexchain_apps_tests PRIVATE cxx_std_26)
-cexchain_target_defaults(cexchain_apps_tests)
-catch_discover_tests(cexchain_apps_tests PROPERTIES LABELS apps)
+target_compile_features(kanhe_apps_tests PRIVATE cxx_std_26)
+kanhe_target_defaults(kanhe_apps_tests)
+catch_discover_tests(kanhe_apps_tests PROPERTIES LABELS apps)
 
 # The interpreter's fuel at every instruction: a hidden case
 # writes runs of vm-v1.json and bo-v1.json with less fuel than they use, and
@@ -145,9 +145,9 @@ catch_discover_tests(cexchain_apps_tests PROPERTIES LABELS apps)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     set(vm_fuel_file ${CMAKE_CURRENT_BINARY_DIR}/vm-fuel-reference.json)
-    add_test(NAME vm_fuel_reference_runs COMMAND cexchain_tests "[.fuel-reference]")
+    add_test(NAME vm_fuel_reference_runs COMMAND kanhe_tests "[.fuel-reference]")
     set_tests_properties(vm_fuel_reference_runs PROPERTIES FIXTURES_SETUP vm_fuel_reference
-        ENVIRONMENT CEXCHAIN_VM_FUEL_REFERENCE=${vm_fuel_file})
+        ENVIRONMENT KANHE_VM_FUEL_REFERENCE=${vm_fuel_file})
     add_test(NAME vm_fuel_reference COMMAND ${Python3_EXECUTABLE}
         ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${vm_fuel_file})
     set_tests_properties(vm_fuel_reference PROPERTIES FIXTURES_REQUIRED vm_fuel_reference)
@@ -159,42 +159,42 @@ endif()
 # The Bo compiler: its front end with any compiler, the rest where it
 # builds (GCC 16). Labelled "bo": the GCC ASan+UBSan configuration builds and
 # runs these alone.
-add_executable(cexchain_bo_tests bo/calls_test.cpp bo/check_test.cpp bo/explain_test.cpp bo/form_test.cpp bo/format_test.cpp
+add_executable(kanhe_bo_tests bo/calls_test.cpp bo/check_test.cpp bo/explain_test.cpp bo/form_test.cpp bo/format_test.cpp
     bo/lexer_test.cpp
     bo/packs_test.cpp bo/parser_test.cpp bo/source_test.cpp bo/stdlib_test.cpp bo/vocab_test.cpp)
-target_link_libraries(cexchain_bo_tests PRIVATE
-    cexchain::bo_front
-    cexchain::crypto_openssl
+target_link_libraries(kanhe_bo_tests PRIVATE
+    kanhe::bo_front
+    kanhe::crypto_openssl
     Catch2::Catch2WithMain)
-target_include_directories(cexchain_bo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_definitions(cexchain_bo_tests PRIVATE
-    CEXCHAIN_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
-target_compile_features(cexchain_bo_tests PRIVATE cxx_std_26)
-cexchain_target_defaults(cexchain_bo_tests)
-if(TARGET cexchain_bo)
-    target_sources(cexchain_bo_tests PRIVATE bo/build_test.cpp bo/codegen_test.cpp
+target_include_directories(kanhe_bo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(kanhe_bo_tests PRIVATE
+    KANHE_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
+target_compile_features(kanhe_bo_tests PRIVATE cxx_std_26)
+kanhe_target_defaults(kanhe_bo_tests)
+if(TARGET kanhe_bo)
+    target_sources(kanhe_bo_tests PRIVATE bo/build_test.cpp bo/codegen_test.cpp
         bo/finance_terms_test.cpp bo/names_test.cpp bo/runtime_harness.cpp bo/runtime_test.cpp
         bo/scenario_test.cpp bo/form_build_test.cpp)
-    target_link_libraries(cexchain_bo_tests PRIVATE cexchain::bo nlohmann_json::nlohmann_json)
-    target_compile_definitions(cexchain_bo_tests PRIVATE
-        CEXCHAIN_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
+    target_link_libraries(kanhe_bo_tests PRIVATE kanhe::bo nlohmann_json::nlohmann_json)
+    target_compile_definitions(kanhe_bo_tests PRIVATE
+        KANHE_TESTVECTORS_DIR="${PROJECT_SOURCE_DIR}/testvectors")
     # The interpreter's internals (core/src/vm/internal.hpp): its measure of
     # each function's operand stack, against the emitter's.
-    target_include_directories(cexchain_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/chain/core/src)
+    target_include_directories(kanhe_bo_tests PRIVATE ${PROJECT_SOURCE_DIR}/chain/core/src)
 endif()
-catch_discover_tests(cexchain_bo_tests PROPERTIES LABELS bo)
+catch_discover_tests(kanhe_bo_tests PROPERTIES LABELS bo)
 
-# Fuzzing lowering. cexchain::bo needs C++26 reflection (GCC) and
+# Fuzzing lowering. kanhe::bo needs C++26 reflection (GCC) and
 # libFuzzer needs Clang, so bo_build_fuzz is built here with GCC and drives
 # itself from a contract generator (fuzz/bo_build_fuzz.cpp says how); CTest
 # runs a short round of it, under ASan and UBSan in gcc-asan.
-if(TARGET cexchain_bo)
+if(TARGET kanhe_bo)
     add_executable(bo_build_fuzz ${PROJECT_SOURCE_DIR}/fuzz/bo_build_fuzz.cpp)
-    target_link_libraries(bo_build_fuzz PRIVATE cexchain::bo cexchain::crypto_openssl)
-    target_compile_definitions(bo_build_fuzz PRIVATE CEXCHAIN_BO_FUZZ_DRIVER=1
-        CEXCHAIN_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
+    target_link_libraries(bo_build_fuzz PRIVATE kanhe::bo kanhe::crypto_openssl)
+    target_compile_definitions(bo_build_fuzz PRIVATE KANHE_BO_FUZZ_DRIVER=1
+        KANHE_BO_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bo/golden")
     target_compile_features(bo_build_fuzz PRIVATE cxx_std_26)
-    cexchain_target_defaults(bo_build_fuzz)
+    kanhe_target_defaults(bo_build_fuzz)
     add_test(NAME bo_build_fuzz COMMAND bo_build_fuzz -runs=400 -seed=6)
     set_tests_properties(bo_build_fuzz PROPERTIES LABELS bo)
 endif()
@@ -203,22 +203,22 @@ endif()
 # the runtime's harness modules (module, input, outcome, output, fuel), and
 # the independent Python interpreter must reproduce each exactly. Skipped
 # where there is no Python 3 (it needs the standard library only).
-if(TARGET cexchain_bo)
+if(TARGET kanhe_bo)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         set(bo_reference_file ${CMAKE_CURRENT_BINARY_DIR}/bo-reference.json)
-        add_test(NAME bo_reference_runs COMMAND cexchain_bo_tests "[.reference]")
+        add_test(NAME bo_reference_runs COMMAND kanhe_bo_tests "[.reference]")
         set_tests_properties(bo_reference_runs PROPERTIES LABELS bo
-            FIXTURES_SETUP bo_reference ENVIRONMENT CEXCHAIN_BO_REFERENCE=${bo_reference_file})
+            FIXTURES_SETUP bo_reference ENVIRONMENT KANHE_BO_REFERENCE=${bo_reference_file})
         add_test(NAME bo_reference COMMAND ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_reference_file})
         set_tests_properties(bo_reference PROPERTIES LABELS bo FIXTURES_REQUIRED bo_reference)
         # Compiled contracts: every run of the codegen tests' scenarios.
         set(bo_codegen_file ${CMAKE_CURRENT_BINARY_DIR}/bo-codegen-reference.json)
-        add_test(NAME bo_codegen_reference_runs COMMAND cexchain_bo_tests "[.codegen-reference]")
+        add_test(NAME bo_codegen_reference_runs COMMAND kanhe_bo_tests "[.codegen-reference]")
         set_tests_properties(bo_codegen_reference_runs PROPERTIES LABELS bo
             FIXTURES_SETUP bo_codegen_reference
-            ENVIRONMENT CEXCHAIN_BO_CODEGEN_REFERENCE=${bo_codegen_file})
+            ENVIRONMENT KANHE_BO_CODEGEN_REFERENCE=${bo_codegen_file})
         add_test(NAME bo_codegen_reference COMMAND ${Python3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/testvectors/wasm_ref.py --check ${bo_codegen_file})
         set_tests_properties(bo_codegen_reference PROPERTIES LABELS bo
@@ -231,143 +231,143 @@ endif()
 
 # The command-line tool, end to end, as a user would run it.
 add_test(NAME cli_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/end_to_end.sh $<TARGET_FILE:kanhe>)
 add_test(NAME mcp_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/mcp.sh $<TARGET_FILE:kanhe>)
 add_test(NAME serve_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/serve.sh $<TARGET_FILE:kanhe>)
 add_test(NAME console_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/console.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/console.sh $<TARGET_FILE:kanhe>)
 # Certificates: issued from a table, published, printed (the console's commands).
 add_test(NAME certificates_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/certificates.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/certificates.sh $<TARGET_FILE:kanhe>)
 add_test(NAME access_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/access.sh $<TARGET_FILE:kanhe>)
 add_test(NAME parties_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/parties.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/parties.sh $<TARGET_FILE:kanhe>)
 add_test(NAME public_witness_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/public_witness.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/public_witness.sh $<TARGET_FILE:kanhe>)
 add_test(NAME relay_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/relay.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/relay.sh $<TARGET_FILE:kanhe>)
 add_test(NAME contracts_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/contracts.sh $<TARGET_FILE:kanhe>)
 # Proposal and consent files between ledgers (lending.bo: needs the compiler).
-if(TARGET cexchain_bo)
+if(TARGET kanhe_bo)
     add_test(NAME exchange_end_to_end
-        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/exchange.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/exchange.sh $<TARGET_FILE:kanhe>)
 endif()
 add_test(NAME requests_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/requests.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/requests.sh $<TARGET_FILE:kanhe>)
 add_test(NAME keeper_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/keeper.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/keeper.sh $<TARGET_FILE:kanhe>)
 add_test(NAME executor_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor.sh $<TARGET_FILE:kanhe>)
 add_test(NAME files_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/files.sh $<TARGET_FILE:kanhe>)
 # Claims: conditions confirmed on a record's fields, without them.
 add_test(NAME claims_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/claims.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/claims.sh $<TARGET_FILE:kanhe>)
 # Trust nodes: memberships, their proofs, and the evidence that carries them.
 add_test(NAME trust_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/trust.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/trust.sh $<TARGET_FILE:kanhe>)
 # Records published at a private address (a certificate's QR code).
 add_test(NAME published_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/published.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/published.sh $<TARGET_FILE:kanhe>)
 add_test(NAME versions_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/versions.sh $<TARGET_FILE:kanhe>)
 # Snapshots of the state: opens start from them, audit and a server check them.
 add_test(NAME snapshots_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/snapshots.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/snapshots.sh $<TARGET_FILE:kanhe>)
 # Time-stamp authorities (RFC 3161) over checkpoints, with OpenSSL's responder.
 add_test(NAME timestamps_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/timestamps.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/timestamps.sh $<TARGET_FILE:kanhe>)
 # Open witness networks (C2SP), against a witness written from c2sp.org's texts.
 add_test(NAME network_witness_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/network_witness.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/network_witness.sh $<TARGET_FILE:kanhe>)
 add_test(NAME search_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/search.sh $<TARGET_FILE:kanhe>)
 add_test(NAME client_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/client.sh $<TARGET_FILE:kanhe>)
 add_test(NAME cluster_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/cluster.sh $<TARGET_FILE:kanhe>)
 # An executor as a service while the cluster's members restart.
 add_test(NAME executor_cluster_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_cluster.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_cluster.sh $<TARGET_FILE:kanhe>)
 # An executor working requests at once, killed and restarted.
 add_test(NAME executor_concurrency_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_concurrency.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/executor_concurrency.sh $<TARGET_FILE:kanhe>)
 # The product's own texts are generic: no industry words in help,
 # completion, MCP descriptions, or the browser page.
 add_test(NAME generic_words
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/generic_words.sh $<TARGET_FILE:kanhe>)
 add_test(NAME rotation_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/rotation.sh $<TARGET_FILE:kanhe>)
 # The independent verifier (verifiers/python, written from the specification
-# alone) against `cexchain verify`, bundle by bundle. It needs a Python with
-# verifiers/python/requirements.txt, CEXCHAIN_PYTHON or python3; without one
+# alone) against `kanhe verify`, bundle by bundle. It needs a Python with
+# verifiers/python/requirements.txt, KANHE_PYTHON or python3; without one
 # it is skipped.
 add_test(NAME verifier_python_end_to_end
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/python_verifier.sh $<TARGET_FILE:cexchain>)
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/python_verifier.sh $<TARGET_FILE:kanhe>)
 set_tests_properties(verifier_python_end_to_end PROPERTIES SKIP_RETURN_CODE 77)
 # The conformance suite (testvectors/evidence-v1.json), made apart from both
 # verifiers, through the command line; the Python verifier runs it too.
 if(Python3_Interpreter_FOUND)
     add_test(NAME verifier_conformance
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/verifiers/conformance.py
-            $<TARGET_FILE:cexchain> ${PROJECT_SOURCE_DIR}/testvectors/evidence-v1.json)
+            $<TARGET_FILE:kanhe> ${PROJECT_SOURCE_DIR}/testvectors/evidence-v1.json)
 endif()
 # The applications' end-to-end tests (generic_words reads every program).
 set_tests_properties(console_end_to_end certificates_end_to_end search_end_to_end generic_words
     PROPERTIES LABELS apps)
 # The Bo commands exist where the compiler does.
-if(TARGET cexchain_bo)
+if(TARGET kanhe_bo)
     add_test(NAME bo_end_to_end
-        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/bo.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/bo.sh $<TARGET_FILE:kanhe>)
     # The examples library (examples/), so every example keeps working; their
     # contracts are written in Bo. A camera lent between two people.
     add_test(NAME demo_lending
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/lending/lending.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/lending/lending.sh $<TARGET_FILE:kanhe>)
     # A day student's application signed by four offices while the form changes.
     add_test(NAME demo_day_student
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/day-student/day-student.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/day-student/day-student.sh $<TARGET_FILE:kanhe>)
     # A supply agreement signed by three organizations.
     add_test(NAME demo_supply_agreement
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/supply-agreement/supply-agreement.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/supply-agreement/supply-agreement.sh $<TARGET_FILE:kanhe>)
     # Multi-tier supply-chain finance: a receivable split down a supply chain.
     add_test(NAME demo_multi_tier_split
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/multi-tier-split/multi-tier-split.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/multi-tier-split/multi-tier-split.sh $<TARGET_FILE:kanhe>)
     # A receivable pledged to a bank, released, sold, and paid.
     add_test(NAME demo_receivable_financing
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/receivable-financing/receivable-financing.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/receivable-financing/receivable-financing.sh $<TARGET_FILE:kanhe>)
     # A concert ticket in the words of a vocabulary pack of one's own.
     add_test(NAME demo_events
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/events/events.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/events/events.sh $<TARGET_FILE:kanhe>)
     # A server rented and billed each month: a cluster with its keeper, an
     # executor with two webhooks, an AI agent through MCP, a payment by hand.
     add_test(NAME demo_idc_hosting
-        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/idc-hosting/idc-hosting.sh $<TARGET_FILE:cexchain>)
+        COMMAND bash ${PROJECT_SOURCE_DIR}/examples/idc-hosting/idc-hosting.sh $<TARGET_FILE:kanhe>)
 endif()
 
 # Keys on tokens (HSMs, USB keys), when SoftHSM is installed to stand in.
-if(TARGET cexchain_crypto_pkcs11)
-    target_sources(cexchain_tests PRIVATE crypto/pkcs11_uri_test.cpp)
-    target_link_libraries(cexchain_tests PRIVATE cexchain::crypto_pkcs11)
-    find_program(CEXCHAIN_SOFTHSM_UTIL softhsm2-util)
-    find_file(CEXCHAIN_SOFTHSM_MODULE libsofthsm2.so
+if(TARGET kanhe_crypto_pkcs11)
+    target_sources(kanhe_tests PRIVATE crypto/pkcs11_uri_test.cpp)
+    target_link_libraries(kanhe_tests PRIVATE kanhe::crypto_pkcs11)
+    find_program(KANHE_SOFTHSM_UTIL softhsm2-util)
+    find_file(KANHE_SOFTHSM_MODULE libsofthsm2.so
         PATHS /usr/lib/softhsm /usr/local/lib/softhsm /opt/homebrew/lib/softhsm
               /usr/lib/x86_64-linux-gnu/softhsm /usr/lib/aarch64-linux-gnu/softhsm
         NO_DEFAULT_PATH)
-    if(CEXCHAIN_SOFTHSM_UTIL AND CEXCHAIN_SOFTHSM_MODULE)
+    if(KANHE_SOFTHSM_UTIL AND KANHE_SOFTHSM_MODULE)
         add_test(NAME cli_pkcs11
-            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/pkcs11.sh $<TARGET_FILE:cexchain>
-                    ${CEXCHAIN_SOFTHSM_MODULE})
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/pkcs11.sh $<TARGET_FILE:kanhe>
+                    ${KANHE_SOFTHSM_MODULE})
         # A shipment's chain of custody (examples/), whose driver proves
         # presence with a hardware key: SoftHSM stands in for it.
-        if(TARGET cexchain_bo)
+        if(TARGET kanhe_bo)
             add_test(NAME demo_shipment
-                COMMAND bash ${PROJECT_SOURCE_DIR}/examples/shipment/shipment.sh $<TARGET_FILE:cexchain>)
+                COMMAND bash ${PROJECT_SOURCE_DIR}/examples/shipment/shipment.sh $<TARGET_FILE:kanhe>)
             set_tests_properties(demo_shipment PROPERTIES
-                ENVIRONMENT "PKCS11_MODULE=${CEXCHAIN_SOFTHSM_MODULE}")
+                ENVIRONMENT "PKCS11_MODULE=${KANHE_SOFTHSM_MODULE}")
         endif()
     else()
         message(STATUS "SoftHSM not found: skipping the token tests")
@@ -383,7 +383,7 @@ set(bench_smoke
     "http\;--mode\;submit\;--requests\;100\;--connections\;4\;--server-threads\;1\;--client-threads\;1"
     "executor\;--requests\;3"
     "executor\;--requests\;3\;--connector\;webhook\;--concurrency\;2")
-if(TARGET cexchain_bo)
+if(TARGET kanhe_bo)
     list(APPEND bench_smoke
         "contracts\;--instances\;10\;--calls\;2\;--lines\;10\;--repeat\;2"
         "evidence\;--history\;6\;--entries\;20\;--repeat\;1"
@@ -399,6 +399,6 @@ foreach(arguments IN LISTS bench_smoke)
     string(REGEX REPLACE "_--.*" "" name "${flat}")
     string(REGEX MATCH "--(mode|connector)_[a-z]+" mode "${flat}")
     string(REGEX REPLACE "--(mode|connector)_" "_" mode "${mode}")
-    add_test(NAME bench_${name}${mode} COMMAND cexchain-bench ${arguments})
+    add_test(NAME bench_${name}${mode} COMMAND kanhe-bench ${arguments})
     set_tests_properties(bench_${name}${mode} PROPERTIES LABELS bench)
 endforeach()

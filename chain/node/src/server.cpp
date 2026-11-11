@@ -19,9 +19,9 @@
 
 #include <openssl/ssl.h>
 
-#include <cexchain/node/server.hpp>
+#include <kanhe/node/server.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -693,4 +693,4 @@ void Server::stop() {
     asio::post(impl_->control, [this] { impl_->begin_stop(); });
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

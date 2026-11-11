@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# CexChain's Linux packages, each as a tarball, a .deb, and, where rpmbuild
-# is installed, an .rpm: cexchain, the chain (the cexchain tool, the search
-# index, and a ledger server unit), what a server needs; and cexchain-console,
+# Kanhe's Linux packages, each as a tarball, a .deb, and, where rpmbuild
+# is installed, an .rpm: kanhe, the chain (the kanhe tool, the search
+# index, and a ledger server unit), what a server needs; and kanhe-console,
 # the web console and the bo compiler, with a menu entry and a unit for a
-# company's console, which needs cexchain of the same version. Run in the
+# company's console, which needs kanhe of the same version. Run in the
 # gcc:16-trixie container (as CI and the Docker image build), from anywhere in
 # the source tree:
 #
@@ -31,18 +31,18 @@ case "$ARCH" in
 esac
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ \
-    -DCEXCHAIN_BUILD_TESTS=OFF -DCEXCHAIN_BO=ON \
+    -DKANHE_BUILD_TESTS=OFF -DKANHE_BO=ON \
     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
-    ${WASM_DIR:+-DCEXCHAIN_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
-CHAIN=(cexchain cexchain-index)
-CONSOLE=(cexchain-console bo)
+    ${WASM_DIR:+-DKANHE_CONSOLE_WASM_DIR="$WASM_DIR"} > /dev/null
+CHAIN=(kanhe kanhe-index)
+CONSOLE=(kanhe-console bo)
 cmake --build "$BUILD" --target "${CHAIN[@]}" "${CONSOLE[@]}"
 for p in "${CHAIN[@]}" "${CONSOLE[@]}"; do
     strip "$BUILD/bin/$p"
     "$BUILD/bin/$p" version > /dev/null
 done
 LINUX="$ROOT/tools/package/linux"
-DESCRIPTION="CexChain keeps an organization's records, rules, and approvals on its own
+DESCRIPTION="Kanhe keeps an organization's records, rules, and approvals on its own
 ledger, so that anyone can verify them without trusting a platform."
 
 # Stages a package's tree under $BUILD/stage/NAME/usr: programs and their
@@ -61,31 +61,31 @@ stage() {
     install -Dm644 "$ROOT/THIRD_PARTY_NOTICES.md" "$dir/usr/share/doc/$name/THIRD_PARTY_NOTICES.md"
 }
 
-stage cexchain "${CHAIN[@]}"
-STAGE="$BUILD/stage/cexchain"
-install -Dm644 "$LINUX/cexchain.service" "$STAGE/usr/lib/systemd/system/cexchain.service"
-install -Dm644 "$LINUX/cexchain.sysusers" "$STAGE/usr/lib/sysusers.d/cexchain.conf"
-install -Dm644 "$LINUX/serve.env" "$STAGE/etc/cexchain/serve.env"
-if [ -n "${WASM_DIR:-}" ] && [ -f "$WASM_DIR/cexchain-verify.html" ]; then
-    install -Dm644 "$WASM_DIR/cexchain-verify.html" "$STAGE/usr/share/cexchain/cexchain-verify.html"
+stage kanhe "${CHAIN[@]}"
+STAGE="$BUILD/stage/kanhe"
+install -Dm644 "$LINUX/kanhe.service" "$STAGE/usr/lib/systemd/system/kanhe.service"
+install -Dm644 "$LINUX/kanhe.sysusers" "$STAGE/usr/lib/sysusers.d/kanhe.conf"
+install -Dm644 "$LINUX/serve.env" "$STAGE/etc/kanhe/serve.env"
+if [ -n "${WASM_DIR:-}" ] && [ -f "$WASM_DIR/kanhe-verify.html" ]; then
+    install -Dm644 "$WASM_DIR/kanhe-verify.html" "$STAGE/usr/share/kanhe/kanhe-verify.html"
 fi
 
-stage cexchain-console "${CONSOLE[@]}"
-STAGE="$BUILD/stage/cexchain-console"
-install -Dm644 "$LINUX/cexchain-console.desktop" \
-    "$STAGE/usr/share/applications/cexchain-console.desktop"
-install -Dm644 "$LINUX/cexchain-console.service" \
-    "$STAGE/usr/lib/systemd/system/cexchain-console.service"
-install -Dm644 "$LINUX/console.env" "$STAGE/etc/cexchain/console.env"
+stage kanhe-console "${CONSOLE[@]}"
+STAGE="$BUILD/stage/kanhe-console"
+install -Dm644 "$LINUX/kanhe-console.desktop" \
+    "$STAGE/usr/share/applications/kanhe-console.desktop"
+install -Dm644 "$LINUX/kanhe-console.service" \
+    "$STAGE/usr/lib/systemd/system/kanhe-console.service"
+install -Dm644 "$LINUX/console.env" "$STAGE/etc/kanhe/console.env"
 
 # What each package's scripts do: the server units' user (sysusers.d, or by
 # hand where systemd is not), the menu, and systemd's view of the units.
 # Removing a package keeps every ledger, console, and backup.
 ADD_USER='if command -v systemd-sysusers > /dev/null; then
-    systemd-sysusers cexchain.conf || true
-elif ! id cexchain > /dev/null 2>&1 && command -v useradd > /dev/null; then
-    useradd --system --home-dir /var/lib/cexchain --shell /usr/sbin/nologin \
-        --comment "CexChain ledger server" cexchain || true
+    systemd-sysusers kanhe.conf || true
+elif ! id kanhe > /dev/null 2>&1 && command -v useradd > /dev/null; then
+    useradd --system --home-dir /var/lib/kanhe --shell /usr/sbin/nologin \
+        --comment "Kanhe ledger server" kanhe || true
 fi'
 MENU='command -v update-desktop-database > /dev/null && update-desktop-database -q || true'
 UNITS='command -v systemctl > /dev/null && [ -d /run/systemd/system ] && systemctl daemon-reload || true'
@@ -118,7 +118,7 @@ Installed-Size: $(du -sk "$deb" | cut -f1)
 Depends: $depends
 Section: utils
 Priority: optional
-Homepage: https://github.com/Cirraya-LLC/CexChain
+Homepage: https://github.com/Cirraya-LLC/Kanhe
 Description: $summary
 $(fmt -w 74 <<< "$text" | sed 's/^/ /')
 CONTROL
@@ -139,7 +139,7 @@ Version: $VERSION
 Release: 1
 Summary: $summary
 License: Apache-2.0
-URL: https://github.com/Cirraya-LLC/CexChain
+URL: https://github.com/Cirraya-LLC/Kanhe
 Requires: $requires
 AutoReqProv: no
 
@@ -164,12 +164,12 @@ SPEC
     echo "wrote $(ls "$OUT"/"$name"-[0-9]*.rpm)"
 }
 
-package cexchain "Verifiable records between organizations, people, and AI agents" \
-    "This package installs the cexchain tool, the search index (cexchain-index), and a ledger server unit for companies (not enabled)." \
+package kanhe "Verifiable records between organizations, people, and AI agents" \
+    "This package installs the kanhe tool, the search index (kanhe-index), and a ledger server unit for companies (not enabled)." \
     "libssl3t64 (>= 3.5) | libssl3 (>= 3.5), ca-certificates" "openssl-libs >= 3.5, ca-certificates" \
-    /etc/cexchain/serve.env "$UNITS"
-package cexchain-console "CexChain's web console and the bo compiler" \
-    "This package installs the web console (cexchain-console open), the bo contract compiler, and a unit for a company's console (not enabled)." \
-    "cexchain (= $VERSION)" "cexchain = $VERSION" \
-    /etc/cexchain/console.env "$MENU
+    /etc/kanhe/serve.env "$UNITS"
+package kanhe-console "Kanhe's web console and the bo compiler" \
+    "This package installs the web console (kanhe-console open), the bo contract compiler, and a unit for a company's console (not enabled)." \
+    "kanhe (= $VERSION)" "kanhe = $VERSION" \
+    /etc/kanhe/console.env "$MENU
 $UNITS"

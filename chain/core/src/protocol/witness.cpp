@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/witness.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/witness.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 using detail::entry;
 using detail::MapReader;
@@ -47,23 +47,23 @@ Result<Bytes> encode_cosign_request(const CosignRequest& request) {
 }
 
 Result<CosignRequest> decode_cosign_request(ByteView encoded) {
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
     CosignRequest request;
-    CEXCHAIN_TRY(request.checkpoint, reader.need_bytes(1));
-    CEXCHAIN_TRY(request.old_size, reader.need_uint(2));
-    CEXCHAIN_TRY(const cbor::Value* proof_value, reader.need(3));
-    CEXCHAIN_TRY(const cbor::Array* proof, detail::as_array(*proof_value));
+    KANHE_TRY(request.checkpoint, reader.need_bytes(1));
+    KANHE_TRY(request.old_size, reader.need_uint(2));
+    KANHE_TRY(const cbor::Value* proof_value, reader.need(3));
+    KANHE_TRY(const cbor::Array* proof, detail::as_array(*proof_value));
     if (proof->size() > merkle::max_consistency_proof_length) {
         return fail(Errc::malformed, "consistency proof is too long");
     }
     for (const cbor::Value& node : *proof) {
-        CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
-        CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+        KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
+        KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
         request.proof.push_back(digest);
     }
     if (const cbor::Value* list_value = reader.get(4)) {
-        CEXCHAIN_TRY(const cbor::Array* list, detail::as_array(*list_value));
+        KANHE_TRY(const cbor::Array* list, detail::as_array(*list_value));
         if (list->empty()) {
             return fail(Errc::non_canonical, "an empty list of key rotations must be omitted");
         }
@@ -76,21 +76,21 @@ Result<CosignRequest> decode_cosign_request(ByteView encoded) {
                 return fail(Errc::malformed, "a key rotation must be [index, entry, path]");
             }
             KeyRotationProof r;
-            CEXCHAIN_TRY(r.index, detail::as_uint((*parts)[0]));
-            CEXCHAIN_TRY(r.entry, detail::as_bytes_value((*parts)[1]));
-            CEXCHAIN_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
+            KANHE_TRY(r.index, detail::as_uint((*parts)[0]));
+            KANHE_TRY(r.entry, detail::as_bytes_value((*parts)[1]));
+            KANHE_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
             if (path->size() > merkle::max_consistency_proof_length) {
                 return fail(Errc::malformed, "an inclusion proof is too long");
             }
             for (const cbor::Value& node : *path) {
-                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
-                CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
+                KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
                 r.path.push_back(digest);
             }
             request.rotations.push_back(std::move(r));
         }
     }
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_CHECK(reader.finish());
     return request;
 }
 
@@ -119,7 +119,7 @@ Result<WitnessedLog> follow_rotations(const crypto::Provider& provider, const Wi
                         "key rotations must ascend, below the checkpoint's size");
         }
         previous = r.index;
-        CEXCHAIN_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, c.tree_hash, r.entry));
+        KANHE_TRY(crypto::Digest leaf, merkle::leaf_hash(provider, c.tree_hash, r.entry));
         auto root = merkle::root_from_inclusion_proof(provider, c.tree_hash, leaf, r.index,
                                                       c.tree_size, r.path);
         if (!root || *root != c.root) {
@@ -146,7 +146,7 @@ Result<WitnessedLog> follow_rotations(const crypto::Provider& provider, const Wi
 
 Result<CosignApproval> check_cosign_request(const crypto::Provider& provider,
                                             const WitnessedLog& log, const CosignRequest& request) {
-    CEXCHAIN_TRY(SignedCheckpoint signed_checkpoint, parse_checkpoint(request.checkpoint));
+    KANHE_TRY(SignedCheckpoint signed_checkpoint, parse_checkpoint(request.checkpoint));
     const Checkpoint& c = signed_checkpoint.checkpoint;
     if (c.ledger_id != log.ledger_id) {
         return fail(Errc::verification_failed, "the checkpoint belongs to another ledger");
@@ -155,7 +155,7 @@ Result<CosignApproval> check_cosign_request(const crypto::Provider& provider,
         return fail(Errc::verification_failed,
                     "the checkpoint uses a different tree hash than before");
     }
-    CEXCHAIN_TRY(WitnessedLog next, follow_rotations(provider, log, c, request.rotations));
+    KANHE_TRY(WitnessedLog next, follow_rotations(provider, log, c, request.rotations));
     if (!verify_checkpoint(provider, signed_checkpoint, next.log_key)) {
         return fail(Errc::verification_failed,
                     "the checkpoint is not signed by the ledger's log key");
@@ -170,7 +170,7 @@ Result<CosignApproval> check_cosign_request(const crypto::Provider& provider,
     }
     crypto::Digest old_root = log.root;
     if (log.size == 0) {
-        CEXCHAIN_TRY(old_root, merkle::empty_root(provider, c.tree_hash));
+        KANHE_TRY(old_root, merkle::empty_root(provider, c.tree_hash));
     }
     if (!merkle::verify_consistency(provider, c.tree_hash, log.size, c.tree_size, old_root, c.root,
                                     request.proof)) {
@@ -189,4 +189,4 @@ WitnessedLog advance(WitnessedLog log, const Checkpoint& checkpoint) {
     return log;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

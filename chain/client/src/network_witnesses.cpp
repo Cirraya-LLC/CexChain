@@ -5,11 +5,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/network_witnesses.hpp>
-#include <cexchain/client/support.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/network_witnesses.hpp>
+#include <kanhe/client/support.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 std::vector<UsedNetworkWitness> load_network_witnesses(const std::filesystem::path& ledger,
                                                        const crypto::Provider& provider) {
@@ -57,4 +57,4 @@ std::string log_list_entry(const protocol::network::VerifierKey& note_key, std::
                        protocol::network::verifier_key_text(note_key), per_day, contact);
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

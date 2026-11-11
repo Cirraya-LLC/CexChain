@@ -14,22 +14,22 @@
 #include <string>
 #include <unistd.h>
 
-#include <cexchain/client/relay.hpp>
-#include <cexchain/client/relay_server.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/client/relay.hpp>
+#include <kanhe/client/relay_server.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 namespace {
 
 struct World {
-    std::filesystem::path dir = std::filesystem::temp_directory_path() /
-                                ("cexchain-relay-fuzz-" + std::to_string(::getpid()));
-    std::unique_ptr<cexchain::client::Relay> relay;
-    cexchain::crypto::openssl::HpkeKey key = *cexchain::crypto::openssl::HpkeKey::generate();
+    std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / ("kanhe-relay-fuzz-" + std::to_string(::getpid()));
+    std::unique_ptr<kanhe::client::Relay> relay;
+    kanhe::crypto::openssl::HpkeKey key = *kanhe::crypto::openssl::HpkeKey::generate();
 
     World() {
         std::filesystem::remove_all(dir);
-        relay = std::make_unique<cexchain::client::Relay>(dir / "relay", dir / "witness",
-                                                          cexchain::client::RelayLimits{});
+        relay = std::make_unique<kanhe::client::Relay>(dir / "relay", dir / "witness",
+                                                       kanhe::client::RelayLimits{});
     }
 };
 
@@ -37,23 +37,23 @@ struct World {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     static World world;
-    const cexchain::ByteView bytes(data, size);
-    if (const auto message = cexchain::client::parse_relay_message(bytes)) {
-        static_cast<void>(cexchain::client::open_relay_request(world.key, message->envelope));
-        static_cast<void>(cexchain::client::open_relay_answer(
+    const kanhe::ByteView bytes(data, size);
+    if (const auto message = kanhe::client::parse_relay_message(bytes)) {
+        static_cast<void>(kanhe::client::open_relay_request(world.key, message->envelope));
+        static_cast<void>(kanhe::client::open_relay_answer(
             world.key, message->envelope.to, message->envelope.from, message->envelope.id,
             message->envelope.sealed));
     }
     const std::string text(reinterpret_cast<const char*>(data), size);
-    static_cast<void>(cexchain::client::parse_relay_authorization(text));
-    static_cast<void>(cexchain::client::parse_relay_authorization("CexChain-Relay " + text));
+    static_cast<void>(kanhe::client::parse_relay_authorization(text));
+    static_cast<void>(kanhe::client::parse_relay_authorization("Kanhe-Relay " + text));
 
-    cexchain::node::http::Request request;
+    kanhe::node::http::Request request;
     request.method = "POST";
     request.target = request.path = "/v1/relay/messages";
     request.body.assign(bytes.begin(), bytes.end());
     bool answered = false;
-    world.relay->handle(request, 1'800'000'000'000, [&](cexchain::node::http::Response r) {
+    world.relay->handle(request, 1'800'000'000'000, [&](kanhe::node::http::Response r) {
         answered = true;
         if (r.status / 100 == 2) {
             __builtin_trap();

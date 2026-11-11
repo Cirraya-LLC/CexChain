@@ -9,15 +9,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
 
 #include "support/ledger_world.hpp"
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
-namespace cbor = cexchain::cbor;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
+namespace cbor = kanhe::cbor;
 
 namespace {
 
@@ -60,8 +60,8 @@ Bytes evidence(World& w, const protocol::Id& record, std::vector<Bytes> membersh
 } // namespace
 
 TEST_CASE("a trust node's memberships: the ledger's rules", "[memberships][ledger]") {
-    World node(cexchain::crypto::HashAlg::sha256, "Trust Node");
-    World member(cexchain::crypto::HashAlg::sha256, "Kowloon Example School");
+    World node(kanhe::crypto::HashAlg::sha256, "Trust Node");
+    World member(kanhe::crypto::HashAlg::sha256, "Kowloon Example School");
     const auto m = membership_of(member.ledger().id());
     const auto made = node.ok(node.org(), membership_statement(node, m));
     CHECK(node.ledger().state().record(made)->state == "active");
@@ -91,8 +91,8 @@ TEST_CASE("a trust node's memberships: the ledger's rules", "[memberships][ledge
 
 TEST_CASE("a member's evidence carries its memberships, and says where they stood",
           "[memberships][evidence]") {
-    World node(cexchain::crypto::HashAlg::sha256, "Trust Node");
-    World member(cexchain::crypto::HashAlg::sha256, "Kowloon Example School");
+    World node(kanhe::crypto::HashAlg::sha256, "Trust Node");
+    World member(kanhe::crypto::HashAlg::sha256, "Kowloon Example School");
     const auto m = membership_of(member.ledger().id());
     const auto made = node.ok(node.org(), membership_statement(node, m));
     const Bytes proof = evidence(node, made);
@@ -136,7 +136,7 @@ TEST_CASE("a member's evidence carries its memberships, and says where they stoo
     CHECK(report->memberships.front().at_checkpoint == S::suspended);
 
     // A record older than the membership: not yet a member then.
-    World early(cexchain::crypto::HashAlg::sha256, "Early School");
+    World early(kanhe::crypto::HashAlg::sha256, "Early School");
     const auto early_record =
         early.ok(early.org(), early.statement(early.org_id(), std::nullopt,
                                               early.record_body("example.org.diploma/1")));

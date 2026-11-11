@@ -10,13 +10,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain::test {
+namespace kanhe::test {
 
 /// Loads a JSON file from the shared testvectors/ directory.
 inline nlohmann::json load_vectors(std::string_view file) {
-    const std::string path = std::string(CEXCHAIN_TESTVECTORS_DIR) + "/" + std::string(file);
+    const std::string path = std::string(KANHE_TESTVECTORS_DIR) + "/" + std::string(file);
     std::ifstream in(path);
     REQUIRE(in.good());
     return nlohmann::json::parse(in);
@@ -34,4 +34,4 @@ inline Bytes hex_field(const nlohmann::json& value) {
     return hex(value.get<std::string>());
 }
 
-} // namespace cexchain::test
+} // namespace kanhe::test

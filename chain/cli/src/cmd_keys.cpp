@@ -3,13 +3,13 @@
 
 #include <print>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -152,7 +152,7 @@ int cmd_key_passphrase(const Args& args) {
     }
     const std::optional<std::string> secret =
         encrypt ? std::optional(passphrase(args, path.string() + " (new)", true,
-                                           "new-passphrase-file", "CEXCHAIN_NEW_PASSPHRASE"))
+                                           "new-passphrase-file", "KANHE_NEW_PASSPHRASE"))
                 : std::nullopt;
     save_key(path, key, secret);
     if (args.json()) {
@@ -165,4 +165,4 @@ int cmd_key_passphrase(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

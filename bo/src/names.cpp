@@ -14,12 +14,12 @@
 #include <string_view>
 #include <type_traits>
 
-#include <cexchain/bo/names.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/bo/names.hpp>
+#include <kanhe/core/bytes.hpp>
 
 #include "reflection.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -183,4 +183,4 @@ cbor::Value to_cbor(const PackFacts& facts) {
     return members_to_cbor(facts);
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

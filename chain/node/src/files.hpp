@@ -5,10 +5,10 @@
 
 #include <filesystem>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/error.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/error.hpp>
 
-namespace cexchain::node::detail {
+namespace kanhe::node::detail {
 
 /// The whole file; Errc::not_found if it does not exist.
 [[nodiscard]] Result<Bytes> read_file(const std::filesystem::path& path);
@@ -22,4 +22,4 @@ namespace cexchain::node::detail {
 /// Syncs a directory, so that the files renamed into it are durable.
 void sync_directory(const std::filesystem::path& directory);
 
-} // namespace cexchain::node::detail
+} // namespace kanhe::node::detail

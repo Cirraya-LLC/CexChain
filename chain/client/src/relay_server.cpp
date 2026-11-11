@@ -9,13 +9,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/relay_server.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/relay_server.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/core/cbor.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -348,7 +348,7 @@ std::variant<protocol::Id, Response> Relay::fetcher(const node::http::Request& r
     }
     const auto header = request.header("authorization");
     if (!header) {
-        return refusal(401, "unauthorized", "send Authorization: CexChain-Relay <signed fetch>");
+        return refusal(401, "unauthorized", "send Authorization: Kanhe-Relay <signed fetch>");
     }
     auto who = parse_relay_authorization(*header);
     if (!who || who->ledger != *ledger) {
@@ -412,4 +412,4 @@ void Relay::stopping() {
     }
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

@@ -28,12 +28,12 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
 
 #include "internal.hpp"
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 struct Lexicon::Impl {
     /// The set's official packs are those of before vocabulary packs.
@@ -1630,4 +1630,4 @@ std::string dump(std::string_view source, const Lexed& lexed, const Pack* langua
     return out;
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

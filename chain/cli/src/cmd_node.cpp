@@ -22,27 +22,27 @@
 #include <sys/resource.h>
 #include <thread>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/client/public_witness.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/relay_server.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/ledger/backup.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/record_files.hpp>
-#include <cexchain/node/replica.hpp>
-#include <cexchain/node/server.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/client/public_witness.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/relay_server.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/ledger/backup.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/record_files.hpp>
+#include <kanhe/node/replica.hpp>
+#include <kanhe/node/server.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 #include "serve.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -134,7 +134,7 @@ int cmd_token_list(const Args& args) {
         return exit_ok;
     }
     if (tokens.empty()) {
-        std::println("no API tokens (cexchain token create NAME --scope read)");
+        std::println("no API tokens (kanhe token create NAME --scope read)");
     }
     for (const auto& t : tokens) {
         std::println("{:<24} {:<18} created {}", t.name, scopes_text(t.scopes),
@@ -296,7 +296,7 @@ int cmd_replica_init(const Args& args) {
         return *failed;
     }
     if (!args.json()) {
-        std::println("replica of ledger {} from {} ready at {}; keep it current with: cexchain "
+        std::println("replica of ledger {} from {} ready at {}; keep it current with: kanhe "
                      "replica sync --follow",
                      hex_id(replica->id()), client.base().to_string(), dir.string());
     }
@@ -591,4 +591,4 @@ int cmd_backup_restore(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

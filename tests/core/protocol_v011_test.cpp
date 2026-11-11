@@ -14,18 +14,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 

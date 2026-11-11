@@ -10,18 +10,18 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/ledger.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/ledger.hpp>
 
 /// A ledger fixture shared by the engine and evidence tests.
-namespace cexchain::test {
+namespace kanhe::test {
 
-namespace cbor = cexchain::cbor;
-namespace crypto = cexchain::crypto;
-namespace ledger = cexchain::ledger;
-namespace protocol = cexchain::protocol;
+namespace cbor = kanhe::cbor;
+namespace crypto = kanhe::crypto;
+namespace ledger = kanhe::ledger;
+namespace protocol = kanhe::protocol;
 using crypto::openssl::KeyPair;
 using protocol::StatementType;
 
@@ -93,8 +93,8 @@ public:
         return signed_statement->encoded;
     }
 
-    cexchain::Result<ledger::Registration> submit(const KeyPair& signer,
-                                                  const protocol::Statement& s) {
+    kanhe::Result<ledger::Registration> submit(const KeyPair& signer,
+                                               const protocol::Statement& s) {
         return ledger_->submit(sign(signer, s));
     }
 
@@ -208,4 +208,4 @@ inline protocol::Statement agent_record(World& w, const Cast& c, const std::stri
     return s;
 }
 
-} // namespace cexchain::test
+} // namespace kanhe::test

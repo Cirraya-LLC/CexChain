@@ -1,6 +1,6 @@
 # Bo
 
-Bo is the language CexChain's contracts are written in, and `bo` is its compiler. The chain
+Bo is the language Kanhe's contracts are written in, and `bo` is its compiler. The chain
 knows no contract language: a ledger runs a contract's WebAssembly code and keeps the source its
 deploy carries, as given. `bo` does the rest: it checks and builds a contract, runs the tests it
 carries, writes its contract text in English, Traditional Chinese, or Simplified Chinese, draws
@@ -11,8 +11,8 @@ the code's.
 bo check lending.bo                       # problems, as FILE:LINE:COLUMN: error: message (code)
 bo test lending.bo                        # the tests the contract carries
 bo explain lending.bo                     # the contract text the parties read
-bo build lending.bo --out lending.boc     # a deploy file, for cexchain contract deploy
-cexchain contract export <contract> --out deployed.boc
+bo build lending.bo --out lending.boc     # a deploy file, for kanhe contract deploy
+kanhe contract export <contract> --out deployed.boc
 bo rebuild deployed.boc                   # its source rebuilt and compared with its code
 bo reason 'bo:state countersign'          # a refusal, as the ledger gives it, in words
 ```
@@ -32,7 +32,7 @@ The reference is [`spec/bo.md`](../spec/bo.md), with the conformance suite
 | `stdlib/` | The standard terms of the built-in actions |
 | `cli/` | The `bo` program |
 
-The compiler is C++26 with static reflection and contracts, built with GCC 16 (`CEXCHAIN_BO`,
+The compiler is C++26 with static reflection and contracts, built with GCC 16 (`KANHE_BO`,
 in [Building](../README.md#building)). It links only the chain's verification layer (the core,
 the crypto backend, and the verifier), never a ledger or a node; the build checks this.
 
@@ -175,13 +175,13 @@ build.
 ```sh
 bo build contract.bo                            # code, hash, compiler, and the source bundle
 bo build contract.bo --out contract.boc         # a deploy file (--hash sm3 for an SM3 ledger)
-cexchain contract deploy contract.boc --as root.key
-cexchain contract export <contract> --out deployed.boc    # a deployed contract, as a file
+kanhe contract deploy contract.boc --as root.key
+kanhe contract export <contract> --out deployed.boc    # a deployed contract, as a file
 bo rebuild deployed.boc                         # its source rebuilt and compared with its code
-cexchain contract verify evidence.cbor --ledger-id <home> --deploy-out deployed.boc
+kanhe contract verify evidence.cbor --ledger-id <home> --deploy-out deployed.boc
 ```
 
-A Bo deploy records the code, its interface, the language `bo`, the compiler (`cexchain-bo
+A Bo deploy records the code, its interface, the language `bo`, the compiler (`kanhe-bo
 RELEASE; codegen N; edition E`), the contract's name, and its source as a *bo-source bundle*
 (spec section 15): the source as written, comments included (`bo build` warns that they are
 published), its edition, and each language pack it was read with, by id, version, and digest
@@ -235,7 +235,7 @@ written in; `tests/bo/golden/explain/` holds the text of each example in each la
 
 ```sh
 bo explain contract.bo                          # before a deploy
-bo explain contract.bo --language zh-Hant-HK    # or set CEXCHAIN_LANGUAGE
+bo explain contract.bo --language zh-Hant-HK    # or set KANHE_LANGUAGE
 bo explain deployed.boc                         # from the deploy, only if it rebuilds
 bo explain deployed.boc --state state.cbor      # an instance's state (contract instance --state-out)
 ```
@@ -257,7 +257,7 @@ bo explain deployed.boc --state state.cbor      # an instance's state (contract 
 the language packs it names, at their versions) and writes the text only if that source rebuilds
 to the deployed code, so the text is the text of the code that runs; otherwise it says why. With
 `--state`, it shows an instance's state and fields in the same words first (`amount: HKD
-250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `CEXCHAIN_LANGUAGE`
+250,000.00`, `starts: 1 January 2030`). Messages follow `--language` or `KANHE_LANGUAGE`
 everywhere the compiler reports; the chain shows a compiled contract's refusal as the contract
 gives it (`bo:state countersign`), and `bo reason` says it in words.
 
@@ -497,10 +497,10 @@ the report names parts by path (part 1.2).
 chain across six organizations, an example from supply-chain finance.
 
 ```sh
-cexchain contract propose <instance> split --peer home \
+kanhe contract propose <instance> split --peer home \
     --args "{\"parts\": [60000000, 40000000], \"recipients\": [h'<ledger A>', h'<ledger B>']}"
-cexchain contract pending --peer home            # a recipient sees the call it is asked to consent to
-cexchain contract consent --peer home --call <call> --as root.key --log-key log.key --send
+kanhe contract pending --peer home            # a recipient sees the call it is asked to consent to
+kanhe contract consent --peer home --call <call> --as root.key --log-key log.key --send
 ```
 
 An action can let AI agents only propose it (`AI agent can propose`): an agent's call is then
@@ -534,15 +534,15 @@ are counted at a fixed offset from UTC, all year: `UTC offset "-05:00"` in the k
 
 ```sh
 # The keeper: a device whose delegation covers these contracts' time rules (and result) only.
-cexchain keeper add Keeper --contracts <contract> --key-out keeper.key --as root.key
+kanhe keeper add Keeper --contracts <contract> --key-out keeper.key --as root.key
 # What is due now, or at a later time? Dry runs; nothing is recorded.
-cexchain keeper due
-cexchain keeper due --at 2027-07-03
+kanhe keeper due
+kanhe keeper due --at 2027-07-03
 # The server's keeper fires what is due every minute (on the leader, in a cluster) ...
-cexchain serve --log-key log.key --keeper-key keeper.key
+kanhe serve --log-key log.key --keeper-key keeper.key
 # ... or, for a ledger without a server, fire it now, or every minute.
-cexchain keeper run --as keeper.key
-cexchain keeper run --as keeper.key --every 60
+kanhe keeper run --as keeper.key
+kanhe keeper run --as keeper.key --every 60
 ```
 
 A keeper finds what is due by dry runs: a rule is due if its contract accepts the call and the
@@ -557,7 +557,7 @@ of the home, the rule that does that action (for a rule that does none, the stat
 change leads to, such as `keeper closed`).
 Nothing yet keeps a field's value unique across a contract's instances: unique keys come later.
 
-To try time rules on a real ledger without waiting, set `CEXCHAIN_CLOCK_OFFSET` (such as `30d`,
+To try time rules on a real ledger without waiting, set `KANHE_CLOCK_OFFSET` (such as `30d`,
 `12h`, or `90m`; at most 3660 days): every command, the server and its keeper included, runs its
 clock that far ahead. It is for demonstrations and tests only. A ledger keeps the times it
 records, so `serve` refuses to start with an offset unless it is given `--allow-clock-offset`,

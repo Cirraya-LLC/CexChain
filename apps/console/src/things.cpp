@@ -6,7 +6,7 @@
 // commits to) and, to those allowed, its private fields and kept files,
 // opened with the console's vault key and checked against the ledger. Its
 // proof is the node's evidence bundle plus the field disclosures and file
-// openings the person chose: what `cexchain export --disclose` writes.
+// openings the person chose: what `kanhe export --disclose` writes.
 
 #include <algorithm>
 #include <cctype>
@@ -21,23 +21,23 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/kinds.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/record_files.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/kinds.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/record_files.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -439,4 +439,4 @@ void Console::proof_route(const http::Request& request, Respond respond) const {
     });
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

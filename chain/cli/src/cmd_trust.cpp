@@ -16,20 +16,20 @@
 #include <string>
 #include <vector>
 
-#include <cexchain/client/records.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
-#include <cexchain/core/protocol/record.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/node/client.hpp>
-#include <cexchain/node/tokens.hpp>
-#include <cexchain/node/trust.hpp>
+#include <kanhe/client/records.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/record.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/node/client.hpp>
+#include <kanhe/node/tokens.hpp>
+#include <kanhe/node/trust.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -318,8 +318,8 @@ int cmd_trust_node_add(const Args& args) {
         print_json(
             {{"name", entry.name}, {"ledger_id", id_json(entry.ledger_id)}, {"url", entry.url}});
     } else {
-        std::println("added trust node {} (ledger {}); next: cexchain trust node fetch {}",
-                     entry.name, short_id(entry.ledger_id), entry.name);
+        std::println("added trust node {} (ledger {}); next: kanhe trust node fetch {}", entry.name,
+                     short_id(entry.ledger_id), entry.name);
     }
     return exit_ok;
 }
@@ -380,7 +380,7 @@ int cmd_trust_node_fetch(const Args& args) {
         chosen.push_back(node_named(nodes, args.positional().front()));
     }
     if (chosen.empty()) {
-        throw CommandError{"no trust node listed: cexchain trust node add NAME --ledger-id ID "
+        throw CommandError{"no trust node listed: kanhe trust node add NAME --ledger-id ID "
                            "--url URL"};
     }
     const protocol::Timestamp now = ledger::SystemClock().now();
@@ -413,4 +413,4 @@ int cmd_trust_node_fetch(const Args& args) {
     return all ? exit_ok : exit_failure;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

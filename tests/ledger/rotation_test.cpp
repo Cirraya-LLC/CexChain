@@ -11,19 +11,19 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/keys.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/ledger/backup.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/keys.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/ledger/backup.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 protocol::Statement rotate_log(World& w, const KeyPair& to) {
     return w.statement(w.org_id(), std::nullopt, protocol::LedgerRotateLogKeyBody{to.public_key()});
@@ -343,7 +343,7 @@ TEST_CASE("replicas and backups follow key rotations", "[replica][backup][rotati
     std::istringstream in(out.str());
     auto summary =
         ledger::restore_backup(in, restored_fs, clock, provider(),
-                               [](const ledger::BackupFile&) -> cexchain::Status { return {}; });
+                               [](const ledger::BackupFile&) -> kanhe::Status { return {}; });
     INFO((summary ? std::string() : std::string(summary.error().detail)));
     REQUIRE(summary);
     CHECK(summary->is_signed);

@@ -10,14 +10,14 @@
 #include <stdexcept>
 #include <utility>
 
-#if CEXCHAIN_BENCH_BO
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/source.hpp>
-#include <cexchain/bo/vocab.hpp>
+#if KANHE_BENCH_BO
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/source.hpp>
+#include <kanhe/bo/vocab.hpp>
 #endif
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 const crypto::openssl::Provider& provider() {
     static const crypto::openssl::Provider instance;
@@ -113,7 +113,7 @@ double Home::reopen() {
 }
 
 bool have_bo() {
-#if CEXCHAIN_BENCH_BO
+#if KANHE_BENCH_BO
     return true;
 #else
     return false;
@@ -122,7 +122,7 @@ bool have_bo() {
 
 protocol::ContractDeployBody bo_deploy(std::string_view source, double* build_ms,
                                        const std::vector<std::string>& vocabularies) {
-#if CEXCHAIN_BENCH_BO
+#if KANHE_BENCH_BO
     auto read_packs = [](const std::vector<std::string>& texts) {
         std::vector<bo::VocabularyHandle> handles;
         for (const std::string& text : texts) {
@@ -175,7 +175,7 @@ protocol::ContractDeployBody bo_deploy(std::string_view source, double* build_ms
 }
 
 std::filesystem::path examples_directory(const Options& options) {
-    return options.text("examples", CEXCHAIN_BENCH_EXAMPLES_DIR);
+    return options.text("examples", KANHE_BENCH_EXAMPLES_DIR);
 }
 
 std::string read_text(const std::filesystem::path& file) {
@@ -190,7 +190,7 @@ std::string read_text(const std::filesystem::path& file) {
 
 std::string bill_source(std::uint64_t max_lines) {
     return std::format(R"(# A bill reviewed again and again: every charge and tax worked out
-# over every line in each call (cexchain-bench's heavy workload).
+# over every line in each call (kanhe-bench's heavy workload).
 use commerce
 contract Statement
 parties we, customer
@@ -332,4 +332,4 @@ std::vector<Bytes> sign_round(Home& home, const Workload& workload,
     return out;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

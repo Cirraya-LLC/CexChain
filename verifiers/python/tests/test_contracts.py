@@ -19,10 +19,10 @@ import unittest
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from cexchain_verify import cbor, contracts, cose, evidence, protocol, rules, statetree, wasm  # noqa: E402
-from cexchain_verify.contract_evidence import verify_contract_evidence  # noqa: E402
-from cexchain_verify.contract_report import diagnostic  # noqa: E402
-from cexchain_verify.errors import VerifyError  # noqa: E402
+from kanhe_verify import cbor, contracts, cose, evidence, protocol, rules, statetree, wasm  # noqa: E402
+from kanhe_verify.contract_evidence import verify_contract_evidence  # noqa: E402
+from kanhe_verify.contract_report import diagnostic  # noqa: E402
+from kanhe_verify.errors import VerifyError  # noqa: E402
 
 VECTORS = HERE.parents[2] / "testvectors"
 
@@ -286,7 +286,7 @@ class Damaged(unittest.TestCase):
 class VmProfile(unittest.TestCase):
     """vm-v1.json: modules in and out of the profile, and runs with their
     outcomes, outputs, fuel, and abort reasons. The two runs that use all
-    10,000,000 fuel take minutes here; CEXCHAIN_VM_FULL=1 runs them too."""
+    10,000,000 fuel take minutes here; KANHE_VM_FULL=1 runs them too."""
 
     def test_modules_and_runs(self):
         import os
@@ -300,7 +300,7 @@ class VmProfile(unittest.TestCase):
                 except wasm.Refused:
                     loaded = False
                 self.assertEqual(loaded, m["valid"])
-        full = os.environ.get("CEXCHAIN_VM_FULL") == "1"
+        full = os.environ.get("KANHE_VM_FULL") == "1"
         for r in d["runs"]:
             if r["fuel"] >= d["fuel"] and not full:
                 continue

@@ -5,17 +5,17 @@
 
 #include <string>
 
-#include <cexchain/client/views.hpp>
+#include <kanhe/client/views.hpp>
 
 #include "json_output.hpp"
 #include "support.hpp"
 
 /// Printing: the app library's views, written to standard output.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// Prints the result of a statement just registered: its id and log index
 /// plus `extra` as JSON, or `text`.
 int report_submitted(const Args& args, const client::Session& session,
                      const protocol::Id& statement, const Json& extra, const std::string& text);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

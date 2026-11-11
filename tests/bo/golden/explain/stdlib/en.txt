@@ -35,7 +35,7 @@ Besides Bo's core words, the contract uses the finance vocabulary pack (version 
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 transfer
-  4.1.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 The call gives counterparty (a party). [R21]
   4.1.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
@@ -45,31 +45,31 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.8 An AI agent may start it within its delegation. [R14]
 
 4.2 cancel
-  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show cancel): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show cancel): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the holder, whose agreement it needs. [R19]
   4.2.3 If the instance is active, it becomes cancelled; otherwise the call is refused. [R19]
   4.2.4 An AI agent may start it within its delegation. [R14]
 
 4.3 suspend
-  4.3.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show suspend): the clauses marked R19 state them, after the contract's own clauses.
   4.3.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.3.3 If the instance is active, it becomes suspended; otherwise the call is refused. [R19]
   4.3.4 An AI agent may start it within its delegation. [R14]
 
 4.4 resume
-  4.4.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show resume): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show resume): the clauses marked R19 state them, after the contract's own clauses.
   4.4.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.4.3 If the instance is suspended, it becomes active; otherwise the call is refused. [R19]
   4.4.4 An AI agent may start it within its delegation. [R14]
 
 4.5 terminate
-  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
+  4.5.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show terminate): the clauses marked R19 state them, after the contract's own clauses.
   4.5.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.5.3 If the instance is active or suspended, it becomes terminated; otherwise the call is refused. [R19]
   4.5.4 An AI agent may start it within its delegation. [R14]
 
 4.6 pledge
-  4.6.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
+  4.6.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
   4.6.2 Started by the holder, whose agreement it needs. [R19]
   4.6.3 The call gives counterparty (a party). [R21]
   4.6.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
@@ -79,14 +79,14 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.6.8 An AI agent may start it within its delegation. [R14]
 
 4.7 release
-  4.7.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
+  4.7.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
   4.7.2 Started by the pledgee, whose agreement it needs. [R19]
   4.7.3 If the instance is pledged, it becomes active; otherwise the call is refused. [R19]
   4.7.4 It sets the pledgee to none. [R19]
   4.7.5 An AI agent may start it within its delegation. [R14]
 
 4.8 enforce
-  4.8.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show enforce): the clauses marked R19 state them, after the contract's own clauses.
+  4.8.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show enforce): the clauses marked R19 state them, after the contract's own clauses.
   4.8.2 Started by the pledgee, whose agreement it needs. [R19]
   4.8.3 If the instance is pledged, it becomes active; otherwise the call is refused. [R19]
   4.8.4 It sets the holder to the pledgee. [R19]
@@ -94,7 +94,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.8.6 An AI agent may start it within its delegation. [R14]
 
 4.9 redeem
-  4.9.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show redeem): the clauses marked R19 state them, after the contract's own clauses.
+  4.9.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show redeem): the clauses marked R19 state them, after the contract's own clauses.
   4.9.2 Started by the holder, whose agreement it needs. [R19]
   4.9.3 The call gives portion (a number of items). [R19]
   4.9.4 Requirement 1: the instance is active or pledged. [R7, R19]
@@ -109,7 +109,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.9.10 An AI agent may start it within its delegation. [R14]
 
 4.10 pay
-  4.10.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pay): the clauses marked R19 state them, after the contract's own clauses.
+  4.10.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show pay): the clauses marked R19 state them, after the contract's own clauses.
   4.10.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.10.3 If the instance is active, pledged, or disputed, it becomes paid; otherwise the call is refused. [R19]
   4.10.4 If the payee is none: [R19]
@@ -120,31 +120,31 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.10.5 An AI agent may start it within its delegation. [R14]
 
 4.11 confirm payment (function confirm_payment)
-  4.11.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show confirm_payment): the clauses marked R19 state them, after the contract's own clauses.
+  4.11.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show confirm_payment): the clauses marked R19 state them, after the contract's own clauses.
   4.11.2 Started by the payee, whose agreement it needs. [R19]
   4.11.3 If the instance is paid or disputed, it becomes settled; otherwise the call is refused. [R19]
   4.11.4 An AI agent may start it within its delegation. [R14]
 
 4.12 dispute
-  4.12.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show dispute): the clauses marked R19 state them, after the contract's own clauses.
+  4.12.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show dispute): the clauses marked R19 state them, after the contract's own clauses.
   4.12.2 Started by the payee, whose agreement it needs. [R19]
   4.12.3 If the instance is paid, it becomes disputed; otherwise the call is refused. [R19]
   4.12.4 An AI agent may start it within its delegation. [R14]
 
 4.13 freeze
-  4.13.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show freeze): the clauses marked R19 state them, after the contract's own clauses.
+  4.13.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show freeze): the clauses marked R19 state them, after the contract's own clauses.
   4.13.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.13.3 If the instance is active, pledged, paid, or disputed, it becomes frozen; otherwise the call is refused. [R19]
   4.13.4 An AI agent may start it within its delegation. [R14]
 
 4.14 unfreeze
-  4.14.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show unfreeze): the clauses marked R19 state them, after the contract's own clauses.
+  4.14.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show unfreeze): the clauses marked R19 state them, after the contract's own clauses.
   4.14.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.14.3 If the instance is frozen, it returns to the state it was in before it became frozen; otherwise the call is refused. [R19]
   4.14.4 An AI agent may start it within its delegation. [R14]
 
 4.15 split
-  4.15.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
+  4.15.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show split): the clauses marked R19 state them, after the contract's own clauses.
   4.15.2 Started by the holder, whose agreement it needs. [R19]
   4.15.3 The call gives parts (a list of at most 16 items, each money in HKD); recipients (a list of at most 16 items, each a party). [R1, R15]
   4.15.4 Requirement 1: the number of items in the recipients is the number of items in the parts. [R19]
@@ -161,7 +161,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.15.14 An AI agent may start it within its delegation. [R14]
 
 4.16 allocate
-  4.16.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
+  4.16.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
   4.16.2 Started by the home ledger on its own word. [R19]
   4.16.3 The call gives counterparty (a party). [R21]
   4.16.4 It needs the consent of the counterparty, whose ledger each call names (the argument counterparty). [R21]
@@ -172,14 +172,14 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.16.8 An AI agent may start it within its delegation. [R14]
 
 4.17 reclaim
-  4.17.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
+  4.17.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
   4.17.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.17.3 If the instance is allocated, it becomes cooling; otherwise the call is refused. [R19]
   4.17.4 It sets the holder to none. [R19]
   4.17.5 An AI agent may start it within its delegation. [R14]
 
 4.18 subscribe
-  4.18.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
+  4.18.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show subscribe): the clauses marked R19 state them, after the contract's own clauses.
   4.18.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.18.3 Requirement 1: the instance is active. [R7, R19]
   4.18.4 Requirement 2: paid until holds no date. [R19]
@@ -188,20 +188,20 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.18.7 An AI agent may start it within its delegation. [R14]
 
 4.19 renew
-  4.19.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
+  4.19.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show renew): the clauses marked R19 state them, after the contract's own clauses.
   4.19.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.19.3 Requirement 1: the instance is active or suspended. [R7, R19]
   4.19.4 Requirement 2: billed until is the same date as paid until. [R19]
   4.19.5 An AI agent may start it within its delegation. [R14]
 
 4.20 upgrade
-  4.20.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.20.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show upgrade): the clauses marked R19 state them, after the contract's own clauses.
   4.20.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.20.3 Requirement 1: the instance is active. [R7, R19]
   4.20.4 An AI agent may start it within its delegation. [R14]
 
 4.21 downgrade
-  4.21.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
+  4.21.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show downgrade): the clauses marked R19 state them, after the contract's own clauses.
   4.21.2 Started by the home ledger on its own word: no party's consent is needed. [R19]
   4.21.3 Requirement 1: the instance is active. [R7, R19]
   4.21.4 An AI agent may start it within its delegation. [R14]
@@ -214,7 +214,7 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R7] A state used as a condition means the instance is in that state.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
 [R15] Parts are a list of amounts in the unit of the instance's amount.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
 [R21] An action whose counterparty (after to) is counterparty, a party the contract does not declare, takes its counterparty from each call (the argument counterparty) and needs its consent; so does a built-in action with a counterparty when the contract writes no to.
 [R22] A bare 0 compared with, added to, or taken from money, a quantity, a rate, or a duration is zero of it.

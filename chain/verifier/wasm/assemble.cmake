@@ -9,5 +9,5 @@ file(READ "${TEMPLATE}" page)
 set(script "${module_js}\n${api_js}")
 # A literal "</script" would end the inline script early.
 string(REPLACE "</script" "<\\/script" script "${script}")
-string(REPLACE "/* CEXCHAIN_SCRIPT */" "${script}" page "${page}")
+string(REPLACE "/* KANHE_SCRIPT */" "${script}" page "${page}")
 file(WRITE "${OUT}" "${page}")

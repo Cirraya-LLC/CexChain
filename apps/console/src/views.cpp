@@ -13,13 +13,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/views.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/client/views.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -127,4 +127,4 @@ http::Response Console::things_route(const http::Request& request) const {
     return json(200, {{"records", records}, {"instances", instances}, {"more", more}});
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

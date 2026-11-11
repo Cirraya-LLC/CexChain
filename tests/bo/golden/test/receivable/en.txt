@@ -12,7 +12,7 @@ Test "pledge, release, transfer, pay, dispute, confirm": passed
   Step 5 (line 30) passed: bank1 release -> active
     Result: accepted with the consent of bank1, and the instance is active.
   Step 6 (line 31) passed: supplier transfer to factor1 -> active
-    Result: accepted with the consent of the supplier and factor1, and the instance is active.
+    Result: accepted with the consent of factor1 and the supplier, and the instance is active.
   Step 7 (line 32) passed: supplier transfer to factor2 -> consent of factor1
     Result: the call waits for the consent of factor1.
   Step 8 (line 33) passed: issuer pay -> paid

@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Cirraya
+
+#pragma once
+
+#include <filesystem>
+#include <optional>
+#include <string>
+
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/ledger/environment.hpp>
+
+/// A first run for one person: a new ledger whose owner is that person,
+/// acting in person. The console makes every key and seals it: the root key
+/// (used here and for recovery only), the log key, and the owner's own key.
+/// The root key registers the owner, the owner's passkey, and the owner's
+/// delegation: every statement type but the ledger's own key rotations, may
+/// delegate, and requires presence. Then the owner does everything else, one
+/// passkey tap per statement.
+namespace kanhe::console {
+
+/// The sealed keys' names (and the vault key, sealed apart: KeyStore).
+inline constexpr std::string_view root_key_name = "root";
+inline constexpr std::string_view log_key_name = "log";
+inline constexpr std::string_view owner_key_name = "owner";
+/// The console's machine: a device of the ledger, registered at the first
+/// run with a delegation for contract calls only, that the node runs as the
+/// ledger's registrar (recording calls once the consents they wait for are
+/// in) and keeper (firing time rules, expiring requests) while unlocked.
+inline constexpr std::string_view machine_key_name = "machine";
+inline constexpr std::string_view machine_name = "console";
+/// The console's witness of its parties' ledgers: it cosigns their
+/// checkpoints when they extend what it cosigned before. Not on the ledger;
+/// its public key goes in the console's invitation codes.
+inline constexpr std::string_view witness_key_name = "witness";
+
+/// The witness key's public key, made and sealed first if the console has
+/// none (a console set up before it had one). Needs only the node key's
+/// public key.
+[[nodiscard]] crypto::PublicKey witness_public_key(KeyStore& keys);
+
+struct SetUp {
+    /// The ledger directory, which holds no ledger yet.
+    std::filesystem::path ledger;
+    /// The owner's name, which is also the organization's (a nickname works).
+    std::string name;
+    /// The owner's passkey.
+    protocol::PresenceCredential passkey;
+    /// The passkey's PRF output, if it has one: its own slot, so that signing
+    /// in with it unlocks the console.
+    std::optional<std::string> prf;
+    /// An unlock passphrase, for consoles that start unattended.
+    std::optional<std::string> passphrase;
+};
+
+struct FirstRun {
+    /// Shown once: it unlocks the keys if every passkey is lost.
+    std::string recovery_code;
+    protocol::Id ledger;
+    protocol::Id owner;
+    /// The console's machine actor (registrar and keeper).
+    protocol::Id machine;
+};
+
+/// The statement types of the owner's delegation.
+[[nodiscard]] protocol::Scope owner_scope();
+/// The machine's delegation: contract calls only, on every contract, without
+/// presence; it delegates nothing.
+[[nodiscard]] protocol::Scope machine_scope();
+
+/// Makes the console's keys, the ledger, and its owner, and records the
+/// owner as the console's user (owner role, linked to the actor). Leaves
+/// `keys` unlocked. Throws if the directory holds a ledger or the console's
+/// keys exist.
+[[nodiscard]] FirstRun set_up(const SetUp& request, KeyStore& keys, ledger::Entropy& entropy);
+
+/// Whether the directory holds a ledger.
+[[nodiscard]] bool has_ledger(const std::filesystem::path& directory);
+
+} // namespace kanhe::console

@@ -21,7 +21,7 @@ permissions:
 env:
   # The independent verifier's Python (.github/scripts/install-linux-tools.sh).
   # Named here, its test fails, rather than being skipped, if it is missing.
-  CEXCHAIN_PYTHON: /opt/python-verifier/bin/python
+  KANHE_PYTHON: /opt/python-verifier/bin/python
 
 jobs:
   # Which parts the change touches (.github/scripts/changed-parts.sh): a
@@ -84,14 +84,14 @@ jobs:
         run: |
           go install filippo.io/torchwood/cmd/litewitness@v0.10.0 filippo.io/torchwood/cmd/witnessctl@v0.10.0
           LITEWITNESS="$(go env GOPATH)/bin/litewitness" WITNESSCTL="$(go env GOPATH)/bin/witnessctl" \
-              bash tests/interop/litewitness.sh build/gcc-debug/bin/cexchain
+              bash tests/interop/litewitness.sh build/gcc-debug/bin/kanhe
 
       - name: GCC 16 release (as the Docker image builds it, with the Bo compiler)
         run: |
-          cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
+          cmake --preset gcc-release -DCMAKE_CXX_COMPILER=g++ -DKANHE_BUILD_TESTS=OFF \
               -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
-          cmake --build --preset gcc-release --target cexchain bo cexchain-console cexchain-index
-          for p in cexchain bo cexchain-console cexchain-index; do build/gcc-release/bin/$p version; done
+          cmake --build --preset gcc-release --target kanhe bo kanhe-console kanhe-index
+          for p in kanhe bo kanhe-console kanhe-index; do build/gcc-release/bin/$p version; done
           build/gcc-release/bin/bo packs list
 
   address-sanitizer:
@@ -185,9 +185,9 @@ jobs:
       - name: Build the WebAssembly verifier and the console's checks, then the programs
         run: |
           (. /opt/emsdk/emsdk_env.sh && tools/wasm/build.sh build/wasm)
-          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DCEXCHAIN_BUILD_TESTS=OFF \
-              -DCEXCHAIN_CONSOLE_WASM_DIR="$PWD/build/wasm"
-          cmake --build --preset gcc-debug --target cexchain bo cexchain-console cexchain-index
+          cmake --preset gcc-debug -DCMAKE_CXX_COMPILER=g++ -DKANHE_BUILD_TESTS=OFF \
+              -DKANHE_CONSOLE_WASM_DIR="$PWD/build/wasm"
+          cmake --build --preset gcc-debug --target kanhe bo kanhe-console kanhe-index
 
       - name: Test in Node.js and Chromium
         run: |
@@ -196,11 +196,11 @@ jobs:
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
           cd ../..
-          REQUIRE_BROWSER=1 tests/browser/run.sh build/gcc-debug/bin/cexchain build/wasm
+          REQUIRE_BROWSER=1 tests/browser/run.sh build/gcc-debug/bin/kanhe build/wasm
 
       - name: Keep the verifier page
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cexchain-verify
-          path: build/wasm/cexchain-verify.html
+          name: kanhe-verify
+          path: build/wasm/kanhe-verify.html

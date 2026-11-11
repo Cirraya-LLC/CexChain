@@ -11,22 +11,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/ledger/record_log.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/ledger/record_log.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 protocol::Id id_of(std::uint32_t n) {
-    const auto digest = provider().digest(
-        crypto::HashAlg::sha256, cexchain::as_bytes("state tree test " + std::to_string(n)));
+    const auto digest = provider().digest(crypto::HashAlg::sha256,
+                                          kanhe::as_bytes("state tree test " + std::to_string(n)));
     return *digest;
 }
 
@@ -47,7 +47,7 @@ const crypto::HashAlg sha256 = crypto::HashAlg::sha256;
 
 TEST_CASE("the state tree commits to every object exactly once", "[state]") {
     CHECK(*protocol::state_root(provider(), sha256, {}) ==
-          *cexchain::merkle::empty_root(provider(), sha256));
+          *kanhe::merkle::empty_root(provider(), sha256));
 
     const auto all = leaves(200);
     const auto root = protocol::state_root(provider(), sha256, all);
@@ -326,7 +326,7 @@ TEST_CASE("the incremental state tree matches the reference", "[state][tree]") {
 TEST_CASE("a state tree made at once and committed in pieces is the one made leaf by leaf",
           "[state][tree]") {
     // Ranges of five, run last first, as a pool might.
-    const cexchain::ForRanges backwards = [](std::size_t count, const auto& work) {
+    const kanhe::ForRanges backwards = [](std::size_t count, const auto& work) {
         for (std::size_t end = count; end > 0;) {
             const std::size_t begin = end >= 5 ? end - 5 : 0;
             work(begin, end);

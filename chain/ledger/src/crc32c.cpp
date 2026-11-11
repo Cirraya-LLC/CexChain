@@ -5,7 +5,7 @@
 
 #include <array>
 
-namespace cexchain::ledger::detail {
+namespace kanhe::ledger::detail {
 
 namespace {
 
@@ -59,4 +59,4 @@ std::uint32_t crc32c(ByteView data) noexcept {
     return crc ^ 0xffffffff;
 }
 
-} // namespace cexchain::ledger::detail
+} // namespace kanhe::ledger::detail

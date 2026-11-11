@@ -40,10 +40,10 @@ test "steps"
     set field.amount (money cur.HKD 1)
   step role.supplier act.transfer expect=accepted
   step role.supplier act.transfer to=ledger:factor1 agent expect=proposed
-12:23 error check.standard-by: pledge is a built-in action, started by holder under its standard terms; to have another party start it, copy it under a name of your own (cexchain bo stdlib show pledge)
-13:16 error check.standard-to: release has no counterparty under its standard terms, so it takes no to; to give it one, copy it under a name of your own (cexchain bo stdlib show release)
-15:3 error check.standard-change: -> frozen: the state changes of transfer, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (cexchain bo stdlib show transfer)
-16:3 error check.standard-change: holder = we: the state changes of transfer, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (cexchain bo stdlib show transfer)
+12:23 error check.standard-by: pledge is a built-in action, started by holder under its standard terms; to have another party start it, copy it under a name of your own (kanhe bo stdlib show pledge)
+13:16 error check.standard-to: release has no counterparty under its standard terms, so it takes no to; to give it one, copy it under a name of your own (kanhe bo stdlib show release)
+15:3 error check.standard-change: -> frozen: the state changes of transfer, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (kanhe bo stdlib show transfer)
+16:3 error check.standard-change: holder = we: the state changes of transfer, and the fields its standard terms change, are the standard terms'; to change them, copy it under a name of your own (kanhe bo stdlib show transfer)
 17:5 error check.standard-field: the standard terms of redeem use the field quantity, which each instance must hold and actions may change: declare it in the kind's block, with its type
 18:5 error check.standard-unreachable: dispute can never start: under its standard terms it starts only from paid, which no instance of this contract ever reaches
 22:12 error check.test-needs-to: transfer takes its counterparty from each call: write to PARTY (supplier transfer to factor1)

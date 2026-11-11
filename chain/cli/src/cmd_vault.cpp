@@ -8,7 +8,7 @@
 #include "output.hpp"
 #include "records.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -52,7 +52,7 @@ int cmd_vault_status(const Args& args) {
         return exit_ok;
     }
     if (!public_key) {
-        std::println("vault key:     none (create one with: cexchain vault rekey)");
+        std::println("vault key:     none (create one with: kanhe vault rekey)");
     } else {
         std::println("vault key:     X25519 {} (fingerprint {})", to_hex(*public_key),
                      fingerprint(*public_key));
@@ -66,7 +66,7 @@ int cmd_vault_status(const Args& args) {
     }
     std::println("sealed:        {} records", sealed);
     if (plain > 0) {
-        std::println("NOT sealed:    {} records (seal them with: cexchain vault rekey)", plain);
+        std::println("NOT sealed:    {} records (seal them with: kanhe vault rekey)", plain);
     }
     if (missing > 0) {
         std::println("no data here:  {} records (issued elsewhere)", missing);
@@ -102,7 +102,7 @@ int cmd_vault_keygen(const Args& args) {
                  encrypt ? " (encrypted)" : " (NOT encrypted)");
     std::println("public half written to {} (fingerprint {})", public_out.string(),
                  fingerprint(key.public_key()));
-    std::println("Use it with: cexchain init --vault-public-key {}   or   cexchain vault rekey "
+    std::println("Use it with: kanhe init --vault-public-key {}   or   kanhe vault rekey "
                  "--new-public-key {}",
                  public_out.string(), public_out.string());
     return exit_ok;
@@ -145,13 +145,13 @@ int cmd_vault_rekey(const Args& args) {
     if (const auto file = args.get("new-public-key")) {
         auto key = decode_vault_public_key(read_file(*file));
         if (!key) {
-            throw CommandError{
-                *file + " is not a vault public key (create one with cexchain vault keygen)"};
+            throw CommandError{*file +
+                               " is not a vault public key (create one with kanhe vault keygen)"};
         }
         new_public = std::move(*key);
     } else {
         const std::string secret = passphrase(args, "the new vault key", true,
-                                              "new-passphrase-file", "CEXCHAIN_NEW_PASSPHRASE");
+                                              "new-passphrase-file", "KANHE_NEW_PASSPHRASE");
         generated.emplace(unwrap(crypto::openssl::HpkeKey::generate(), "generating the vault key"));
         new_public.assign(generated->public_key().begin(), generated->public_key().end());
         save_hpke_key(next / "vault.key", *generated, secret);
@@ -196,4 +196,4 @@ int cmd_vault_rekey(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

@@ -20,19 +20,19 @@
 #include <unistd.h>
 #include <vector>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/ledger/parallel.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/keeper.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/ledger/parallel.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/keeper.hpp>
 
 #include "bench.hpp"
 #include "fixture.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 namespace {
 
@@ -438,7 +438,7 @@ int keeper_bench(const Options& options) {
     bool short_of_due = false;
     const std::filesystem::path scratch =
         options.text("dir", (std::filesystem::temp_directory_path() /
-                             std::format("cexchain-bench-keeper-{}", ::getpid()))
+                             std::format("kanhe-bench-keeper-{}", ::getpid()))
                                 .string());
     for (const auto part : std::views::split(options.text("instances", "1000,10000,100000"), ',')) {
         const std::uint64_t n = std::stoull(std::string(part.begin(), part.end()));
@@ -526,4 +526,4 @@ int keeper_bench(const Options& options) {
     return 0;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

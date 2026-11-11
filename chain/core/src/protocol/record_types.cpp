@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <array>
 
-#include <cexchain/core/protocol/record_types.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -33,13 +33,13 @@ constexpr std::array membership_transitions{
 };
 
 constexpr std::array types{
-    RecordType{"cexchain.access-request/1", "requested", access_request_transitions, no_roles},
-    RecordType{"cexchain.access-grant/1", "granted", no_transitions, no_roles},
-    RecordType{"cexchain.access-receipt/1", "received", no_transitions, no_roles},
-    RecordType{"cexchain.contract-consent/1", "given", consent_transitions, no_roles},
+    RecordType{"kanhe.access-request/1", "requested", access_request_transitions, no_roles},
+    RecordType{"kanhe.access-grant/1", "granted", no_transitions, no_roles},
+    RecordType{"kanhe.access-receipt/1", "received", no_transitions, no_roles},
+    RecordType{"kanhe.contract-consent/1", "given", consent_transitions, no_roles},
     // A claim (spec v0.14): withdrawn by revoking it.
-    RecordType{"cexchain.claim/1", "confirmed", no_transitions, no_roles},
-    RecordType{"cexchain.membership/1", "active", membership_transitions, no_roles},
+    RecordType{"kanhe.claim/1", "confirmed", no_transitions, no_roles},
+    RecordType{"kanhe.membership/1", "active", membership_transitions, no_roles},
 };
 
 } // namespace
@@ -66,4 +66,4 @@ bool is_reserved_record_type(std::string_view name) noexcept {
     return name.starts_with(reserved_type_prefix) && find_record_type(name) == nullptr;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

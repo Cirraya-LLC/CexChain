@@ -23,9 +23,9 @@
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
-namespace cexchain::crypto::openssl {
+namespace kanhe::crypto::openssl {
 
 namespace {
 
@@ -396,4 +396,4 @@ Result<std::vector<Bytes>> read_certificates(ByteView data) {
     return out;
 }
 
-} // namespace cexchain::crypto::openssl
+} // namespace kanhe::crypto::openssl

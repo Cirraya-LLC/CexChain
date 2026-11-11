@@ -19,30 +19,30 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/ledger/parallel.hpp>
-#include <cexchain/ledger/verify.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/keeper.hpp>
-#include <cexchain/node/network_witnesses.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/published.hpp>
-#include <cexchain/node/record_files.hpp>
-#include <cexchain/node/responses.hpp>
-#include <cexchain/node/timestamps.hpp>
-#include <cexchain/node/tokens.hpp>
-#include <cexchain/node/trust.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/ledger/parallel.hpp>
+#include <kanhe/ledger/verify.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/keeper.hpp>
+#include <kanhe/node/network_witnesses.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/published.hpp>
+#include <kanhe/node/record_files.hpp>
+#include <kanhe/node/responses.hpp>
+#include <kanhe/node/timestamps.hpp>
+#include <kanhe/node/tokens.hpp>
+#include <kanhe/node/trust.hpp>
 
 #include "files.hpp"
 #include "request_query.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -1279,7 +1279,7 @@ struct LedgerApi::State {
         }
         if (token == nullptr) {
             auto response = error_response(401, "unauthorized", "a valid API token is required");
-            response.headers.emplace_back("WWW-Authenticate", R"(Bearer realm="cexchain")");
+            response.headers.emplace_back("WWW-Authenticate", R"(Bearer realm="kanhe")");
             return response;
         }
         principal = token->name;
@@ -1311,7 +1311,7 @@ struct LedgerApi::State {
                   {"registrar", options.registrar != nullptr},
                   {"keeper", options.keeper != nullptr},
                   {"cluster", cluster ? cluster_json() : json(nullptr)},
-                  // How far the ledger's clock runs ahead ($CEXCHAIN_CLOCK_OFFSET,
+                  // How far the ledger's clock runs ahead ($KANHE_CLOCK_OFFSET,
                   // demonstrations and tests only): 0 normally.
                   {"clock_offset_ms", ledger::SystemClock::offset()},
                   {"version", options.version}});
@@ -2076,7 +2076,7 @@ struct LedgerApi::State {
             if (failed) {
                 finish(done, principal,
                        error_response(503, "unavailable",
-                                      "the ledger's files do not validate; run cexchain audit"));
+                                      "the ledger's files do not validate; run kanhe audit"));
                 return;
             }
             Found found = find_requests(q);
@@ -2137,7 +2137,7 @@ struct LedgerApi::State {
                 finish(it->done, it->principal,
                        failed ? error_response(503, "unavailable",
                                                "the ledger's files do not validate; run "
-                                               "cexchain audit")
+                                               "kanhe audit")
                               : json_response(200, found.body));
                 it = waiters.erase(it);
             } else {
@@ -2614,7 +2614,7 @@ struct LedgerApi::State {
             finish(done, principal,
                    error_response(400, "invalid_argument",
                                   "send a contract call with the evidence of the consents it "
-                                  "cites, as application/cexchain-submission+cbor"));
+                                  "cites, as application/kanhe-submission+cbor"));
             return;
         }
         queue_submission({std::move(r.body), std::move(principal), std::move(done)});
@@ -3776,63 +3776,62 @@ struct LedgerApi::State {
         auto gauge = [&](std::string_view name, std::string_view help, std::uint64_t value) {
             out += std::format("# HELP {0} {1}\n# TYPE {0} gauge\n{0} {2}\n", name, help, value);
         };
-        gauge("cexchain_ledger_usable", "1 while the ledger's files validate.", failed ? 0 : 1);
-        gauge("cexchain_log_entries", "Entries in the log.", size);
-        gauge("cexchain_checkpoint_tree_size", "Entries the latest checkpoint covers.",
-              checkpointed);
-        gauge("cexchain_checkpoint_timestamp_seconds", "When the latest checkpoint was signed.",
+        gauge("kanhe_ledger_usable", "1 while the ledger's files validate.", failed ? 0 : 1);
+        gauge("kanhe_log_entries", "Entries in the log.", size);
+        gauge("kanhe_checkpoint_tree_size", "Entries the latest checkpoint covers.", checkpointed);
+        gauge("kanhe_checkpoint_timestamp_seconds", "When the latest checkpoint was signed.",
               latest ? latest->checkpoint.timestamp / 1000 : 0);
-        gauge("cexchain_unchecked_entries", "Entries no checkpoint covers yet.",
+        gauge("kanhe_unchecked_entries", "Entries no checkpoint covers yet.",
               size - std::min(size, checkpointed));
-        out += "# HELP cexchain_http_responses_total Responses by status code.\n"
-               "# TYPE cexchain_http_responses_total counter\n";
+        out += "# HELP kanhe_http_responses_total Responses by status code.\n"
+               "# TYPE kanhe_http_responses_total counter\n";
         for (std::size_t code = 0; code < responses.size(); ++code) {
             if (const std::uint64_t n = responses[code].load(std::memory_order_relaxed); n > 0) {
-                out += std::format("cexchain_http_responses_total{{code=\"{}\"}} {}\n", code, n);
+                out += std::format("kanhe_http_responses_total{{code=\"{}\"}} {}\n", code, n);
             }
         }
-        out += "# HELP cexchain_statements_total Submitted statements by outcome.\n"
-               "# TYPE cexchain_statements_total counter\n";
+        out += "# HELP kanhe_statements_total Submitted statements by outcome.\n"
+               "# TYPE kanhe_statements_total counter\n";
         const std::array<std::pair<std::string_view, const std::atomic<std::uint64_t>*>, 3>
             outcomes{
                 {{"duplicate", &duplicates}, {"refused", &refused}, {"registered", &registered}}};
         for (const auto& [result, counter] : outcomes) {
             if (const std::uint64_t n = counter->load(std::memory_order_relaxed); n > 0) {
-                out += std::format("cexchain_statements_total{{result=\"{}\"}} {}\n", result, n);
+                out += std::format("kanhe_statements_total{{result=\"{}\"}} {}\n", result, n);
             }
         }
         if (options.keeper) {
-            out += "# HELP cexchain_keeper_calls_total The keeper's calls by kind.\n"
-                   "# TYPE cexchain_keeper_calls_total counter\n";
-            out += std::format("cexchain_keeper_calls_total{{kind=\"expiry\"}} {}\n"
-                               "cexchain_keeper_calls_total{{kind=\"refused\"}} {}\n"
-                               "cexchain_keeper_calls_total{{kind=\"rule\"}} {}\n",
+            out += "# HELP kanhe_keeper_calls_total The keeper's calls by kind.\n"
+                   "# TYPE kanhe_keeper_calls_total counter\n";
+            out += std::format("kanhe_keeper_calls_total{{kind=\"expiry\"}} {}\n"
+                               "kanhe_keeper_calls_total{{kind=\"refused\"}} {}\n"
+                               "kanhe_keeper_calls_total{{kind=\"rule\"}} {}\n",
                                keeper_expiries.load(std::memory_order_relaxed),
                                keeper_refusals.load(std::memory_order_relaxed),
                                keeper_rules.load(std::memory_order_relaxed));
         }
         if (!options.timestamp_authority.empty()) {
             out += std::format(
-                "# HELP cexchain_timestamps_total Tokens asked of the time-stamp authority.\n"
-                "# TYPE cexchain_timestamps_total counter\n"
-                "cexchain_timestamps_total{{outcome=\"kept\"}} {}\n"
-                "cexchain_timestamps_total{{outcome=\"failed\"}} {}\n",
+                "# HELP kanhe_timestamps_total Tokens asked of the time-stamp authority.\n"
+                "# TYPE kanhe_timestamps_total counter\n"
+                "kanhe_timestamps_total{{outcome=\"kept\"}} {}\n"
+                "kanhe_timestamps_total{{outcome=\"failed\"}} {}\n",
                 timestamps_kept.load(std::memory_order_relaxed),
                 timestamp_failures.load(std::memory_order_relaxed));
         }
         if (!options.network_witnesses.empty()) {
-            out += std::format(
-                "# HELP cexchain_network_cosignatures_total Cosignatures asked of network "
-                "witnesses.\n"
-                "# TYPE cexchain_network_cosignatures_total counter\n"
-                "cexchain_network_cosignatures_total{{outcome=\"kept\"}} {}\n"
-                "cexchain_network_cosignatures_total{{outcome=\"failed\"}} {}\n",
-                network_kept.load(std::memory_order_relaxed),
-                network_failures.load(std::memory_order_relaxed));
+            out +=
+                std::format("# HELP kanhe_network_cosignatures_total Cosignatures asked of network "
+                            "witnesses.\n"
+                            "# TYPE kanhe_network_cosignatures_total counter\n"
+                            "kanhe_network_cosignatures_total{{outcome=\"kept\"}} {}\n"
+                            "kanhe_network_cosignatures_total{{outcome=\"failed\"}} {}\n",
+                            network_kept.load(std::memory_order_relaxed),
+                            network_failures.load(std::memory_order_relaxed));
         }
-        out += std::format("# HELP cexchain_auto_checkpoints_total Automatic checkpoints.\n"
-                           "# TYPE cexchain_auto_checkpoints_total counter\n"
-                           "cexchain_auto_checkpoints_total {}\n",
+        out += std::format("# HELP kanhe_auto_checkpoints_total Automatic checkpoints.\n"
+                           "# TYPE kanhe_auto_checkpoints_total counter\n"
+                           "kanhe_auto_checkpoints_total {}\n",
                            auto_checkpoints.load(std::memory_order_relaxed));
         http::Response r;
         r.content_type = "text/plain; version=0.0.4";
@@ -4058,7 +4057,7 @@ struct LedgerApi::State {
                           const std::string& principal, Scopes scopes) {
         if (failed) {
             return error_response(503, "unavailable",
-                                  "the ledger's files do not validate; run cexchain audit");
+                                  "the ledger's files do not validate; run kanhe audit");
         }
         const std::string_view rest = std::string_view(r.path).substr(routed.rest);
         switch (routed.endpoint) {
@@ -4186,7 +4185,7 @@ struct LedgerApi::State {
         if (failed) {
             finish(done, "console",
                    error_response(503, "unavailable",
-                                  "the ledger's files do not validate; run cexchain audit"));
+                                  "the ledger's files do not validate; run kanhe audit"));
             return;
         }
         call_proposal(r, "console", static_cast<Scopes>(Scope::submit), done);
@@ -4204,7 +4203,7 @@ struct LedgerApi::State {
         if (failed) {
             finish(done, "console",
                    error_response(503, "unavailable",
-                                  "the ledger's files do not validate; run cexchain audit"));
+                                  "the ledger's files do not validate; run kanhe audit"));
             return;
         }
         if (options.read_only || replica) {
@@ -4267,7 +4266,7 @@ struct LedgerApi::State {
         if (failed) {
             finish(done, {},
                    error_response(503, "unavailable",
-                                  "the ledger's files do not validate; run cexchain audit"));
+                                  "the ledger's files do not validate; run kanhe audit"));
             return;
         }
         // Whether an extension reads this path (or one above it).
@@ -4383,7 +4382,7 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
     state->replica = std::filesystem::exists(options.directory / replica_file, ec);
     if (options.cluster && (state->replica || !is_cluster_member(options.directory))) {
         return fail(Errc::invalid_argument,
-                    "the ledger is not a cluster member (cexchain cluster init or join)");
+                    "the ledger is not a cluster member (kanhe cluster init or join)");
     }
     if (!options.cluster && !options.read_only && is_cluster_member(options.directory)) {
         // Writes outside Raft would fork the members.
@@ -4431,7 +4430,7 @@ Result<std::unique_ptr<LedgerApi>> LedgerApi::open(ApiOptions options,
             });
             return fail(Errc::invalid_argument,
                         rotated ? "the log key was rotated: give the ledger's newest log key "
-                                  "(see `cexchain ledger keys`)"
+                                  "(see `kanhe ledger keys`)"
                                 : "the log key is not this ledger's");
         }
     }
@@ -4558,4 +4557,4 @@ const ledger::Ledger& LedgerApi::ledger() const noexcept {
     return *state_->ledger;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

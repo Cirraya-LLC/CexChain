@@ -26,13 +26,13 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/lower.hpp>
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/bo/lower.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/vm.hpp>
 
-namespace cexchain::bo {
+namespace kanhe::bo {
 
 namespace {
 
@@ -5162,4 +5162,4 @@ Lowered lower(const std::string_view source, const model::Model& model,
     return Lowering(source, model, codegen).run();
 }
 
-} // namespace cexchain::bo
+} // namespace kanhe::bo

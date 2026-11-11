@@ -12,14 +12,14 @@
 #include <string_view>
 #include <utility>
 
-#include <cexchain/bo/runtime.hpp>
-#include <cexchain/bo/wasm.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/bo/runtime.hpp>
+#include <kanhe/bo/wasm.hpp>
+#include <kanhe/core/bytes.hpp>
 
 #include "reflection.hpp"
 #include "runtime_parts.hpp"
 
-namespace cexchain::bo::runtime {
+namespace kanhe::bo::runtime {
 
 namespace {
 
@@ -227,4 +227,4 @@ wasm::Global Runtime::var(const Var var) {
     return *slot;
 }
 
-} // namespace cexchain::bo::runtime
+} // namespace kanhe::bo::runtime

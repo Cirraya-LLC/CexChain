@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Cirraya
+#
+# A ledger server, for a company (not enabled by default): set the ledger and
+# its options in /etc/kanhe/serve.env, then
+#   systemctl enable --now kanhe
+# A company's console runs instead (kanhe-console.service, in the
+# kanhe-console package).
+[Unit]
+Description=Kanhe ledger server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=kanhe
+Group=kanhe
+StateDirectory=kanhe
+StateDirectoryMode=0700
+EnvironmentFile=/etc/kanhe/serve.env
+ExecStart=/usr/bin/kanhe serve $KANHE_SERVE_ARGS
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

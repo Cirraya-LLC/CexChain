@@ -7,7 +7,7 @@
 // problems), the same model for the same contract in every language, every
 // check with an error golden, every recognition rule seen, messages and types
 // in three languages, and the rules for values, units, states, roles, and
-// thresholds. Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the check.txt files
+// thresholds. Set KANHE_UPDATE_GOLDENS=1 to rewrite the check.txt files
 // after a deliberate change.
 
 #include <algorithm>
@@ -27,21 +27,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/ast.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/model.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/vocab.hpp>
+#include <kanhe/bo/ast.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/model.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/vocab.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 
 const PackSet& official_set() {
     static const PackSet set = *make_pack_set({}).set;
@@ -149,7 +149,7 @@ std::vector<std::filesystem::path> check_cases() {
 TEST_CASE("the checker's goldens", "[bo][check]") {
     const std::vector<std::filesystem::path> cases = check_cases();
     CHECK(cases.size() >= 32);
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     for (const auto& path : cases) {
         const std::string name = path.filename().string();
         INFO(name);

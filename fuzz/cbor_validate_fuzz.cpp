@@ -14,14 +14,14 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
 
 #include "support/contract_reference.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace cbor = cexchain::cbor;
-namespace reference = cexchain::test::reference;
+namespace protocol = kanhe::protocol;
+namespace cbor = kanhe::cbor;
+namespace reference = kanhe::test::reference;
 
 namespace {
 
@@ -42,22 +42,22 @@ void require_same_verdict(const A& a, const B& b) {
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const cexchain::ByteView input(data, size);
+    const kanhe::ByteView input(data, size);
     // The default limits, then limits from the first two bytes over the
     // rest (depth 0 to 63, items 1 to 1,024).
     require_same_verdict(cbor::decode(input), cbor::validate(input));
     if (size >= 2) {
         const cbor::DecodeOptions limits{.max_depth = std::size_t{data[0]} % 64,
                                          .max_items = 1 + std::size_t{data[1]} * 4};
-        const cexchain::ByteView rest = input.subspan(2);
+        const kanhe::ByteView rest = input.subspan(2);
         require_same_verdict(cbor::decode(rest, limits), cbor::validate(rest, limits));
     }
     if (const auto encoded = cbor::Encoded::from_bytes(input)) {
         require(std::ranges::equal(encoded->bytes(), input));
-        require(*cbor::encode(encoded->value()) == cexchain::Bytes(input.begin(), input.end()));
+        require(*cbor::encode(encoded->value()) == kanhe::Bytes(input.begin(), input.end()));
     }
 
-    static const protocol::Id home = *protocol::to_id(cexchain::Bytes(32, 0x5A));
+    static const protocol::Id home = *protocol::to_id(kanhe::Bytes(32, 0x5A));
     const auto bytes = protocol::decode_contract_output(input, home);
     const auto trees = reference::decode_contract_output(input, home);
     require_same_verdict(bytes, trees);

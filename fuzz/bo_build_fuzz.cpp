@@ -44,7 +44,7 @@
 //     twice, in English and mixed, and formatted into any language, and the
 //     report is written in each official language.
 //
-// Why not libFuzzer: lowering is in cexchain::bo, which needs C++26 static
+// Why not libFuzzer: lowering is in kanhe::bo, which needs C++26 static
 // reflection (GCC 16 only), and libFuzzer needs Clang. So this target is
 // built by the GCC presets (with ASan and UBSan in gcc-asan) and drives
 // itself: `bo_build_fuzz [-runs=N] [-max_total_time=S] [-seed=N] [FILE|DIR
@@ -77,32 +77,32 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/bo/build.hpp>
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/format.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/lower.hpp>
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/bo/scenario.hpp>
-#include <cexchain/bo/values.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/bo/build.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/format.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/lower.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/bo/scenario.hpp>
+#include <kanhe/bo/values.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 namespace {
 
-namespace bo = cexchain::bo;
-namespace cbor = cexchain::cbor;
-namespace m = cexchain::bo::model;
-namespace protocol = cexchain::protocol;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::ByteView;
+namespace bo = kanhe::bo;
+namespace cbor = kanhe::cbor;
+namespace m = kanhe::bo::model;
+namespace protocol = kanhe::protocol;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::ByteView;
 
 const std::uint8_t* current_data = nullptr;
 std::size_t current_size = 0;
@@ -113,7 +113,7 @@ std::size_t current_size = 0;
         std::fprintf(stderr, "%.*s\n", static_cast<int>(detail.size()), detail.data());
     }
     if (current_data != nullptr) {
-        const std::string hex = cexchain::to_hex(ByteView(current_data, current_size));
+        const std::string hex = kanhe::to_hex(ByteView(current_data, current_size));
         std::fprintf(stderr, "input: %s\n", hex.c_str());
         std::ofstream("bo-build-crash.bin", std::ios::binary)
             .write(reinterpret_cast<const char*>(current_data),
@@ -128,8 +128,8 @@ void require(const bool condition, std::string_view what, std::string_view detai
     }
 }
 
-const cexchain::crypto::Provider& provider() {
-    static const cexchain::crypto::openssl::Provider instance;
+const kanhe::crypto::Provider& provider() {
+    static const kanhe::crypto::openssl::Provider instance;
     return instance;
 }
 
@@ -1790,7 +1790,7 @@ Compiled compile(std::string_view source) {
 /// The result as text: the code, or the problems' codes and values.
 std::string result_of(const bo::Lowered& lowered) {
     if (lowered.build) {
-        std::string out = cexchain::to_hex(lowered.build->code);
+        std::string out = kanhe::to_hex(lowered.build->code);
         for (const auto& [name, kind] : lowered.build->interface) {
             out += " " + name + std::to_string(static_cast<int>(kind));
         }
@@ -2046,7 +2046,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
         if (!encoded) {
             continue; // keys given twice, or not in order: no ledger sends that
         }
-        auto outcome = vm::run(*module, *encoded, provider(), cexchain::crypto::HashAlg::sha256);
+        auto outcome = vm::run(*module, *encoded, provider(), kanhe::crypto::HashAlg::sha256);
         require(outcome.has_value(), "vm::run failed");
 
         ++runs_done;
@@ -2077,8 +2077,7 @@ void run_calls(const bo::Build& build, const m::Model& model, Choices& c) {
             continue;
         }
         auto output = protocol::decode_contract_output(outcome->output, home);
-        require(output.has_value(), "an output the ledger refuses",
-                cexchain::to_hex(outcome->output));
+        require(output.has_value(), "an output the ledger refuses", kanhe::to_hex(outcome->output));
         needed += std::holds_alternative<protocol::ContractNeeds>(*output) ? 1U : 0U;
         if (const auto* accept = std::get_if<protocol::ContractAccept>(&*output)) {
             ++accepted;
@@ -2348,7 +2347,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     return 0;
 }
 
-#if defined(CEXCHAIN_BO_FUZZ_DRIVER)
+#if defined(KANHE_BO_FUZZ_DRIVER)
 
 namespace {
 
@@ -2390,7 +2389,7 @@ int main(int argc, char** argv) {
         }
     }
     if (inputs.empty()) {
-        inputs.emplace_back(CEXCHAIN_BO_GOLDEN_DIR);
+        inputs.emplace_back(KANHE_BO_GOLDEN_DIR);
     }
     std::size_t replayed = 0;
     for (const std::filesystem::path& input : inputs) {

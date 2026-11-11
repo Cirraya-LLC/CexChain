@@ -9,7 +9,7 @@ What it shows:
 - **Rules of the contract's own.** [`supply-agreement.bo`](supply-agreement.bo) declares
   its parties, what an agreement records (goods, pieces, price, a delivery date), and two
   actions: `sign`, which needs the consent of the supplier and of the bank, and `close`,
-  which needs the supplier's. Nothing about agreements is built into CexChain.
+  which needs the supplier's. Nothing about agreements is built into Kanhe.
 - **A registrar.** The home's server holds a proposed call until every party the contract
   names has consented, then records it: never on its own word.
 - **People and AI agents.** At the supplier a person (a sales manager) consents; at the
@@ -22,5 +22,5 @@ What it shows:
 
 ```sh
 bo test examples/supply-agreement/supply-agreement.bo
-examples/supply-agreement/supply-agreement.sh [CEXCHAIN] [DIR]    # CTest: demo_supply_agreement
+examples/supply-agreement/supply-agreement.sh [KANHE] [DIR]    # CTest: demo_supply_agreement
 ```

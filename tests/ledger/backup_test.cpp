@@ -7,15 +7,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/ledger/backup.hpp>
+#include <kanhe/ledger/backup.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 /// A backup, signed by the log key unless `sign` is false.
 std::string backup_of(World& w, const std::vector<ledger::BackupFile>& files, bool sign = true) {
@@ -28,13 +28,13 @@ std::string backup_of(World& w, const std::vector<ledger::BackupFile>& files, bo
     return out.str();
 }
 
-cexchain::Result<ledger::BackupSummary> restore(const std::string& backup,
-                                                ledger::MemoryFileSystem& fs,
-                                                std::vector<ledger::BackupFile>* files = nullptr) {
+kanhe::Result<ledger::BackupSummary> restore(const std::string& backup,
+                                             ledger::MemoryFileSystem& fs,
+                                             std::vector<ledger::BackupFile>* files = nullptr) {
     std::istringstream in(backup);
     ledger::ManualClock clock(t0 + day);
     return ledger::restore_backup(in, fs, clock, provider(),
-                                  [&](const ledger::BackupFile& f) -> cexchain::Status {
+                                  [&](const ledger::BackupFile& f) -> kanhe::Status {
                                       if (files != nullptr) {
                                           files->push_back(f);
                                       }

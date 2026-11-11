@@ -7,7 +7,7 @@ test "goods redeemed in parts" passed home=warehouse
   step 6 passed 2026-01-01 accepted pledged consents depositor bank1; fuel 10017 12505
   step 7 passed 2026-01-01 refused "bo:state transfer"; fuel 8650
   step 8 passed 2026-01-01 accepted active event=active consents bank1; fuel 9027 11060
-  step 9 passed 2026-01-01 accepted active event=active consents trader1 depositor; fuel 9379 11858
+  step 9 passed 2026-01-01 accepted active event=active consents depositor trader1; fuel 9366 11858
   step 10 passed 2026-01-01 accepted redeemed event=redeemed final consents trader1; fuel 9137 11169
   step 11 passed 2026-01-01 final-instance
 test "frozen while pledged" passed home=warehouse

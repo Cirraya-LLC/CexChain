@@ -10,7 +10,7 @@
 #   apps    the applications: apps/ and their tests
 #   tests   ctest's options for the jobs that run every test: none, or only
 #           the applications' tests when nothing else changed (the chain and
-#           the language link no application, cmake/CexChainLayers.cmake)
+#           the language link no application, cmake/KanheLayers.cmake)
 #   tsan_tests  the same for ThreadSanitizer, which a change to the language
 #           alone skips (the compiler runs in one thread, in its own process):
 #           none when the chain changed, else the applications' tests

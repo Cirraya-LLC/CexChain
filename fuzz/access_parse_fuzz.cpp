@@ -10,13 +10,13 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/access.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/access.hpp>
 
-namespace protocol = cexchain::protocol;
+namespace protocol = kanhe::protocol;
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const cexchain::ByteView input(data, size);
+    const kanhe::ByteView input(data, size);
     if (const auto delivery = protocol::decode_delivery(input)) {
         const auto again = protocol::encode_delivery(*delivery);
         if (!again || !std::ranges::equal(*again, input)) {
@@ -30,13 +30,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         }
     }
     // Metadata: canonical input re-encodes to exactly the input.
-    auto same = [&](const cexchain::Result<cexchain::cbor::Value>& value) {
-        const auto encoded =
-            value ? cexchain::cbor::encode(*value)
-                  : cexchain::Result<cexchain::Bytes>(std::unexpected(value.error()));
+    auto same = [&](const kanhe::Result<kanhe::cbor::Value>& value) {
+        const auto encoded = value ? kanhe::cbor::encode(*value)
+                                   : kanhe::Result<kanhe::Bytes>(std::unexpected(value.error()));
         return encoded && std::ranges::equal(*encoded, input);
     };
-    if (const auto value = cexchain::cbor::decode(input)) {
+    if (const auto value = kanhe::cbor::decode(input)) {
         if (const auto request = protocol::decode_access_request(*value)) {
             if (!same(protocol::encode_access_request(*request))) {
                 std::abort();

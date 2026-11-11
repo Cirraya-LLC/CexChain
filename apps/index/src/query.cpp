@@ -6,10 +6,10 @@
 #include <cstdio>
 #include <format>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/search/query.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/search/query.hpp>
 
-namespace cexchain::search {
+namespace kanhe::search {
 
 namespace {
 
@@ -509,4 +509,4 @@ nlohmann::json to_json(const IndexStatus& s) {
         {"contracts", s.contracts}, {"bytes", s.bytes}};
 }
 
-} // namespace cexchain::search
+} // namespace kanhe::search

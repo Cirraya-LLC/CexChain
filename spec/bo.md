@@ -2,10 +2,10 @@
 
 Bo 1.0, edition 1 (draft).
 
-Bo is the language contracts on CexChain are written in. This document defines how a Bo source is read (sections 2 and 3), its grammar (4), its types (5), what a contract means (6 to 11), what its compiled code does when it is called (12), and the tools that test, explain, format, and rebuild it (13 to 16). It goes with:
+Bo is the language contracts on Kanhe are written in. This document defines how a Bo source is read (sections 2 and 3), its grammar (4), its types (5), what a contract means (6 to 11), what its compiled code does when it is called (12), and the tools that test, explain, format, and rebuild it (13 to 16). It goes with:
 
 - [`README.md`](README.md), the protocol, whose sections 14 and 15 define the contract profile, fuel, a call's input and output, instances created by a call, and the `bo-source` bundle a deploy carries;
-- [`cexchain.cddl`](cexchain.cddl), where `bo-source` and the contract input and output are defined;
+- [`kanhe.cddl`](kanhe.cddl), where `bo-source` and the contract input and output are defined;
 - the official language packs, [`../bo/packs/`](../bo/packs) (with every earlier version in [`../bo/packs/history/`](../bo/packs/history)), the official vocabulary packs (3.9), and the standard library, [`../bo/stdlib/`](../bo/stdlib) (the core's terms and each vocabulary pack's), which are part of edition 1;
 - [`../testvectors/bo-v1.json`](../testvectors/bo-v1.json), the conformance suite (section 18).
 
@@ -17,7 +17,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as in RFC 211
 - what a contract means: its parties, fields, states, actions, consents, requirements, time rules, charges, and parts;
 - what its compiled code does on every call: the outcome (accepted, waiting for consents, or refused), the state, status, parties, events, finality, and parts an accepted call writes, the ledgers whose consents a call lacks (`[2, needs]`), and the exact reason of a refusal (`bo:CODE ...`, or the text of a `reject`).
 
-Code bytes are informative. A conforming compiler MAY emit any module in the contract profile that behaves as this document says. CexChain's own compiler, `cexchain-bo`, emits exactly the bytes its codegen version fixes (section 16), which the conformance suite pins; fuel figures in this document are that compiler's. The official packs, the vocabulary packs, and the standard library are normative data: where this text and those files, or the conformance suite, disagree, the files win.
+Code bytes are informative. A conforming compiler MAY emit any module in the contract profile that behaves as this document says. Kanhe's own compiler, `kanhe-bo`, emits exactly the bytes its codegen version fixes (section 16), which the conformance suite pins; fuel figures in this document are that compiler's. The official packs, the vocabulary packs, and the standard library are normative data: where this text and those files, or the conformance suite, disagree, the files win.
 
 ## Contents
 
@@ -137,7 +137,7 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 
 ### 1.5 Tools
 
-*This section is informative.* The `bo` program reads Bo sources and deploys; `cexchain` deploys a built contract and hands a deployed one back as a file:
+*This section is informative.* The `bo` program reads Bo sources and deploys; `kanhe` deploys a built contract and hands a deployed one back as a file:
 
 | Command | What it does |
 |---|---|
@@ -153,11 +153,11 @@ A source may begin with `bo 1`, the edition it is written in; a source without i
 | `bo stdlib list [PACK]\|show ACTION` | the standard library's built-in actions, by pack (section 8) |
 | `bo rebuild DEPLOY [--require]` | rebuilds a deploy file's code from its source and compares them (16.4) |
 | `bo reason REASON` | a compiled contract's refusal (`bo:state countersign`) in words |
-| `cexchain contract deploy FILE.boc` | deploys a built contract, recording the source bundle |
-| `cexchain contract export CONTRACT --out FILE` | a deployed contract as a deploy file, for `bo rebuild` and `bo explain` |
-| `cexchain contract verify EVIDENCE [--deploy-out FILE]` | replays an instance's evidence, and writes the deploy it carries |
+| `kanhe contract deploy FILE.boc` | deploys a built contract, recording the source bundle |
+| `kanhe contract export CONTRACT --out FILE` | a deployed contract as a deploy file, for `bo rebuild` and `bo explain` |
+| `kanhe contract verify EVIDENCE [--deploy-out FILE]` | replays an instance's evidence, and writes the deploy it carries |
 
-Messages follow `--language`, or the environment variable `CEXCHAIN_LANGUAGE`, else English. Every command takes `--json`. Every `bo` command reads vocabulary packs of your own with `--vocab FILE` (a `.vocab` file, or a directory's), language packs with `--pack FILE`.
+Messages follow `--language`, or the environment variable `KANHE_LANGUAGE`, else English. Every command takes `--json`. Every `bo` command reads vocabulary packs of your own with `--vocab FILE` (a `.vocab` file, or a directory's), language packs with `--pack FILE`.
 
 ## 2. Source text
 
@@ -860,7 +860,7 @@ A rule for answers is a `when` line whose event is a request's kind and an outco
 
 **The R10 actions**. `notify PARTY`, in any block, on a rule's line, or in a rule for answers, is `request notify to PARTY within 1 day`: it names the one party notified, and nothing else (`check.notify`); a contract that wants more writes the request. On a service, `subscribe`, `upgrade`, `downgrade`, `suspend`, `resume`, and `terminate` each make a request of their own kind (`subscribe`, ...), without params, to be answered within one day, after their clauses (the contract's own, then the terms'); a time rule that does one makes it too. The contract text marks these requests R10. `notify` declared as an action (`can notify`) is checked with the warning `check.needs-executor` and does not build (`build.executor`). `allocate` and `reclaim` are a resource's actions (8.2), not a service's.
 
-**Executors in practice** (*informative*). The home registers an executor (`cexchain executor add NAME --contract C --kinds notify`): an actor whose delegation lets it call `result` on that contract (scope key 8) and answer only those kinds (key 9). `cexchain executor run` finds open requests at the home's server, verifies each in the instance's signed evidence before acting, runs the connector configured for the kind (a `webhook`, a `command`; [`connectors.md`](connectors.md)), and answers with the connector's result, a reason on failure, and a salted digest of the response. `examples/shipment` runs one.
+**Executors in practice** (*informative*). The home registers an executor (`kanhe executor add NAME --contract C --kinds notify`): an actor whose delegation lets it call `result` on that contract (scope key 8) and answer only those kinds (key 9). `kanhe executor run` finds open requests at the home's server, verifies each in the instance's signed evidence before acting, runs the connector configured for the kind (a `webhook`, a `command`; [`connectors.md`](connectors.md)), and answers with the connector's result, a reason on failure, and a salted digest of the response. `examples/shipment` runs one.
 
 ### 6.12 A service's periods, bills, and payments
 
@@ -963,7 +963,7 @@ Rules belong to the core, except those that only a vocabulary pack's words can r
 The standard library is Bo sources of edition 1 in English, which every compiler carries: one `can` clause per built-in action, its *terms*, in one source for the core and one in each vocabulary pack with terms (its `terms`, 3.9):
 
 - [`core.bo`](../bo/stdlib/core.bo): `transfer` and `cancel`, and `suspend`, `resume`, and `terminate`, which end or pause any instance;
-- the terms of [`finance.vocab`](../bo/vocab/finance.vocab), the `finance` pack (they begin `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that CexChain's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
+- the terms of [`finance.vocab`](../bo/vocab/finance.vocab), the `finance` pack (they begin `use finance`): `pledge`, `release`, `enforce`, `redeem`, `pay`, `confirm payment`, `dispute`, `freeze`, `unfreeze`, and `split`, with the semantics that Kanhe's native assets had in spec revisions v0.5 to v0.8 (v0.9 removed native assets; spec section 13 now says when a party may rely on an instance's state);
 - the terms of [`services.vocab`](../bo/vocab/services.vocab), the `services` pack: `allocate` and `reclaim`, which allocate a resource to one holder at a time; and since its version 3 `subscribe`, `renew`, `upgrade`, and `downgrade`, a service's subscription (6.12).
 
 The `commerce` pack's actions have no terms yet. A user's vocabulary pack brings the terms of its own actions the same way (3.9). A pack's terms use the core's words, its own, and those of the packs it requires; they are part of its canonical CBOR, so its digest covers them (3.9). A contract that declares a built-in action (`can transfer to buyer`) gets a copy of its terms (R19):
@@ -1745,7 +1745,7 @@ with its expectation on its line or alone on the next line (`-> ...`). A test ha
 - **`at DATE`**: the step happens at the start of that day at the contract's offset. The date is on or after 1970-01-01 (`check.test-time`) and never before a step before it (`check.test-time-back`).
 - **`in person`**: the party is a person who proves presence; **`by AI agent`**: its signer is an AI agent; not both, and `by` names nothing else (`check.test-signer`). Other words on a step are `check.test-step`.
 - **HOLDER**, a party after the action, names the part the step acts on by its holder (`issuer pay forge`), in a contract whose instances have a `holder` (`check.test-part`).
-- **An answer**: `executor KIND done`, `executor KIND fails`, `keeper KIND expires`, or a party's answer by hand (`we KIND done in person`), with at most `with result = TEXT, reason = TEXT` and `at DATE` (`check.test-answer`, `check.test-value`). KIND is a kind the contract requests (`check.test-answer`). It answers the instance's oldest open request of that kind, as the ledger takes answers: a call of `result` with the request in input key 9 and no consents, signed by the executor or the keeper as the home's devices (kind 3), or by the party. The ledger refuses an answer when no request of the kind is open, an expiry before the deadline, and an accept that would leave the instance more than 64 open requests; a final instance takes answers and stays final. A step that makes requests reports them; their ids derive from a call id of the SHA-256 of `cexchain-bo-test call ` followed by the instance's id in hex, a space, and its head before the call.
+- **An answer**: `executor KIND done`, `executor KIND fails`, `keeper KIND expires`, or a party's answer by hand (`we KIND done in person`), with at most `with result = TEXT, reason = TEXT` and `at DATE` (`check.test-answer`, `check.test-value`). KIND is a kind the contract requests (`check.test-answer`). It answers the instance's oldest open request of that kind, as the ledger takes answers: a call of `result` with the request in input key 9 and no consents, signed by the executor or the keeper as the home's devices (kind 3), or by the party. The ledger refuses an answer when no request of the kind is open, an expiry before the deadline, and an accept that would leave the instance more than 64 open requests; a final instance takes answers and stays final. A step that makes requests reports them; their ids derive from a call id of the SHA-256 of `kanhe-bo-test call ` followed by the instance's id in hex, a space, and its head before the call.
 
 Expectations (`check.test-expect`; one per step, right after it: `check.test-expect-step`):
 
@@ -1764,7 +1764,7 @@ Only `refused` takes a reason (`check.test-reason`).
 
 ### 13.2 Ledgers and time
 
-Every party a test names is a ledger of its own, whose id is the SHA-256 of the UTF-8 text `cexchain-bo-test ledger ` followed by the party's key: a role word's concept id (`role.supplier`), or a name as written (`bank1`, or a party the contract names). So ids are the same in every language. Roles bound at creation are bound to their own ledgers; a role an action binds, to the ledger the step's `to` names. Once bound, a role in a step stands for its ledger. The contract's id is the SHA-256 of `cexchain-bo-test contract`, the home's acting actor the SHA-256 of `cexchain-bo-test actor`, the instance the SHA-256 of `cexchain-bo-test instance`, and a part's id the child id of spec section 15 under SHA-256.
+Every party a test names is a ledger of its own, whose id is the SHA-256 of the UTF-8 text `kanhe-bo-test ledger ` followed by the party's key: a role word's concept id (`role.supplier`), or a name as written (`bank1`, or a party the contract names). So ids are the same in every language. Roles bound at creation are bound to their own ledgers; a role an action binds, to the ledger the step's `to` names. Once bound, a role in a step stands for its ledger. The contract's id is the SHA-256 of `kanhe-bo-test contract`, the home's acting actor the SHA-256 of `kanhe-bo-test actor`, the instance the SHA-256 of `kanhe-bo-test instance`, and a part's id the child id of spec section 15 under SHA-256.
 
 A test starts at 2026-01-01, at the start of that day at the contract's offset, or on its first `at` date if that is earlier. A step without `at` happens at the time of the step before it.
 
@@ -1830,7 +1830,7 @@ The text depends on the model and on the pack it is written with, never on the l
 
 ### 14.3 Conformance of the text
 
-The wording is the packs'. A conforming implementation that writes a contract text MUST state every clause of the model, MUST mark each inferred clause with the rules that inferred it, and MUST number requirements as compiled code does, so that a refusal `bo:requires ACTION N` names the clause *Requirement N* of ACTION, `bo:in-person ACTION` its requirement asking presence, and `bo:state ACTION` its state change. CexChain's text, written with the official packs, is the reference ([`../tests/bo/golden/explain/`](../tests/bo/golden/explain)).
+The wording is the packs'. A conforming implementation that writes a contract text MUST state every clause of the model, MUST mark each inferred clause with the rules that inferred it, and MUST number requirements as compiled code does, so that a refusal `bo:requires ACTION N` names the clause *Requirement N* of ACTION, `bo:in-person ACTION` its requirement asking presence, and `bo:state ACTION` its state change. Kanhe's text, written with the official packs, is the reference ([`../tests/bo/golden/explain/`](../tests/bo/golden/explain)).
 
 ## 15. Formatting
 
@@ -1861,13 +1861,13 @@ A contract written in Bo is deployed (spec section 15, statement type 21) with:
 | code | the module |
 | interface | its functions and kinds (12.2) |
 | language | `bo` |
-| compiler | `cexchain-bo RELEASE; codegen N; edition E` for CexChain's compiler |
+| compiler | `kanhe-bo RELEASE; codegen N; edition E` for Kanhe's compiler |
 | source | a `bo-source` bundle |
 | name | the name after `contract` |
 
 ### 16.2 The bundle
 
-The bundle is deterministic CBOR, `bo-source` in [`cexchain.cddl`](cexchain.cddl), at most 262,144 bytes (a deploy's source):
+The bundle is deterministic CBOR, `bo-source` in [`kanhe.cddl`](kanhe.cddl), at most 262,144 bytes (a deploy's source):
 
 ```
 {1: 1, 2: EDITION, 3: SOURCE, 4: [+ [ID, VERSION, DIGEST]], ? 5: [+ PACK], ? 6: [+ [ID, VERSION, DIGEST]],
@@ -1886,7 +1886,7 @@ Opening a bundle finds its packs: each embedded pack MUST read without errors (3
 
 ### 16.3 The compiler string and codegen versions
 
-`cexchain-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `cexchain-bo 0.0.1; codegen 5; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A construct that no earlier compiler read (a word, a form, or an operation added since) does not raise it: no deploy of a source using it was built by an older lowering, and older sources build to the same bytes as before.
+`kanhe-bo RELEASE; codegen N; edition E` names the compiler, its release, its codegen version, and the edition it reads; for example `kanhe-bo 0.0.1; codegen 5; edition 1`. The codegen version fixes the code: the same codegen version builds the same bytes from the same source, in any language and on any machine. It goes up whenever any byte the compiler emits for some contract changes. A construct that no earlier compiler read (a word, a form, or an operation added since) does not raise it: no deploy of a source using it was built by an older lowering, and older sources build to the same bytes as before.
 
 Codegen 4 is the first released; codegens 1 to 3 came before the first release and are not written. From codegen 4 on, a compiler carries the lowerings of the released codegen versions before its own, so that a deploy built with one still rebuilds; a change of meaning comes in a new edition instead.
 
@@ -1950,14 +1950,14 @@ A rebuild compares bytes only: it does not refuse code for its fuel or output bo
 | events of one call | 64 (spec section 15) | `build.too-many-events` |
 | charges | 64 | `build.too-many-charges` |
 | the module's globals | 1,024 (spec section 14.1) | `build.too-large` |
-| constants: names, texts, reasons, lists written out | CexChain's static region: 32 KiB of memory, less a 1 KiB margin | `build.too-large` |
-| a function's body | CexChain's compiler stops at 100 KiB, within the profile's 131,072 bytes | `build.too-large` |
+| constants: names, texts, reasons, lists written out | Kanhe's static region: 32 KiB of memory, less a 1 KiB margin | `build.too-large` |
+| a function's body | Kanhe's compiler stops at 100 KiB, within the profile's 131,072 bytes | `build.too-large` |
 | requests one call makes | 16, counted over every branch (spec section 15) | `check.request-count` |
 | a request's params | 4,096 bytes encoded (spec section 15) | `bo:request KIND` |
 | a request's deadline | 1 day to 366 days, or 1 to 12 months, after the call (spec section 15) | `check.request-within` |
 | open requests of an instance | 64 (spec section 15): the ledger refuses a call that would leave more | |
 
-**At run time.** These limits are behaviour (section 12), and a conforming compiler's code MUST refuse as CexChain's does:
+**At run time.** These limits are behaviour (section 12), and a conforming compiler's code MUST refuse as Kanhe's does:
 
 | Limit | Value | Refusal |
 |---|---|---|
@@ -1975,11 +1975,11 @@ A rebuild compares bytes only: it does not refuse code for its fuel or output bo
 
 A call has 10,000,000 fuel (spec section 14.3); code that runs out traps, and the call is refused. Bo bounds every loop by what the language bounds, and has no recursion, so the fuel a call can use has a bound that the compiler computes from the code's structure.
 
-For each function of the interface, time rules and `approve` included, CexChain's compiler computes a static worst-case fuel bound from the code it writes: each instruction's fuel (spec section 14.3), the more costly arm of each choice, and each loop's body times the most times it can run.
+For each function of the interface, time rules and `approve` included, Kanhe's compiler computes a static worst-case fuel bound from the code it writes: each instruction's fuel (spec section 14.3), the more costly arm of each choice, and each loop's body times the most times it can run.
 
 - **Loops** run as often as the language allows: a list's bound (nested `each` loops multiply), a bill's lines and the charges on each, a split's parts and the consents of its recipients, at most 16 consents a call cites, 16 ledgers it asks, and 16 proposals kept.
 - **Sizes.** A comparison of texts reads at most the shorter text, which is at most a text written in the contract, an item of a list the loop walks (the items of one list add up to the list), or else 64 KiB, the most an argument or a state holds; copying a value into the output costs by its size the same way; a search of a map reads at most the entries the map can have (an argument map has the action's inputs; a state's map the contract's fields).
-- **Reading the input.** The code reads and indexes the whole input before anything else. CexChain's reader takes at most 3,000 fuel, plus 240 per item of the input and 160 per map key (whose names are at most 64 bytes); the bound counts the items an input can hold: the arguments of the function's shape (each input of its type, lists within their bounds), the state the contract writes (its fields, at most 16 proposals, a bill's lines and charges), and the rest of the input as the ledger encodes it (spec section 15: the instance's parties, at most 16 consents).
+- **Reading the input.** The code reads and indexes the whole input before anything else. Kanhe's reader takes at most 3,000 fuel, plus 240 per item of the input and 160 per map key (whose names are at most 64 bytes); the bound counts the items an input can hold: the arguments of the function's shape (each input of its type, lists within their bounds), the state the contract writes (its fields, at most 16 proposals, a bill's lines and charges), and the rest of the input as the ledger encodes it (spec section 15: the instance's parties, at most 16 consents).
 
 The bound holds for every call whose arguments are of the function's shape: a map of its inputs, each of its type, lists within their bounds (or null when it has none). Any other arguments are refused (`bo:arguments`, `bo:argument NAME`); a caller who sends far larger ones, up to the 64 KiB a call's arguments may take, may make the code run out of fuel reading them first, which refuses the call too. Nothing another party does can make a call run out of fuel: a state is at most 64 KiB, and the bound counts the largest state the contract can write.
 
@@ -1997,7 +1997,7 @@ $ bo build agreement.bo --fuel
   sign                207,117        61,800     65,771
 ```
 
-Most of an action's bound is reading the largest input it can meet (about 62,000) and the worst case of asking for consents (up to 16 ledgers, sorted: about 66,000); a trivial action's bound is about 195,000. The calls of 12.11, on the input each had, used 7,151 to 11,041 fuel. Calls at the language's limits come closer (CexChain's goldens, `tests/bo/golden/build/`, show each call's fuel next to the bound for the input it had):
+Most of an action's bound is reading the largest input it can meet (about 62,000) and the worst case of asking for consents (up to 16 ledgers, sorted: about 66,000); a trivial action's bound is about 195,000. The calls of 12.11, on the input each had, used 7,151 to 11,041 fuel. Calls at the language's limits come closer (Kanhe's goldens, `tests/bo/golden/build/`, show each call's fuel next to the bound for the input it had):
 
 | Call | Fuel | Bound for its input |
 |---|---|---|
@@ -2009,11 +2009,11 @@ Most of an action's bound is reading the largest input it can meet (about 62,000
 
 Two lists of 1,000 numbers compared item by item (`each` within `each`) could need a million comparisons, more than a call's fuel: such a contract does not build (`build.fuel`), and lists of 100 items do.
 
-The bound is an upper bound, which a conforming compiler need not reproduce: it is informative, and so is the fuel any call uses. A CexChain build never deploys code whose bound exceeds the limit (a rebuild compares bytes only, 16.4). A conforming compiler SHOULD likewise ensure that no function of its code can run out of fuel on arguments of its shape.
+The bound is an upper bound, which a conforming compiler need not reproduce: it is informative, and so is the fuel any call uses. A Kanhe build never deploys code whose bound exceeds the limit (a rebuild compares bytes only, 16.4). A conforming compiler SHOULD likewise ensure that no function of its code can run out of fuel on arguments of its shape.
 
 ### 17.3 Output
 
-An accepted call's output MUST fit the output region of compiled code, 196,608 bytes, else the call is refused, `bo:output`; and each state it writes, the instance's and each part's, MUST be at most 65,536 bytes encoded. Since a part repeats its parent's fields, a parent whose state is near 64 KiB cannot be split into many parts: the parent's state and sixteen parts' would be seventeen states, which do not fit 192 KiB. CexChain's compiler computes, for each function, a bound on its output from the same structure as the fuel bound: each state counts at most 64 KiB (the code refuses more), a bill made in the call is written twice (in the state and as its event), and a function that issues parts writes up to 16 more states. `bo build` shows the output bounds with the fuel bounds, and warns when a function's exceeds the region (`build.output`); such a contract builds, but a call that would write too much is refused. A receivable with a text field, for example, warns for `split`: sixteen parts with texts of up to 64 KiB each would not fit, and a parent whose state is small splits into sixteen parts without trouble. The agreement of 12.11 writes at most 65,771 bytes a call; the demo's receivable (`examples/multi-tier-split/multi-tier-split.bo`), which has no text, at most 9,478, splitting included.
+An accepted call's output MUST fit the output region of compiled code, 196,608 bytes, else the call is refused, `bo:output`; and each state it writes, the instance's and each part's, MUST be at most 65,536 bytes encoded. Since a part repeats its parent's fields, a parent whose state is near 64 KiB cannot be split into many parts: the parent's state and sixteen parts' would be seventeen states, which do not fit 192 KiB. Kanhe's compiler computes, for each function, a bound on its output from the same structure as the fuel bound: each state counts at most 64 KiB (the code refuses more), a bill made in the call is written twice (in the state and as its event), and a function that issues parts writes up to 16 more states. `bo build` shows the output bounds with the fuel bounds, and warns when a function's exceeds the region (`build.output`); such a contract builds, but a call that would write too much is refused. A receivable with a text field, for example, warns for `split`: sixteen parts with texts of up to 64 KiB each would not fit, and a parent whose state is small splits into sixteen parts without trouble. The agreement of 12.11 writes at most 65,771 bytes a call; the demo's receivable (`examples/multi-tier-split/multi-tier-split.bo`), which has no text, at most 9,478, splitting included.
 
 ## 18. Conformance
 
@@ -2022,7 +2022,7 @@ An accepted call's output MUST fit the output region of compiled code, 196,608 b
 A **conforming compiler**:
 
 - MUST read the official language packs and the official vocabulary packs, at every released version, and MAY read other language packs (section 3);
-- MUST accept a source exactly when this document accepts it, and MUST refuse every other source. For a refused source, the codes of its errors are normative: it MUST report the codes CexChain's compiler reports, given that the checker reads only a tree without lexer or parser errors, and that lowering reads only a model without checker errors (and that one reading reports at most 100 problems). The wording of messages, and the places they point to, are informative;
+- MUST accept a source exactly when this document accepts it, and MUST refuse every other source. For a refused source, the codes of its errors are normative: it MUST report the codes Kanhe's compiler reports, given that the checker reads only a tree without lexer or parser errors, and that lowering reads only a model without checker errors (and that one reading reports at most 100 problems). The wording of messages, and the places they point to, are informative;
 - MUST build, from an accepted source, code whose interface is that of section 12.2 and whose every call behaves as section 12 says: for every input, the same outcome (an accept, needs, or a refusal), the same output, byte for byte (outputs are deterministic CBOR, so equal values are equal bytes), and the same reason, byte for byte;
 - MAY emit other code bytes, and use other fuel; it SHOULD bound its functions' fuel below the limit of a call (17.2).
 
@@ -2030,24 +2030,24 @@ A tool that writes **the contract text** conforms as section 14.3 says; one that
 
 ### 18.2 The conformance suite
 
-[`../testvectors/bo-v1.json`](../testvectors/bo-v1.json) binds every Bo compiler, CexChain's and anyone's. For each contract it holds:
+[`../testvectors/bo-v1.json`](../testvectors/bo-v1.json) binds every Bo compiler, Kanhe's and anyone's. For each contract it holds:
 
 - its source, in each language it is written in (English, Traditional Chinese, Simplified Chinese, and mixed, for some), and its name (`contract`);
 - its interface (`interface`: each function, `create` or `call`);
 - the `bo-source` bundle a deploy records (`bundle`, and its SHA-256), with the official packs' SHA-256 digests (version 5) and those of the vocabulary packs its `use` lines name (key 6, version 2), and the compiler string it was built with (`compiler`);
 - `earlier`, when there are any: the bundles its deploys recorded with earlier releases of the official packs, oldest first, each with the compiler string (of the suite's codegen) and the SHA-256 of the code it deployed, which is `code_sha256`: each such deploy rebuilds to the same code (16.4);
-- the code `cexchain-bo` built from it (`code`, `code_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
+- the code `kanhe-bo` built from it (`code`, `code_sha256`), and each function's fuel and output bounds (`bounds`): all informative;
 - runs: each call, as its parts (function, arguments, home, contract, instance view, caller and signer, time, consents) and as the contract input the ledger encodes from them (spec section 15), with the outcome, the output or the reason, and the fuel the code used. The runs include every step of the contract's own test blocks.
 
-It also holds sources that must not build (`errors`): each with its name, its text (or, for one that is not UTF-8, its bytes in hex), and the error codes a compiler reports, in source order, with their lines. The codes are normative; the lines are CexChain's.
+It also holds sources that must not build (`errors`): each with its name, its text (or, for one that is not UTF-8, its bytes in hex), and the error codes a compiler reports, in source order, with their lines. The codes are normative; the lines are Kanhe's.
 
-`tools/testvectors/bo_vectors.py` writes the suite from the runs CexChain's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written, the digest of each official pack, which it computes from the packs' text (`bo/packs/`, and `bo/packs/history/` for the earlier bundles) with its own reader of their diagnostic notation, and key 6 equal to the source's `use` lines with the digests of the vocabulary packs' canonical CBOR, which it computes from their files (`bo/vocab/`, and `bo/vocab/history/` for the earlier bundles), each equal to the C++ reader's. Sources read with users' vocabulary packs are tested by CexChain's tests (`tests/bo/vocab_test.cpp`, the goldens with `.vocab` files, `examples/events`), not by this suite, which names official packs only. CexChain's tests rebuild every source to the pinned code, bundle, interface, and bounds, rebuild every earlier bundle to the same code, replay every run, and compile every source that must not build to the same errors.
+`tools/testvectors/bo_vectors.py` writes the suite from the runs Kanhe's tests record, and checks each before writing it: it encodes the input again from the call's parts with its own deterministic CBOR encoder, runs the code on the independent reference interpreter `tools/testvectors/wasm_ref.py` (which MUST give the same outcome, output, fuel, and reason as the ledger's interpreter), decodes the output as `contract-output`, and decodes each bundle, requiring the source as written, the digest of each official pack, which it computes from the packs' text (`bo/packs/`, and `bo/packs/history/` for the earlier bundles) with its own reader of their diagnostic notation, and key 6 equal to the source's `use` lines with the digests of the vocabulary packs' canonical CBOR, which it computes from their files (`bo/vocab/`, and `bo/vocab/history/` for the earlier bundles), each equal to the C++ reader's. Sources read with users' vocabulary packs are tested by Kanhe's tests (`tests/bo/vocab_test.cpp`, the goldens with `.vocab` files, `examples/events`), not by this suite, which names official packs only. Kanhe's tests rebuild every source to the pinned code, bundle, interface, and bounds, rebuild every earlier bundle to the same code, replay every run, and compile every source that must not build to the same errors.
 
-To check a compiler against the suite: build each source (in every language given); require the interface; run the code on each run's input under the contract profile (spec section 14); require the outcome, the output, and the reason; and compile each source that must not build, requiring its error codes. The code, its hash and size, and the fuel are informative: they match exactly only for `cexchain-bo` at the codegen version the suite names. To check a rebuild, open each bundle (16.2) and compare the build with the pinned code.
+To check a compiler against the suite: build each source (in every language given); require the interface; run the code on each run's input under the contract profile (spec section 14); require the outcome, the output, and the reason; and compile each source that must not build, requiring its error codes. The code, its hash and size, and the fuel are informative: they match exactly only for `kanhe-bo` at the codegen version the suite names. To check a rebuild, open each bundle (16.2) and compare the build with the pinned code.
 
 ### 18.3 Goldens
 
-[`../tests/bo/golden/`](../tests/bo/golden) holds CexChain's goldens for every pass: tokens (`tokens.txt`), trees (`ast.txt`), models and their errors (`check.txt`), contract texts in three languages (`explain/`), formatted sources (`format/`), test results (`test/`), built code and fuel (`build/`), and the digests of the official packs (earlier versions included) and of the vocabulary packs. They are informative, and show what a conforming implementation reports: the error goldens (`error-*`, `parse-error-*`, `check-error-*`) give the codes each refused source gets.
+[`../tests/bo/golden/`](../tests/bo/golden) holds Kanhe's goldens for every pass: tokens (`tokens.txt`), trees (`ast.txt`), models and their errors (`check.txt`), contract texts in three languages (`explain/`), formatted sources (`format/`), test results (`test/`), built code and fuel (`build/`), and the digests of the official packs (earlier versions included) and of the vocabulary packs. They are informative, and show what a conforming implementation reports: the error goldens (`error-*`, `parse-error-*`, `check-error-*`) give the codes each refused source gets.
 
 ## Appendix A. Keywords
 

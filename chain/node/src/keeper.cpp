@@ -12,12 +12,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/ledger/parallel.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/keeper.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/ledger/parallel.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/keeper.hpp>
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -506,4 +506,4 @@ std::string due_json_text(const DueWork& work) {
     return out.dump();
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

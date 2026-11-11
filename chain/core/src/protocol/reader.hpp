@@ -9,33 +9,33 @@
 #include <utility>
 #include <vector>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/error.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
 // Internal error-propagation helpers for the protocol decoders, which check
 // dozens of fields each. Not part of the public API.
-#define CEXCHAIN_CONCAT_INNER(a, b) a##b
-#define CEXCHAIN_CONCAT(a, b) CEXCHAIN_CONCAT_INNER(a, b)
+#define KANHE_CONCAT_INNER(a, b) a##b
+#define KANHE_CONCAT(a, b) KANHE_CONCAT_INNER(a, b)
 
 /// Evaluates `expr` (a Result<T>); returns its error from the enclosing
 /// function, or moves its value into `decl`.
-#define CEXCHAIN_TRY(decl, expr)                                                                   \
-    auto CEXCHAIN_CONCAT(cexchain_try_, __LINE__) = (expr);                                        \
-    if (!CEXCHAIN_CONCAT(cexchain_try_, __LINE__)) {                                               \
-        return std::unexpected(CEXCHAIN_CONCAT(cexchain_try_, __LINE__).error());                  \
+#define KANHE_TRY(decl, expr)                                                                      \
+    auto KANHE_CONCAT(kanhe_try_, __LINE__) = (expr);                                              \
+    if (!KANHE_CONCAT(kanhe_try_, __LINE__)) {                                                     \
+        return std::unexpected(KANHE_CONCAT(kanhe_try_, __LINE__).error());                        \
     }                                                                                              \
-    decl = std::move(*CEXCHAIN_CONCAT(cexchain_try_, __LINE__))
+    decl = std::move(*KANHE_CONCAT(kanhe_try_, __LINE__))
 
 /// Evaluates `expr` (a Status) and returns its error from the enclosing
 /// function.
-#define CEXCHAIN_CHECK(expr)                                                                       \
-    if (auto CEXCHAIN_CONCAT(cexchain_check_, __LINE__) = (expr);                                  \
-        !CEXCHAIN_CONCAT(cexchain_check_, __LINE__)) {                                             \
-        return std::unexpected(CEXCHAIN_CONCAT(cexchain_check_, __LINE__).error());                \
+#define KANHE_CHECK(expr)                                                                          \
+    if (auto KANHE_CONCAT(kanhe_check_, __LINE__) = (expr);                                        \
+        !KANHE_CONCAT(kanhe_check_, __LINE__)) {                                                   \
+        return std::unexpected(KANHE_CONCAT(kanhe_check_, __LINE__).error());                      \
     }
 
-namespace cexchain::protocol::detail {
+namespace kanhe::protocol::detail {
 
 /// Reads an integer-keyed protocol map strictly: every accessor marks its key
 /// as seen, and `finish` fails if the map holds any key nobody asked for.
@@ -84,4 +84,4 @@ private:
     return {cbor::Value::integer(key), std::move(value)};
 }
 
-} // namespace cexchain::protocol::detail
+} // namespace kanhe::protocol::detail

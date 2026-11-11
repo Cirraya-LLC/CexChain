@@ -7,16 +7,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/timestamp_authority.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 /// A token over `checkpoint`'s payload, dated `at`.
 Bytes stamp(const TimestampAuthority& authority, const protocol::SignedCheckpoint& checkpoint,
@@ -32,8 +32,8 @@ protocol::VerifyOptions trusting(const TimestampAuthority& authority) {
     return options;
 }
 
-cexchain::Result<protocol::EvidenceReport> verify(const protocol::EvidenceBundle& bundle,
-                                                  const protocol::VerifyOptions& options) {
+kanhe::Result<protocol::EvidenceReport> verify(const protocol::EvidenceBundle& bundle,
+                                               const protocol::VerifyOptions& options) {
     auto encoded = protocol::encode_bundle(bundle);
     REQUIRE(encoded);
     return protocol::verify_bundle(provider(), *encoded, options);
@@ -130,7 +130,7 @@ TEST_CASE("a ledger refuses tokens that do not fit", "[timestamp]") {
     const std::uint64_t size = checkpoint->checkpoint.tree_size;
 
     // For another checkpoint, or another size.
-    const auto other = provider().digest(crypto::HashAlg::sha256, cexchain::as_bytes("other"));
+    const auto other = provider().digest(crypto::HashAlg::sha256, kanhe::as_bytes("other"));
     CHECK(w.ledger()
               .add_timestamp(
                   authority.token(crypto::HashAlg::sha256, other->bytes(), w.clock().now()), size)
@@ -175,7 +175,7 @@ TEST_CASE("a verifier refuses anchors that do not hold", "[timestamp]") {
     };
     // A token over something else.
     auto changed = *good;
-    const auto other = provider().digest(crypto::HashAlg::sha256, cexchain::as_bytes("other"));
+    const auto other = provider().digest(crypto::HashAlg::sha256, kanhe::as_bytes("other"));
     changed.anchors[0].timestamps = {
         authority.token(crypto::HashAlg::sha256, other->bytes(), w.clock().now())};
     CHECK(failure(changed) == Errc::verification_failed);

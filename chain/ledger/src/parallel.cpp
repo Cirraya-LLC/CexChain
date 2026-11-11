@@ -13,9 +13,9 @@
 #include <thread>
 #include <vector>
 
-#include <cexchain/ledger/parallel.hpp>
+#include <kanhe/ledger/parallel.hpp>
 
-namespace cexchain::ledger {
+namespace kanhe::ledger {
 
 namespace {
 
@@ -107,7 +107,7 @@ private:
 };
 
 std::size_t configured_threads() noexcept {
-    if (const char* env = std::getenv("CEXCHAIN_THREADS"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_THREADS"); env != nullptr && *env != '\0') {
         std::size_t value = 0;
         const auto [ptr, ec] = std::from_chars(env, env + std::strlen(env), value);
         if (ec == std::errc{} && *ptr == '\0' && value > 0) {
@@ -159,4 +159,4 @@ ForRanges on_pool() {
     };
 }
 
-} // namespace cexchain::ledger
+} // namespace kanhe::ledger

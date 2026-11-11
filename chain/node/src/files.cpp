@@ -12,7 +12,7 @@
 #include <system_error>
 #include <unistd.h>
 
-namespace cexchain::node::detail {
+namespace kanhe::node::detail {
 
 Result<Bytes> read_file(const std::filesystem::path& path) {
     std::error_code ec;
@@ -71,4 +71,4 @@ void sync_directory(const std::filesystem::path& directory) {
     }
 }
 
-} // namespace cexchain::node::detail
+} // namespace kanhe::node::detail

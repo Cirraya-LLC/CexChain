@@ -8,11 +8,11 @@
 # carries it; a verifier who chose the trust node sees whom the school is,
 # and one who did not sees a node it relies on for nothing; a suspension
 # shows in a fresher proof; the trust files go with backups.
-# Usage: trust.sh CEXCHAIN
+# Usage: trust.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -23,10 +23,10 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="trust test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_LEDGER
+export KANHE_PASSPHRASE="trust test"
+unset KANHE_SERVER KANHE_TOKEN KANHE_LEDGER
 
-run() { "$CEXCHAIN" "$@"; }
+run() { "$KANHE" "$@"; }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
 expect_exit() {
     local code="$1"; shift
@@ -38,7 +38,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -81,7 +81,7 @@ URL="$(json 'd["url"]' < node.json)"
 contains -i "^access-control-allow-origin: \*" headers.txt || fail "any page may read it"
 contains -i "^cache-control: no-store" headers.txt || fail "never cached"
 run verify body.cbor --ledger-id "$NODE" --json | json 'd["record"]["type"]' |
-    contains -x "cexchain.membership/1"
+    contains -x "kanhe.membership/1"
 [ "$(fetch "$URL/m/$NODE")" = 404 ] || fail "no membership names it"
 [ "$(fetch "$URL/m/xyz")" = 400 ] || fail "not a ledger id"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/m/$SCHOOL")" = 405 ] || fail "GET only"
@@ -159,5 +159,5 @@ for command in "trust member add" "trust member list" "trust member show" "trust
 done
 run verify --help | contains -- '--trust-node'
 run completion bash | contains 'trust'
-run record types --json | contains "cexchain.membership/1"
+run record types --json | contains "kanhe.membership/1"
 echo "trust nodes: passed"

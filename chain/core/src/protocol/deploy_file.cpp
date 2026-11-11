@@ -3,11 +3,11 @@
 
 #include <utility>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/deploy_file.hpp>
-#include <cexchain/core/vm.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/deploy_file.hpp>
+#include <kanhe/core/vm.hpp>
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -130,4 +130,4 @@ Result<DeployFile> decode_deploy_file(ByteView encoded) {
     return file;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

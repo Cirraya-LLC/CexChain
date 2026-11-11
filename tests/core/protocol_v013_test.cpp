@@ -17,24 +17,24 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/network.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/network.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace network = cexchain::protocol::network;
-namespace crypto = cexchain::crypto;
-using cexchain::as_bytes;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace network = kanhe::protocol::network;
+namespace crypto = kanhe::crypto;
+using kanhe::as_bytes;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -58,8 +58,7 @@ TEST_CASE("v0.13 vectors: checkpoint notes, verifier keys, and cosignatures",
     CHECK(network::checkpoint_note(origin, at.tree_size, at.root) == note);
 
     // The note key's log signature: Ed25519, deterministic.
-    const auto seed =
-        provider().digest(crypto::HashAlg::sha256, as_bytes("CexChain test key: note"));
+    const auto seed = provider().digest(crypto::HashAlg::sha256, as_bytes("Kanhe test key: note"));
     auto note_key = crypto::openssl::KeyPair::from_ed25519_seed(seed->bytes());
     REQUIRE(note_key);
     auto note_vkey = network::make_verifier_key(provider(), origin, network::log_ed25519,
@@ -92,7 +91,7 @@ TEST_CASE("v0.13 vectors: checkpoint notes, verifier keys, and cosignatures",
     }
 
     // The anchor: the checkpoint and the two valid cosignatures.
-    auto anchor = cexchain::cbor::decode(hex(v["anchor"].get<std::string>()));
+    auto anchor = kanhe::cbor::decode(hex(v["anchor"].get<std::string>()));
     REQUIRE(anchor);
     const auto* map = anchor->as_map();
     REQUIRE(map);
@@ -103,7 +102,7 @@ TEST_CASE("v0.13 vectors: checkpoint notes, verifier keys, and cosignatures",
     auto example_key = network::parse_verifier_key(provider(), example["vkey"].get<std::string>());
     REQUIRE(example_key);
     CHECK(example_key->type == network::log_ed25519);
-    auto bytes = cexchain::from_base64(example["signature"].get<std::string>());
+    auto bytes = kanhe::from_base64(example["signature"].get<std::string>());
     REQUIRE(bytes);
     CHECK(std::ranges::equal(ByteView(*bytes).first(4), example_key->id));
     CHECK(provider().verify(example_key->key, as_bytes(example["note"].get<std::string>()),
@@ -168,17 +167,17 @@ TEST_CASE("verifier keys, names, signature lines, and sizes are read strictly", 
         CHECK_FALSE(network::parse_tlog_size(bad));
     }
 
-    CHECK(*cexchain::from_base64("AA==") == Bytes{0});
-    CHECK(cexchain::to_base64(Bytes{0xFB, 0xFF}) == "+/8=");
+    CHECK(*kanhe::from_base64("AA==") == Bytes{0});
+    CHECK(kanhe::to_base64(Bytes{0xFB, 0xFF}) == "+/8=");
     for (const char* bad : {"AA=", "AB==", "A-==", "A_==", "=AAA", "AA=A", "A==="}) {
         INFO(bad);
-        CHECK_FALSE(cexchain::from_base64(bad));
+        CHECK_FALSE(kanhe::from_base64(bad));
     }
 }
 
 TEST_CASE("the implementation names the specification revision it follows", "[protocol]") {
-    // `cexchain version` reports it; it once stayed at v0.5 for eight revisions.
-    std::ifstream in(std::filesystem::path(CEXCHAIN_TESTVECTORS_DIR) / ".." / "spec" / "README.md");
+    // `kanhe version` reports it; it once stayed at v0.5 for eight revisions.
+    std::ifstream in(std::filesystem::path(KANHE_TESTVECTORS_DIR) / ".." / "spec" / "README.md");
     std::string line;
     std::string revision;
     while (std::getline(in, line)) {

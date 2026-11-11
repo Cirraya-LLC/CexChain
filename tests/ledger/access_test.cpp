@@ -9,16 +9,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/access.hpp>
-#include <cexchain/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/access.hpp>
+#include <kanhe/core/protocol/claims.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 const protocol::Nonce salt_a{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 const Bytes report_content{'r', 'e', 'p', 'o', 'r', 't'};

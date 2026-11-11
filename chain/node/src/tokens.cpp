@@ -6,12 +6,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/node/tokens.hpp>
 
 #include "files.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -123,7 +123,7 @@ Status save_tokens(const std::filesystem::path& ledger_directory,
 }
 
 std::string generate_token(ledger::Entropy& entropy) {
-    return "cxt_" + to_base64url(entropy.bytes<32>());
+    return "kht_" + to_base64url(entropy.bytes<32>());
 }
 
 std::string token_hash(const crypto::Provider& provider, std::string_view token) {
@@ -148,4 +148,4 @@ const ApiToken* find_token(const std::vector<ApiToken>& tokens, const crypto::Pr
     return found;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

@@ -17,13 +17,13 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/http.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/http.hpp>
 
 #include "request_query.hpp"
 
-namespace http = cexchain::node::http;
-namespace detail = cexchain::node::detail;
+namespace http = kanhe::node::http;
+namespace detail = kanhe::node::detail;
 
 namespace {
 
@@ -75,7 +75,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             require(q->limit >= 1 && q->limit <= detail::max_request_limit &&
                     static_cast<std::uint64_t>(q->wait.count()) <= detail::max_request_wait);
             for (const std::string& kind : q->kinds) {
-                require(cexchain::protocol::is_request_kind(kind));
+                require(kanhe::protocol::is_request_kind(kind));
             }
         } else {
             require(!std::get<detail::QueryError>(query).message.empty() && !r.query.empty());

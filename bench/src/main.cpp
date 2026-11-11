@@ -10,7 +10,7 @@
 
 #include "bench.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 void Results::print(bool json) const {
     if (json) {
@@ -85,31 +85,31 @@ bool Options::flag(const std::string& name) const {
     return values_.contains(name);
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench
 
 int main(int argc, char** argv) {
-    using namespace cexchain::bench;
+    using namespace kanhe::bench;
     const std::string usage =
-        "usage: cexchain-bench ledger [--entries N] [--checkpoint-every K] [--batch B]\n"
+        "usage: kanhe-bench ledger [--entries N] [--checkpoint-every K] [--batch B]\n"
         "                             [--disk DIR] [--json]\n"
-        "       cexchain-bench http [--mode read|submit|health] [--connections C]\n"
+        "       kanhe-bench http [--mode read|submit|health] [--connections C]\n"
         "                           [--server-threads T] [--client-threads T] [--seconds S]\n"
         "                           [--requests N] [--prefill N] [--dir DIR] [--keep] [--json]\n"
-        "       cexchain-bench http --mode create|call [--instances N] [--calls K]\n"
+        "       kanhe-bench http --mode create|call [--instances N] [--calls K]\n"
         "                           [--contract small|heavy] [--connections C]\n"
         "                           [--readers R] ...\n"
-        "       cexchain-bench contracts [--contract small,heavy,split] [--instances N]\n"
+        "       kanhe-bench contracts [--contract small,heavy,split] [--instances N]\n"
         "                                [--calls K] [--lines L] [--batch B] [--disk DIR] "
         "[--json]\n"
-        "       cexchain-bench evidence [--history H] [--entries N] [--repeat R] [--json]\n"
-        "       cexchain-bench keeper [--instances N,N,...] [--record] [--dir DIR] [--keep]\n"
+        "       kanhe-bench evidence [--history H] [--entries N] [--repeat R] [--json]\n"
+        "       kanhe-bench keeper [--instances N,N,...] [--record] [--dir DIR] [--keep]\n"
         "                             [--json]\n"
-        "       cexchain-bench executor [--requests N] [--concurrency C]\n"
+        "       kanhe-bench executor [--requests N] [--concurrency C]\n"
         "                               [--connector command|webhook] [--program PATH]\n"
-        "                               [--state DIR] [--cexchain PATH] [--in-process] [--json]\n"
-        "       cexchain-bench registrar [--instances N] [--calls K] [--json]\n"
-        "       cexchain-bench bo [--repeat R] [--examples DIR] [--json]\n"
-        "       cexchain-bench search [--records N] [--repeat R] [--json]\n"
+        "                               [--state DIR] [--kanhe PATH] [--in-process] [--json]\n"
+        "       kanhe-bench registrar [--instances N] [--calls K] [--json]\n"
+        "       kanhe-bench bo [--repeat R] [--examples DIR] [--json]\n"
+        "       kanhe-bench search [--records N] [--repeat R] [--json]\n"
         "Contracts are Bo builds (examples/lending, a bill, examples/multi-tier-split,\n"
         "examples/idc-hosting): every scenario but ledger, http, and executor needs\n"
         "the Bo compiler (a GCC 16 build).\n";

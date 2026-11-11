@@ -24,26 +24,26 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/vm.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/vm.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-namespace cbor = cexchain::cbor;
-namespace vm = cexchain::vm;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+namespace cbor = kanhe::cbor;
+namespace vm = kanhe::vm;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -157,7 +157,7 @@ TEST_CASE("v0.7 children: statements, runs, ids, the state, and the log",
         const auto& entries = ledger["log_entries"];
         const auto commitment_index = ledger["state_commitment"]["index"].get<std::size_t>();
         REQUIRE(commitment_index + 1 == entries.size());
-        cexchain::merkle::Tree tree(provider(), hash);
+        kanhe::merkle::Tree tree(provider(), hash);
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const Bytes encoded = hex(text(entries[i]));
             const auto entry = protocol::decode_log_entry(encoded);
@@ -664,7 +664,7 @@ TEST_CASE("v0.7 children: the limits of an output, which the vectors' contracts 
         accept_with(cbor::Value::null(), {child_map({field(1, state_of_size(65'537))})}),
         home_ledger);
     REQUIRE_FALSE(over);
-    CHECK(over.error().code == cexchain::Errc::malformed);
+    CHECK(over.error().code == kanhe::Errc::malformed);
     // The parent's state has the same limit, children or not.
     CHECK_FALSE(protocol::decode_contract_output(
         accept_with(state_of_size(65'537), {child_map({field(1, cbor::Value::null())})}),

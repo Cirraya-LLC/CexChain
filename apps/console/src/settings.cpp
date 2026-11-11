@@ -12,14 +12,14 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/settings.hpp>
-#include <cexchain/ledger/storage.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/settings.hpp>
+#include <kanhe/ledger/storage.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -72,7 +72,7 @@ void save_settings(const std::filesystem::path& directory, const Settings& setti
 
 std::optional<std::string> prepare_backup_folder(const std::filesystem::path& folder) {
     if (!folder.is_absolute()) {
-        return "a backup folder is a full path, such as /Volumes/Backup/CexChain";
+        return "a backup folder is a full path, such as /Volumes/Backup/Kanhe";
     }
     std::error_code error;
     std::filesystem::create_directories(folder, error);
@@ -80,7 +80,7 @@ std::optional<std::string> prepare_backup_folder(const std::filesystem::path& fo
         return "the folder cannot be made there: " + error.message();
     }
     // Writable: a file made and removed.
-    const std::filesystem::path probe = folder / ".cexchain-write-test";
+    const std::filesystem::path probe = folder / ".kanhe-write-test";
     try {
         client::write_file(probe, as_bytes("ok\n"), true);
     } catch (const std::exception&) {
@@ -95,7 +95,7 @@ std::filesystem::path suggested_backup_folder() {
     const std::filesystem::path base = home != nullptr && *home != '\0'
                                            ? std::filesystem::path(home)
                                            : std::filesystem::temp_directory_path();
-    return base / "CexChain backups";
+    return base / "Kanhe backups";
 }
 
 nlohmann::json Console::settings_view(Role role) const {
@@ -183,4 +183,4 @@ http::Response Console::settings_route(const http::Request& request) const {
     return json(200, settings_view(role));
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

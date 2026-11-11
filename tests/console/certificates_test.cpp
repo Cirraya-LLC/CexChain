@@ -11,10 +11,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-#include <cexchain/console/certificates.hpp>
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/console/certificates.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace console = cexchain::console;
+namespace console = kanhe::console;
 using Catch::Matchers::ContainsSubstring;
 using Table = std::vector<std::vector<std::string>>;
 
@@ -101,13 +101,13 @@ TEST_CASE("a table's rows are checked against the kind", "[console][certificates
 
 TEST_CASE("the verifier's link names the ledger, the record, and the address",
           "[console][certificates]") {
-    const auto ledger = *cexchain::protocol::to_id(cexchain::Bytes(32, 0xab));
-    const auto record = *cexchain::protocol::to_id(cexchain::Bytes(32, 0x01));
+    const auto ledger = *kanhe::protocol::to_id(kanhe::Bytes(32, 0xab));
+    const auto record = *kanhe::protocol::to_id(kanhe::Bytes(32, 0x01));
     const std::string link = console::verifier_link("https://v.example/verify/", ledger, record,
                                                     "https://l.example/c/a_b-c?x=1&y");
     CHECK(link.starts_with("https://v.example/verify/#l="));
-    CHECK_THAT(link, ContainsSubstring("#l=" + cexchain::to_hex(ledger.bytes())));
-    CHECK_THAT(link, ContainsSubstring("&r=" + cexchain::to_hex(record.bytes())));
+    CHECK_THAT(link, ContainsSubstring("#l=" + kanhe::to_hex(ledger.bytes())));
+    CHECK_THAT(link, ContainsSubstring("&r=" + kanhe::to_hex(record.bytes())));
     CHECK_THAT(link, ContainsSubstring("&b=https://l.example/c/a_b-c%3Fx%3D1%26y"));
     CHECK_THAT(console::verifier_link("https://v/", ledger, record, "https://l/c/t", "zh-Hant"),
                ContainsSubstring("&b=https://l/c/t&lang=zh-Hant"));

@@ -24,21 +24,21 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#ifdef CEXCHAIN_HAVE_PKCS11
-#include <cexchain/crypto/pkcs11.hpp>
+#include <kanhe/core/cbor.hpp>
+#ifdef KANHE_HAVE_PKCS11
+#include <kanhe/crypto/pkcs11.hpp>
 #endif
 
 #include "registry.hpp"
 #include "webauthn.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 std::string prompt_hidden(const std::string& prompt) {
     const int tty = ::open("/dev/tty", O_RDWR | O_CLOEXEC);
     if (tty < 0) {
         throw UsageError{
-            "a key passphrase is needed: use --passphrase-file or set CEXCHAIN_PASSPHRASE"};
+            "a key passphrase is needed: use --passphrase-file or set KANHE_PASSPHRASE"};
     }
     static_cast<void>(::write(tty, prompt.data(), prompt.size()));
     termios saved{};
@@ -121,7 +121,7 @@ crypto::openssl::KeyPair load_key(const std::filesystem::path& path, const Args&
     return client::load_key(path, [&] { return passphrase(args, path.string()); });
 }
 
-#ifdef CEXCHAIN_HAVE_PKCS11
+#ifdef KANHE_HAVE_PKCS11
 namespace {
 
 std::string token_pin(const crypto::pkcs11::KeyUri& uri) {
@@ -136,7 +136,7 @@ std::string token_pin(const crypto::pkcs11::KeyUri& uri) {
         }
         return pin;
     }
-    if (const char* env = std::getenv("CEXCHAIN_PKCS11_PIN"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_PKCS11_PIN"); env != nullptr && *env != '\0') {
         return env;
     }
     return prompt_hidden("PIN for token " + uri.token.value_or(uri.serial.value_or("")) + ": ");
@@ -155,12 +155,12 @@ std::unique_ptr<crypto::Signer> token_key(Result<crypto::pkcs11::Key> key) {
 
 std::unique_ptr<crypto::Signer> load_signer(const std::string& source, const Args& args) {
     if (source.starts_with("pkcs11:")) {
-#ifdef CEXCHAIN_HAVE_PKCS11
+#ifdef KANHE_HAVE_PKCS11
         const auto uri = unwrap(crypto::pkcs11::parse_uri(source), "reading the PKCS #11 URI");
         return token_key(crypto::pkcs11::Key::open(uri, token_pin(uri), shared_provider()));
 #else
         throw CommandError{
-            "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+            "this build of kanhe has no PKCS #11 support (it needs p11-kit at build time)"};
 #endif
     }
     return std::make_unique<crypto::openssl::KeyPair>(load_key(source, args));
@@ -168,12 +168,12 @@ std::unique_ptr<crypto::Signer> load_signer(const std::string& source, const Arg
 
 std::unique_ptr<crypto::Signer> generate_on_token([[maybe_unused]] const std::string& source,
                                                   [[maybe_unused]] crypto::SigAlg alg) {
-#ifdef CEXCHAIN_HAVE_PKCS11
+#ifdef KANHE_HAVE_PKCS11
     const auto uri = unwrap(crypto::pkcs11::parse_uri(source), "reading the PKCS #11 URI");
     return token_key(crypto::pkcs11::Key::generate(uri, token_pin(uri), alg, shared_provider()));
 #else
     throw CommandError{
-        "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+        "this build of kanhe has no PKCS #11 support (it needs p11-kit at build time)"};
 #endif
 }
 
@@ -186,7 +186,7 @@ std::optional<PresenceRequest> presence_request(const Args& args) {
         if (!uri->starts_with("pkcs11:")) {
             throw UsageError{"--presence-key takes a pkcs11: URI naming the hardware key"};
         }
-#ifdef CEXCHAIN_HAVE_PKCS11
+#ifdef KANHE_HAVE_PKCS11
         // Presence means a person unlocked the key now: not a PIN written
         // into the URI, and not a key that can live outside the token.
         const auto parsed = unwrap(crypto::pkcs11::parse_uri(*uri), "reading the PKCS #11 URI");
@@ -204,7 +204,7 @@ std::optional<PresenceRequest> presence_request(const Args& args) {
         return PresenceRequest{std::move(key), {}};
 #else
         throw CommandError{
-            "this build of cexchain has no PKCS #11 support (it needs p11-kit at build time)"};
+            "this build of kanhe has no PKCS #11 support (it needs p11-kit at build time)"};
 #endif
     }
     if (args.has("presence")) {
@@ -235,7 +235,7 @@ std::optional<std::string> api_token(const Args& args) {
         }
         return text;
     }
-    if (const char* env = std::getenv("CEXCHAIN_TOKEN"); env != nullptr && *env != '\0') {
+    if (const char* env = std::getenv("KANHE_TOKEN"); env != nullptr && *env != '\0') {
         return std::string(env);
     }
     return std::nullopt;
@@ -266,10 +266,9 @@ std::optional<std::string> server_url(const Args& args) {
     if (args.has("ledger")) {
         return std::nullopt;
     }
-    if (const char* env = std::getenv("CEXCHAIN_SERVER"); env != nullptr && *env != '\0') {
-        if (const char* local = std::getenv("CEXCHAIN_LEDGER");
-            local != nullptr && *local != '\0') {
-            throw UsageError{"both CEXCHAIN_LEDGER and CEXCHAIN_SERVER are set: pass --ledger or "
+    if (const char* env = std::getenv("KANHE_SERVER"); env != nullptr && *env != '\0') {
+        if (const char* local = std::getenv("KANHE_LEDGER"); local != nullptr && *local != '\0') {
+            throw UsageError{"both KANHE_LEDGER and KANHE_SERVER are set: pass --ledger or "
                              "--server"};
         }
         return std::string(env);
@@ -371,19 +370,19 @@ RelayReach::RelayReach(const Args& args, Session& session) {
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
-#define CEXCHAIN_SANITIZED_PROCESS 1
+#define KANHE_SANITIZED_PROCESS 1
 #endif
 #endif
 #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
-#define CEXCHAIN_SANITIZED_PROCESS 1
+#define KANHE_SANITIZED_PROCESS 1
 #endif
 
 void keep_keys_out_of_dumps() {
     const rlimit none{0, 0};
     static_cast<void>(::setrlimit(RLIMIT_CORE, &none));
-#if defined(__linux__) && !defined(CEXCHAIN_SANITIZED_PROCESS)
+#if defined(__linux__) && !defined(KANHE_SANITIZED_PROCESS)
     static_cast<void>(::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0));
 #endif
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

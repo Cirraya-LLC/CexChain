@@ -7,13 +7,13 @@
 #include <filesystem>
 #include <string_view>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/failure.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/failure.hpp>
 
 /// What the bo program needs of files and parsing, without the chain's
 /// client library (the chain's programs have its own).
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 [[nodiscard]] Bytes read_file(const std::filesystem::path& path);
 /// Writes atomically (a temporary file beside it, then a rename);
@@ -23,4 +23,4 @@ void write_file(const std::filesystem::path& path, ByteView data, bool private_f
 /// sha256 or sm3.
 [[nodiscard]] crypto::HashAlg parse_hash(std::string_view name);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

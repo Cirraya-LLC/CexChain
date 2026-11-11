@@ -10,19 +10,19 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/session.hpp>
-#include <cexchain/client/views.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/presence.hpp>
-#include <cexchain/node/api.hpp>
-#include <cexchain/node/cluster.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/replica.hpp>
-#include <cexchain/node/trust.hpp>
+#include <kanhe/client/session.hpp>
+#include <kanhe/client/views.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/presence.hpp>
+#include <kanhe/node/api.hpp>
+#include <kanhe/node/cluster.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/replica.hpp>
+#include <kanhe/node/trust.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -86,17 +86,17 @@ std::optional<protocol::Id> contract_for(const protocol::LedgerState& state,
     return std::nullopt;
 }
 
-/// Where the mirrors live: the location's cache, else $XDG_CACHE_HOME/cexchain
-/// or ~/.cache/cexchain.
+/// Where the mirrors live: the location's cache, else $XDG_CACHE_HOME/kanhe
+/// or ~/.cache/kanhe.
 std::filesystem::path cache_root(const ServerLocation& server) {
     if (server.cache) {
         return *server.cache;
     }
     if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
-        return std::filesystem::path(xdg) / "cexchain";
+        return std::filesystem::path(xdg) / "kanhe";
     }
     if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-        return std::filesystem::path(home) / ".cache" / "cexchain";
+        return std::filesystem::path(home) / ".cache" / "kanhe";
     }
     throw UsageError{"no cache directory for the server's mirror: pass --cache DIR"};
 }
@@ -380,9 +380,9 @@ protocol::SignedStatement Session::sign(const crypto::Signer& signer, protocol::
             provenance->model_version = actor.agent->model_version;
         }
         if (provenance->tools.empty()) {
-            const std::string tool = std::string("cexchain-cli/") + CEXCHAIN_VERSION;
+            const std::string tool = std::string("kanhe-cli/") + KANHE_VERSION;
             provenance->tools.push_back(
-                {"cli:cexchain", hash_text(provider_, crypto::HashAlg::sha256, tool)});
+                {"cli:kanhe", hash_text(provider_, crypto::HashAlg::sha256, tool)});
         }
     }
     statement.provenance = std::move(provenance);
@@ -466,7 +466,7 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
     }
     if (actor.presence.empty()) {
         throw ActionError{"\"" + actor.display_name +
-                          "\" has no passkey registered (cexchain presence enroll, then cexchain "
+                          "\" has no passkey registered (kanhe presence enroll, then kanhe "
                           "actor set-presence)"};
     }
     const auto kid =
@@ -487,9 +487,8 @@ void Session::prove_presence(const protocol::ActorState& actor, protocol::Statem
                        c.key == request.hardware_key->public_key();
             });
         if (credential == actor.presence.end()) {
-            throw ActionError{
-                "this hardware key is not registered for \"" + actor.display_name +
-                "\" (cexchain presence enroll --pkcs11, then cexchain actor set-presence)"};
+            throw ActionError{"this hardware key is not registered for \"" + actor.display_name +
+                              "\" (kanhe presence enroll --pkcs11, then kanhe actor set-presence)"};
         }
         statement.presence = protocol::PresenceProof{
             credential->credential_id,
@@ -588,7 +587,7 @@ void Session::require_primary() const {
     }
     if (std::filesystem::exists(directory_ / node::replica_file)) {
         throw ActionError{"this ledger is a replica: write to its primary, or promote it first "
-                          "(cexchain replica promote)"};
+                          "(kanhe replica promote)"};
     }
 }
 
@@ -858,4 +857,4 @@ void Session::fetch_vault_public_key() const {
     remote_->vault_key_fetched = true;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

@@ -17,16 +17,16 @@
 #include <string>
 #endif
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/ledger.hpp>
-#include <cexchain/ledger/parallel.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/ledger.hpp>
+#include <kanhe/ledger/parallel.hpp>
 
 #include "bench.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 namespace {
 
@@ -230,4 +230,4 @@ int ledger_bench(const Options& options) {
     return 0;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

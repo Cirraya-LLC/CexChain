@@ -4,7 +4,7 @@
 # The core library holds everything an independent verifier needs. It must stay
 # dependency-free, portable C++23 so it can be built for WebAssembly and with any
 # mainstream compiler. Do not raise its language standard.
-add_library(cexchain_core
+add_library(kanhe_core
     src/bytes.cpp
     src/cbor.cpp
     src/cbor_diagnostic.cpp
@@ -38,9 +38,9 @@ add_library(cexchain_core
     src/protocol/witness.cpp
     src/vm/execute.cpp
     src/vm/module.cpp)
-add_library(cexchain::core ALIAS cexchain_core)
+add_library(kanhe::core ALIAS kanhe_core)
 
-target_include_directories(cexchain_core PUBLIC
+target_include_directories(kanhe_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_compile_features(cexchain_core PUBLIC cxx_std_23)
-cexchain_target_defaults(cexchain_core)
+target_compile_features(kanhe_core PUBLIC cxx_std_23)
+kanhe_target_defaults(kanhe_core)

@@ -11,11 +11,11 @@
 # a kill that caught it acting (its outcome not yet journaled), and never
 # after its outcome was. The options that set how many requests run at once:
 # their help, completion, JSON, and refusals.
-# Usage: executor_concurrency.sh CEXCHAIN
+# Usage: executor_concurrency.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 PIDS=()
@@ -27,15 +27,15 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="executor test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="executor test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -127,12 +127,12 @@ json 'd["connectors"][0]["concurrency"]' < worker.json | contains -x 6
 a token create worker --scope executor --out worker.token > /dev/null
 PORT="$(free_port)"
 URL="http://127.0.0.1:$PORT"
-"$CEXCHAIN" serve --listen "127.0.0.1:$PORT" --ledger "$A" --log-key a-log.key --quiet \
+"$KANHE" serve --listen "127.0.0.1:$PORT" --ledger "$A" --log-key a-log.key --quiet \
     > server.out 2> server.log &
 PIDS+=("$!")
 wait_for 300 healthy "$URL" || { cat server.log; fail "the server did not start"; }
 S="$WORK/state"
-RUN=("$CEXCHAIN" executor run --config worker.json --state "$S" --server "$URL"
+RUN=("$KANHE" executor run --config worker.json --state "$S" --server "$URL"
     --token-file worker.token --as worker.key --lease-ttl 5)
 expect_exit 1 executor run --config worker.json --state "$S" --server "$URL" \
     --token-file worker.token --as worker.key --concurrency 0

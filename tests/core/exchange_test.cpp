@@ -10,13 +10,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/exchange.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/exchange.hpp>
 
 #include "support/vectors.hpp"
 
-using namespace cexchain;
+using namespace kanhe;
 
 TEST_CASE("exchange files: accepted files read to their fields and back to their bytes",
           "[protocol][exchange]") {

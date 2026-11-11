@@ -1,10 +1,10 @@
-# The CexChain protocol
+# The Kanhe protocol
 
-Revision v0.16 (draft). Wire protocol version 1.
+Revision v0.17 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
-- [`cexchain.cddl`](cexchain.cddl), the structures, in RFC 8610 CDDL;
+- [`kanhe.cddl`](kanhe.cddl), the structures, in RFC 8610 CDDL;
 - [`../testvectors/`](../testvectors), objects built by independent implementations, which any implementation must read and reproduce byte for byte.
 
 Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repository is one implementation; it does not define the protocol.
@@ -13,11 +13,13 @@ The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
 
-**Changes in v0.16.** Trust nodes: a record of the new mechanism type `cexchain.membership/1` is a ledger's word that another ledger belongs to the organization or person it names, as it checked them (section 6). An evidence bundle may carry such memberships of its own ledger (key 9), each the complete evidence of the membership on the trust node's ledger. A verifier states, for each, the trust node, named from the verifier's own list and never from the evidence, whom it names, and where the membership stood when the record was registered and at the membership's checkpoint (section 11). A server may serve a ledger's membership (section 16). The ledger rules change for the new type only; the wire protocol stays version 1, and a bundle without key 9, and a log without memberships, verify as before.
+**Changes in v0.17.** The protocol is Kanhe, formerly CexChain. Every protocol string changes with the name: the reserved record-type prefix is `kanhe.` (six bytes), so the mechanism types are `kanhe.access-request/1` to `kanhe.membership/1`, and the content types and every other string the protocol signs or hashes say `kanhe` where they said `cexchain`. Objects under the old name are not Kanhe objects and verify as nothing here; the wire protocol stays version 1, since the content types already tell the two apart. `state_rules_version` 4. The earlier revisions below are written under the new name.
+
+**Changes in v0.16.** Trust nodes: a record of the new mechanism type `kanhe.membership/1` is a ledger's word that another ledger belongs to the organization or person it names, as it checked them (section 6). An evidence bundle may carry such memberships of its own ledger (key 9), each the complete evidence of the membership on the trust node's ledger. A verifier states, for each, the trust node, named from the verifier's own list and never from the evidence, whom it names, and where the membership stood when the record was registered and at the membership's checkpoint (section 11). A server may serve a ledger's membership (section 16). The ledger rules change for the new type only; the wire protocol stays version 1, and a bundle without key 9, and a log without memberships, verify as before.
 
 **Changes in v0.15.** Asking about a condition: an access request may ask whether a condition holds in a record instead of asking for its data, and the granter answers with a claim that names the request (sections 6, 12, and 16). The requester checks that the claim answers its request, about that record and with that condition, and acknowledges it with a receipt as it acknowledges a delivery. The names in access metadata are written down as readers already checked them: non-empty, unique within their list, at most 256 to a list (section 12, `access-names`). The ledger rules do not change; the wire protocol stays version 1, and a log replays as before.
 
-**Changes in v0.14.** Claims: a record of the new mechanism type `cexchain.claim/1` says that, in another record of the same ledger (its source), a condition on fields holds or does not, without disclosing them (section 6). A claim's evidence carries its source as an involved object, so that a verifier sees whether the source was revoked or replaced since, and the report states the condition in words (section 11). Nothing else changes; the wire protocol stays version 1, and a log without claims replays as before.
+**Changes in v0.14.** Claims: a record of the new mechanism type `kanhe.claim/1` says that, in another record of the same ledger (its source), a condition on fields holds or does not, without disclosing them (section 6). A claim's evidence carries its source as an involved object, so that a verifier sees whether the source was revoked or replaced since, and the report states the condition in words (section 11). Nothing else changes; the wire protocol stays version 1, and a log without claims replays as before.
 
 **Changes in v0.13.** Open witness networks: the witnesses of transparency networks that follow C2SP's specifications can cosign a SHA-256 ledger's checkpoints, as text notes under a name derived from the ledger id, and a verifier that trusts them counts their cosignatures as it counts its own witnesses' (sections 10.2, 11, 16, and 17). Bundles carry such cosignatures in anchors (key 4 of `anchor`, whose key 2 becomes optional). Nothing else changes; the wire protocol stays version 1, and a bundle without them verifies as before.
 
@@ -29,7 +31,7 @@ Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.m
 
 **Changes in v0.9.** The protocol knows only generic primitives: actors and delegations, records, contracts and their instances, consents, access, witnesses, and evidence. Revision v0.9 removes:
 - statement type 20 (asset-action, v0.5), which is reserved and never reused: a decoder refuses it like any unknown type;
-- the record types of particular industries: certificates, deliveries, and agreements (v0.1), and receivables, warehouse receipts, and asset consents (v0.5), with their lifecycles, the asset rules, and asset evidence. The `cexchain.` record type prefix is reserved for the protocol's own mechanism types (section 6).
+- the record types of particular industries: certificates, deliveries, and agreements (v0.1), and receivables, warehouse receipts, and asset consents (v0.5), with their lifecycles, the asset rules, and asset evidence. The `kanhe.` record type prefix is reserved for the protocol's own mechanism types (section 6).
 
 A record's type is now its registrant's choice, with one generic lifecycle, and anything with rules of its own is a contract instance (sections 13 and 15). The wire protocol stays version 1, which was never released. A log that holds a type-20 statement or a removed record type therefore fails replay, so its ledger no longer opens; asset evidence no longer verifies; backups that carry asset consents are refused. That is accepted because nothing was released before v0.9: such logs exist only in tests, and keeping the types would bind every later version to them.
 
@@ -97,10 +99,10 @@ Content types tell signed objects apart, so a signature on one kind can never be
 
 | Content type | Object | Signed by |
 |---|---|---|
-| `application/cexchain-statement+cbor` | statement | the actor's key |
-| `application/cexchain-checkpoint+cbor` | checkpoint | the log key |
-| `application/cexchain-cosignature+cbor` | cosignature of a checkpoint | a witness key |
-| `application/cexchain-state+cbor` | state commitment | the log key |
+| `application/kanhe-statement+cbor` | statement | the actor's key |
+| `application/kanhe-checkpoint+cbor` | checkpoint | the log key |
+| `application/kanhe-cosignature+cbor` | cosignature of a checkpoint | a witness key |
+| `application/kanhe-state+cbor` | state commitment | the log key |
 
 ## 3. Keys, algorithms, and identifiers
 
@@ -206,7 +208,7 @@ A ledger accepts a statement only if every rule below holds at its registration 
 - **The log key.** Only the organization rotates it (ledger-rotate-log-key), without a delegation. The new key must not be weak, must not be an actor's key, and must never have been a log key of this ledger.
 - **Delegations.** Only the grantor or the organization may revoke a delegation. Revoking an actor or a delegation ends everything that depends on it, because authority is checked through the whole chain at every statement.
 - **Revoked objects** (v0.12). A revoked actor or delegation takes no statement about it: revoking it again, rotating a revoked actor's key or setting its presence credentials, granting a delegation to it, and registering an agent with it as the responsible person are refused.
-- **Records.** A registration's type must not begin with `cexchain.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements, except a registration that supersedes it.
+- **Records.** A registration's type must not begin with `kanhe.` unless it is one of the protocol's mechanism types (v0.9; section 6). Records follow their type's lifecycle (section 6). Transitions must start from the record's current state and be allowed by its type, so a record of the generic lifecycle takes none. Endorsement roles must be allowed by the type: any role under the generic lifecycle, none for a mechanism type. An actor endorses a record at most once per role. A revoked record accepts no further statements, except a registration that supersedes it.
 - **Versions** (v0.10). A registration that supersedes a record (section 6) is refused unless that record is a record of this ledger, neither of the two types is a mechanism type, the record was not superseded before, and the signer's scope covers that record's type as well as its own (the organization needs no scope). The record may be revoked.
 - **Contracts.** Deploys, calls, and retires follow the rules of section 15. A call is registered only if its contract, run on the call, accepts it. An answer (v0.8) answers an open request of its instance, at most once.
 
@@ -231,18 +233,18 @@ What a type's fields mean, which roles matter, and when a document stops countin
 
 | Type | Initial state | Transitions | Used in |
 |---|---|---|---|
-| `cexchain.access-request/1` | requested | requested → withdrawn | access (section 12) |
-| `cexchain.access-grant/1` | granted | none (revoke the record) | access |
-| `cexchain.access-receipt/1` | received | none | access |
-| `cexchain.contract-consent/1` | given | given → withdrawn | consents to contract calls (section 15) |
-| `cexchain.claim/1` (v0.14) | confirmed | none (revoke the record) | claims, below |
-| `cexchain.membership/1` (v0.16) | active | active → suspended, suspended → active, active → ended, suspended → ended | trust nodes, below |
+| `kanhe.access-request/1` | requested | requested → withdrawn | access (section 12) |
+| `kanhe.access-grant/1` | granted | none (revoke the record) | access |
+| `kanhe.access-receipt/1` | received | none | access |
+| `kanhe.contract-consent/1` | given | given → withdrawn | consents to contract calls (section 15) |
+| `kanhe.claim/1` (v0.14) | confirmed | none (revoke the record) | claims, below |
+| `kanhe.membership/1` (v0.16) | active | active → suspended, suspended → active, active → ended, suspended → ended | trust nodes, below |
 
-**The `cexchain.` prefix is reserved** (v0.9). A registration whose type begins with the nine bytes `cexchain.` and is not one of the six is refused, so that nobody can pass off a type as the protocol's. This covers the types that earlier revisions built in and v0.9 removed: `cexchain.certificate/1`, `cexchain.delivery/1`, and `cexchain.agreement/1` (v0.1), and `cexchain.receivable/1`, `cexchain.warehouse-receipt/1`, and `cexchain.asset-consent/1` (v0.5). The rule applies to registrations only: a scope may list any type, and a type nobody can register covers nothing.
+**The `kanhe.` prefix is reserved** (v0.9). A registration whose type begins with the six bytes `kanhe.` and is not one of the six is refused, so that nobody can pass off a type as the protocol's. This covers the types that earlier revisions built in and v0.9 removed: `kanhe.certificate/1`, `kanhe.delivery/1`, and `kanhe.agreement/1` (v0.1), and `kanhe.receivable/1`, `kanhe.warehouse-receipt/1`, and `kanhe.asset-consent/1` (v0.5). The rule applies to registrations only: a scope may list any type, and a type nobody can register covers nothing.
 
 Record-transition (type 18) stays for the mechanism types: it is how a party withdraws an access request or a consent, and how a trust node suspends, resumes, or ends a membership. On a record of the generic lifecycle it is always refused.
 
-**Claims** (v0.14). A claim is the issuer's word that, in its record the claim names (the **source**), a condition on the source's fields holds, or does not, as of a time: "Chan Tai Man's monthly salary is above HKD 30,000.00" without the salary. It is a `cexchain.claim/1` record whose public metadata (key 5) is `claim` in the CDDL:
+**Claims** (v0.14). A claim is the issuer's word that, in its record the claim names (the **source**), a condition on the source's fields holds, or does not, as of a time: "Chan Tai Man's monthly salary is above HKD 30,000.00" without the salary. It is a `kanhe.claim/1` record whose public metadata (key 5) is `claim` in the CDDL:
 - `source`: the source's id. The ledger refuses a claim unless the source is a record of this ledger, of a generic type (no mechanism record is a source), neither revoked nor superseded when the claim is registered. The claim's registration is a statement about the claim only: the source's history is unchanged, and the signer's scope need cover only the claim's type.
 - `condition`: 1 to 16 terms, all of which must hold. A term is `[field, op, type, value]`: the source's field name (1 to 64 bytes), an operator, the type of the value, and the value. The types are `number` (an integer, or a decimal text `-?[0-9]+(\.[0-9]+)?` of at most 40 characters), `money` (`[amount, currency, scale]`: the integer amount in units of 10^-scale, an ISO 4217 code of three upper-case letters, and a scale of 0 to 4), `date` (`YYYY-MM-DD`, a valid date), and `text` (1 to 256 bytes). The operators are `>`, `>=`, `<`, `<=` (numbers, money, and dates), `=`, `!=` (every type), `between` (numbers, money, and dates: a value `[low, high]` of the type, both included, low not above high, money in one currency), `in` (every type: an array of 1 to 64 distinct values of the type, distinct as values: `1` and `"1.0"` are one number, `[100, "HKD", 0]` and `[10000, "HKD", 2]` one amount), and `exists` (the type is `text`, and the value null: the source has the field). Integers are any CBOR integer (−2^64 to 2^64 − 1); a date is of the proleptic Gregorian calendar.
 - `holds`: whether the condition holds. Implementations SHOULD register a claim that does not hold only when its issuer chose to: by default, a condition that does not hold gets no claim, so that asking reveals nothing more than silence.
@@ -252,7 +254,7 @@ Record-transition (type 18) stays for the mechanism types: it is how a party wit
 
 The ledger checks the metadata's shape and refuses other keys. It cannot check the answer: the values are sealed. A claim's own fields (at least one, as every record's) are the issuer's: the reference implementation commits the values it checked, sealed like any record's, so that the issuer can show later what it relied on. A claim is the issuer's statement, attributed to its signer as any registration is; what a verifier learns is the condition, the answer, the subject, and the source's type and status, nothing of the source's fields.
 
-**Memberships** (v0.16). A membership is a ledger's word that another ledger (the **member**) belongs to the organization or person it names, as it checked them: "ledger 1a2b... is Kowloon Example School, company 12345678, Hong Kong, checked". A ledger that registers memberships is a **trust node**. Any ledger may be one; whether a verifier believes it is the verifier's choice (section 11). A membership is a `cexchain.membership/1` record whose public metadata (key 5) is `membership` in the CDDL:
+**Memberships** (v0.16). A membership is a ledger's word that another ledger (the **member**) belongs to the organization or person it names, as it checked them: "ledger 1a2b... is Kowloon Example School, company 12345678, Hong Kong, checked". A ledger that registers memberships is a **trust node**. Any ledger may be one; whether a verifier believes it is the verifier's choice (section 11). A membership is a `kanhe.membership/1` record whose public metadata (key 5) is `membership` in the CDDL:
 - `member`: the member's ledger id. The ledger refuses its own id.
 - `kind`: `organization` or `person`.
 - `name`: 1 to 256 bytes: the name the trust node checked, or a person's display name.
@@ -270,7 +272,7 @@ The ledger checks the metadata's shape and refuses other keys. A membership is a
 A person proves presence for exactly one statement with a registered credential. The challenge is
 
 ```
-challenge = HASH("CexChain presence v1" || kid || P)
+challenge = HASH("Kanhe presence v1" || kid || P)
 ```
 
 where `kid` is the statement's COSE kid and `P` is the payload encoded without key 8. Binding the kid stops a proof from being reused with a rotated key.
@@ -372,9 +374,9 @@ Which authorities to trust is each verifier's choice: it trusts the tokens whose
 
 A ledger can also be witnessed by the witnesses of open transparency networks that follow C2SP's specifications: [tlog-checkpoint](https://c2sp.org/tlog-checkpoint), [tlog-cosignature](https://c2sp.org/tlog-cosignature), [tlog-witness](https://c2sp.org/tlog-witness), and [signed-note](https://c2sp.org/signed-note). Such a witness knows nothing of this protocol. It cosigns a log's checkpoints as text notes, under the rule of section 10: each new tree extends the last one it cosigned, as an RFC 6962 consistency proof shows (RFC 9162 trees are RFC 6962 trees). Only SHA-256 ledgers can be witnessed so; an SM3 ledger's tree is not an RFC 6962 tree.
 
-- **The origin.** A ledger's name in such a network, its *origin*, is `cirraya.com/cexchain/` followed by the ledger id in 64 lowercase hexadecimal digits. It is derived, never chosen: every verifier knows it from the ledger id, and a ledger cannot show one witness two forks under two names. The domain is a name, not an address: nothing is ever fetched from it.
+- **The origin.** A ledger's name in such a network, its *origin*, is `cirraya.com/kanhe/` followed by the ledger id in 64 lowercase hexadecimal digits. It is derived, never chosen: every verifier knows it from the ledger id, and a ledger cannot show one witness two forks under two names. The domain is a name, not an address: nothing is ever fetched from it.
 - **The checkpoint note.** For a checkpoint the log key signed, the note text is three lines, each ending in a newline (U+000A): the origin, the tree size in decimal, and the root in base64 (RFC 4648 section 4, with padding). It has no extension lines.
-- **The note key.** A witness checks a note's signature with the log's verifier key, which it was configured with, and a network never updates a log's key. So the ledger signs notes with a **note key**, its operator's Ed25519 key (signature type 0x01, key name the origin), apart from the log key, which can rotate. The note key is no part of evidence: verifiers never need it. Whoever steals it can push a tree to a witness, which would block the real one, but cannot make evidence verify: a network cosignature counts only for the size and root of a checkpoint the log key signed (section 11). (Informative: a network lists a log by its verifier key, its origin, and how many checkpoints a day it sends; CexChain's tools print that entry.)
+- **The note key.** A witness checks a note's signature with the log's verifier key, which it was configured with, and a network never updates a log's key. So the ledger signs notes with a **note key**, its operator's Ed25519 key (signature type 0x01, key name the origin), apart from the log key, which can rotate. The note key is no part of evidence: verifiers never need it. Whoever steals it can push a tree to a witness, which would block the real one, but cannot make evidence verify: a network cosignature counts only for the size and root of a checkpoint the log key signed (section 11). (Informative: a network lists a log by its verifier key, its origin, and how many checkpoints a day it sends; Kanhe's tools print that entry.)
 - **Cosignatures.** A network witness answers `add-checkpoint` with note signature lines, `— <name> <base64 bytes>`. The bytes are a 4-byte key ID, then an 8-byte big-endian POSIX time T, then the signature. Two kinds are recognized:
   - Ed25519 (signature type 0x04): over the text `cosignature/v1`, a newline, `time T` (T in decimal), a newline, then the note text;
   - ML-DSA-44 (signature type 0x06; FIPS 204's pure form, empty context): over tlog-cosignature's `CosignedSubtree`: the 12 bytes `subtree/v1\n\0`, the witness's name with a one-byte length, T, the origin with a one-byte length, start 0 and end the tree size (8-byte big-endian each), and the 32-byte root.
@@ -392,7 +394,7 @@ An evidence bundle (`evidence-bundle`) holds:
 - optional field disclosures and attachment openings (salts; the contents travel alongside);
 - state proofs for every involved object;
 - optional anchors (v0.11): signed checkpoints at or before the bundle's checkpoint, each with time-stamp tokens over its payload (section 10.1), open-network witnesses' cosignatures of its note (v0.13, section 10.2), or both, and, for an earlier one, the RFC 9162 consistency proof from its size to the bundle's checkpoint;
-- optional membership proofs (v0.16): 1 to 16 evidence bundles, each the complete evidence of a `cexchain.membership/1` record on a trust node's ledger that names this bundle's ledger as its `member` (section 6). A proof carries no membership proofs of its own.
+- optional membership proofs (v0.16): 1 to 16 evidence bundles, each the complete evidence of a `kanhe.membership/1` record on a trust node's ledger that names this bundle's ledger as its `member` (section 6). A proof carries no membership proofs of its own.
 
 A verifier MUST:
 
@@ -414,7 +416,7 @@ A verifier MUST:
    - for the tokens it trusts (section 10.1), apply the clock rule to the anchor's checkpoint and to every included entry below its size. Each such entry then **existed by** the earliest trusted time plus its accuracy;
    - for each network cosignature (v0.13; section 10.2): an SM3 ledger's anchors carry none, and the bytes hold at least a key ID and a time. One whose name and key ID are a trusted network witness's MUST verify against the note of the anchor's checkpoint, or the evidence fails; it then counts in step 6 as that witness's, and shows that the witness saw that size by its time T. Others are counted and relied on for nothing. T is reported, and not put to the clock rule: a witness promises consistency, not time.
 9. For each membership proof (v0.16):
-   - verify it as an evidence bundle under steps 1 to 8, for the ledger its own genesis names (none is expected), with no attachment contents and with the verifier's own trusted witnesses, network witnesses, and time-stamp authorities (so a trusted cosignature that does not verify fails the proof, as in step 6). Its witnesses and tokens are not reported, and a verifier's minimums of witnesses or authorities apply to the outer bundle only. A proof that carries membership proofs is refused before anything in it is checked. It MUST verify and be complete (step 7), be about a `cexchain.membership/1` record whose metadata is a membership (section 6) naming this bundle's ledger as `member`, and carry no membership proofs. Two proofs of one membership (the same ledger and record) fail the evidence;
+   - verify it as an evidence bundle under steps 1 to 8, for the ledger its own genesis names (none is expected), with no attachment contents and with the verifier's own trusted witnesses, network witnesses, and time-stamp authorities (so a trusted cosignature that does not verify fails the proof, as in step 6). Its witnesses and tokens are not reported, and a verifier's minimums of witnesses or authorities apply to the outer bundle only. A proof that carries membership proofs is refused before anything in it is checked. It MUST verify and be complete (step 7), be about a `kanhe.membership/1` record whose metadata is a membership (section 6) naming this bundle's ledger as `member`, and carry no membership proofs. Two proofs of one membership (the same ledger and record) fail the evidence;
    - take the membership's state at a time T from its history in the proof, its transitions and revocation at their registration times (not their issue times) and in log order: **not yet a member** if T is before its registration; else **revoked** if it was revoked at or before T; else **lapsed** if T is after its `until`; else the state its last transition at or before T left (**active**, **suspended**, or **ended**), or active if none. A proof shows the history up to its checkpoint only: for a T after the checkpoint, the state is as of the checkpoint, with `until` applied;
    - state it at two times: when this bundle's record was registered (for an instance, when the call that created it was registered), and at the proof's checkpoint's time.
 
@@ -455,10 +457,10 @@ Two organizations, each with its own ledger, share a record in four steps: the *
 
 | Step | Record type | On whose ledger | Metadata (key 5) |
 |---|---|---|---|
-| Request | `cexchain.access-request/1` | the requester's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments`; or, for a condition (v0.15), `condition` instead of the last three |
-| Grant | `cexchain.access-grant/1` | the granter's | `ledger` (requester), `request`, `record`, `fields`, `attachments`, `until`, `recipient` |
+| Request | `kanhe.access-request/1` | the requester's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments`; or, for a condition (v0.15), `condition` instead of the last three |
+| Grant | `kanhe.access-grant/1` | the granter's | `ledger` (requester), `request`, `record`, `fields`, `attachments`, `until`, `recipient` |
 | Delivery | not a record: a `delivery` object | sent to the requester | grant evidence, and contents sealed with HPKE |
-| Receipt | `cexchain.access-receipt/1` | the requester's | `ledger` (granter), `grant`, `delivery` (SHA-256 of the delivery) |
+| Receipt | `kanhe.access-receipt/1` | the requester's | `ledger` (granter), `grant`, `delivery` (SHA-256 of the delivery) |
 
 Each side learns the other's **ledger id** out of band and pins every bundle it receives to it. Field and attachment names in requests and grants are non-empty, unique within their list (compared as their UTF-8 bytes, with no normalization), and at most 256 to a list. A key present with a value not of its type, null included, makes the metadata refused, whatever the key: an absent `fields` means all fields, a null one is refused. Because the steps are records, delegations decide who may request, grant, or acknowledge, and proof of presence shows when a person approved.
 
@@ -469,7 +471,7 @@ Each side learns the other's **ledger id** out of band and pins every bundle it 
 
   The report shows who asked, under whose authority, and whether they were present.
 - **Grant.** The granter records a grant for at most what was asked and until no later than the request's end.
-- **Delivery.** The granter builds `{1: 1, 2: grant bundle, 3: {1: enc, 2: ciphertext}}`. The ciphertext seals `delivery-contents` with HPKE to the request's key, with info `"CexChain delivery v1"` and the grant id as additional authenticated data. `delivery-contents` holds the record's bundle with only the granted disclosures and openings, and the granted attachments' contents.
+- **Delivery.** The granter builds `{1: 1, 2: grant bundle, 3: {1: enc, 2: ciphertext}}`. The ciphertext seals `delivery-contents` with HPKE to the request's key, with info `"Kanhe delivery v1"` and the grant id as additional authenticated data. `delivery-contents` holds the record's bundle with only the granted disclosures and openings, and the granted attachments' contents.
 - **Acceptance.** The requester MUST check all of the following, and only then acknowledge:
   1. the grant verifies for the granter's ledger, which is the ledger the request asked, and is complete;
   2. the grant is live, and names the requester's ledger, its request, and its key;
@@ -534,7 +536,7 @@ A module is refused unless all of the following hold.
 - At most 1,024 types, each with at most 32 parameters and 16 results.
 
 **Imports**
-- Functions only, from the module `cexchain`, among the host functions of section 14.4, each with its exact type and at most once.
+- Functions only, from the module `kanhe`, among the host functions of section 14.4, each with its exact type and at most once.
 
 **Memory and table**
 - At most one memory, defined in the module, of at most 16 pages (64 KiB each). The maximum, when absent, is 16.
@@ -546,7 +548,7 @@ A module is refused unless all of the following hold.
 
 **Exports**
 - The memory, named `memory`.
-- A function `cexchain_call` of type `[] -> []`, defined in the module.
+- A function `kanhe_call` of type `[] -> []`, defined in the module.
 - Other exports are allowed and ignored.
 
 **Segments**
@@ -585,7 +587,7 @@ Instantiation uses no fuel.
 
 ### 14.3 Execution and fuel
 
-An invocation calls `cexchain_call` once. It has **10,000,000 fuel**, and each instruction executed consumes fuel *before* it takes effect.
+An invocation calls `kanhe_call` once. It has **10,000,000 fuel**, and each instruction executed consumes fuel *before* it takes effect.
 
 | Cost | Instructions |
 |---|---|
@@ -625,7 +627,7 @@ An invocation calls `cexchain_call` once. It has **10,000,000 fuel**, and each i
 
 ### 14.4 Host functions
 
-Imported from the module `cexchain`. Pointers and lengths are unsigned. A range `[ptr, ptr + len)` must lie within the memory, or the call traps with *out of bounds*. Each function charges its cost first, then checks its ranges, in the order listed.
+Imported from the module `kanhe`. Pointers and lengths are unsigned. A range `[ptr, ptr + len)` must lie within the memory, or the call traps with *out of bounds*. Each function charges its cost first, then checks its ranges, in the order listed.
 
 | Function | Type | Cost | Effect |
 |---|---|---|---|
@@ -664,11 +666,11 @@ A call may also create instances of its contract, called **children**, such as t
 - **Source** (at most 262,144 bytes), so that anyone can rebuild the module and compare.
 - **Name** (1 to 256 bytes), for people.
 
-**Contracts written in Bo.** Bo, the language CexChain's contracts are written in, is specified in [`bo.md`](bo.md). A deploy whose language is `bo` SHOULD carry, as its source, a **`bo-source` bundle** (`bo-source` in the CDDL): `{1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack], ? 6: [+ [id, version, digest]], ? 7: [+ vocabulary-pack]}`.
+**Contracts written in Bo.** Bo, the language Kanhe's contracts are written in, is specified in [`bo.md`](bo.md). A deploy whose language is `bo` SHOULD carry, as its source, a **`bo-source` bundle** (`bo-source` in the CDDL): `{1: 1, 2: edition, 3: source, 4: [+ [id, version, digest]], ? 5: [+ pack], ? 6: [+ [id, version, digest]], ? 7: [+ vocabulary-pack]}`.
 - **Source:** the source as written (UTF-8, comments included) and the Bo edition it is written in. Whoever holds the deploy reads it, comments too.
 - **Packs:** every language pack the source was read with, by ascending id: its id, its version, and the hash under the home's hash of the pack's canonical CBOR. Packs that are not official are embedded in full (key 5, as their canonical CBOR, by ascending id); a reference without one names an official pack, which a Bo compiler carries in every released version. A pack maps spellings to concepts and never changes what runs, but it decides how the source reads, so the digests pin it.
 - **Vocabulary packs:** every vocabulary pack the source uses (its `use` lines; key 6, by ascending id): its id, its version, and the hash of its canonical CBOR. A vocabulary pack (the official finance, commerce, and services, or one of a user's own) brings words beyond Bo's core and the standard terms of its built-in actions, so it changes what runs, and the digests pin it too. Vocabulary packs that are not official are embedded in full (key 7, as their canonical CBOR, by ascending id), so a verifier needs nothing but the deploy ([`bo.md`](bo.md), section 3.9).
-- **Compiler:** the compiler string names the compiler, its release, its codegen version, and the edition it reads: `cexchain-bo 0.0.1; codegen 5; edition 1`. The same codegen version builds the same bytes from the same source, in any language and on any machine, and a compiler keeps writing the released codegen versions before its own, so that older deploys rebuild ([`bo.md`](bo.md), section 16).
+- **Compiler:** the compiler string names the compiler, its release, its codegen version, and the edition it reads: `kanhe-bo 0.0.1; codegen 5; edition 1`. The same codegen version builds the same bytes from the same source, in any language and on any machine, and a compiler keeps writing the released codegen versions before its own, so that older deploys rebuild ([`bo.md`](bo.md), section 16).
 
 A verifier SHOULD rebuild the code: decode the bundle, find each pack (the official ones from its compiler, the others from the bundle) and each vocabulary pack (the official ones from its compiler, the others from the bundle) and check its digest, build the source, and compare the module, the interface, and the name with the deploy's. It reports one of:
 - **rebuilds:** the source builds to the deployed code;
@@ -784,7 +786,7 @@ An output is well formed only if it is deterministic CBOR within the limits of s
 
   An executor keeps contact details in its own directory, keyed by ledger id. It keeps an outside system's response too, and puts in the answer only `HASH(salt || response)` under the home's hash, with a fresh 16-byte salt, as attachments do (section 6), so that it can disclose the response later, with proof. The ledger cannot check any of this; verifiers show what requests and answers carry.
 
-**Consents.** A party consents with a `cexchain.contract-consent/1` record on its own ledger (state given, which may become withdrawn), under its own delegations and with proof of presence if a person approved. Its metadata names the terms:
+**Consents.** A party consents with a `kanhe.contract-consent/1` record on its own ledger (state given, which may become withdrawn), under its own delegations and with proof of presence if a person approved. Its metadata names the terms:
 - `ledger` (the home), `instance`, `function`, and `head`;
 - `arguments`: the hash, under the home's hash, of the encoded arguments;
 - `until`, when it lapses;
@@ -799,7 +801,7 @@ A call cites each consent as `[ledger, record, bundle, signer]`: the party's led
 2. replay it, running the contract for each call, the ancestors' included, to reach the instance's state, status, parties, whether it is final, and its requests (v0.8). For a child, the replay also shows that each generation is the child its creating call's output made at its position, with that output's state, status, and parties, within the depth limit: otherwise the instance would not exist in the replayed state;
 3. for each consent citation, find the bundle with that hash and check that:
    - it verifies, completely, for the cited ledger, trusting the witnesses, network witnesses, and time-stamp authorities the verifier trusts for the home (v0.13);
-   - it is about the cited record, a live `cexchain.contract-consent/1` record (given, not revoked);
+   - it is about the cited record, a live `kanhe.contract-consent/1` record (given, not revoked);
    - it carries the call's terms;
    - it lapses no earlier than the call's registration time;
    - the record's registration was signed as the citation claims (kind, presence method, and model);
@@ -816,7 +818,7 @@ A verifier MAY, when asked to, fail evidence that has overdue open requests. For
 
 **Evidence for a child** leaves out its ancestors' later calls, and the siblings' calls. So it need not prove the ancestors' leaves, which list those later calls, and the home's bundles carry no proof for them. Their histories up to each creating call are still complete. Every call names the head it follows, so a call left out breaks the chain, and the creating calls are those the instance's id derives from. The involved objects (section 11, step 7) include those of the ancestors' calls, so their signers and delegations are proven complete like the instance's own.
 
-**Proposal and consent files** (`exchange-file`, extension `.cexchain`) carry consents between ledgers that do not reach each other's APIs: people send them by any channel. They add nothing the ledgers rely on, since every claim in them is checked against the evidence they carry, and the home records the call as it would with any consent:
+**Proposal and consent files** (`exchange-file`, extension `.kanhe`) carry consents between ledgers that do not reach each other's APIs: people send them by any channel. They add nothing the ledgers rely on, since every claim in them is checked against the evidence they carry, and the home records the call as it would with any consent:
 - a **proposal** is the home's request for consents to one call: the home ledger, the instance, its head, the function, the arguments, the home's hash, the instance's contract evidence (as of a checkpoint covering the head), and the ledgers whose consents the call waits for. A party verifies the evidence for the home ledger, requires the instance and head in the file to be the evidence's, and reads the call against the contract's text before it consents;
 - a **consent** answers a proposal: the same terms, and the consent's evidence bundle from the party's ledger. The home checks the bundle as it checks any consent (above) before it cites it.
 
@@ -826,7 +828,7 @@ A file is at most 16 MiB, its note (if any) at most 1,000 bytes of text for peop
 
 ## 16. The HTTP API
 
-This section is informative. The reference implementation serves a ledger over HTTP/1.1 (`cexchain serve`):
+This section is informative. The reference implementation serves a ledger over HTTP/1.1 (`kanhe serve`):
 
 - Binary objects (log entries, checkpoints, proofs, receipts, bundles, deliveries) are CBOR or COSE as defined above. Everything else is JSON. Errors are `{"error": {"code", "message"}}`.
 - Access is gated by bearer tokens with scopes. The statement signature remains the authorization for what is written.
@@ -845,7 +847,7 @@ This section is informative. The reference implementation serves a ledger over H
 
 **Clusters.** Several members can keep one ledger with Raft. Each group of statements is replicated as `{time, statements, sealed private data}` and applied by every member at that time, so their logs are identical. Checkpoints are signed by the leader and replicated as signed. The consent bundles a statement cites, and the calls a registrar holds, are replicated too, so a new leader carries on with them. A follower answers writes with 307 and the leader's API. Members authenticate their Raft messages with a shared secret. None of this changes the protocol: a cluster's log is one ledger's log.
 
-`POST /v1/statements` also takes `application/cexchain-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first. With `4: [[index, sealed file], ...]` (indexes ascending and distinct), the record's attached files come too, each sealed to the vault key like the vault file (HPKE `info` "CexChain record file v1", the associated data the ledger id, the record id, and the attachment's name) and holding exactly the size the registration gives that attachment, at most 16 MiB: the server keeps each once, beside the vault file, and `GET /v1/vault/files/{record}` lists the indexes it keeps, `GET .../{index}` returns one, `PUT` keeps one later (once), `DELETE` removes one. The ledger still holds only the attachments' commitments: a reader opens a kept file with the vault key and checks it against the commitment with the salt in the vault file. For a contract call, the submission is `{1: signed statement, 3: [consent bundles]}`, one bundle per consent in the statement's order: the server checks every consent the call cites against its bundle, and the signer each citation claims (section 15), before registering it, and keeps the bundles. A statement that cites consents is refused without them.
+`POST /v1/statements` also takes `application/kanhe-submission+cbor`: `{1: signed statement, 2: sealed private data}`, a record's registration with its vault file. The server stores the file with the record, once: the same file again is accepted (a retry), a different one refused, so nobody can store other data for a record first. With `4: [[index, sealed file], ...]` (indexes ascending and distinct), the record's attached files come too, each sealed to the vault key like the vault file (HPKE `info` "Kanhe record file v1", the associated data the ledger id, the record id, and the attachment's name) and holding exactly the size the registration gives that attachment, at most 16 MiB: the server keeps each once, beside the vault file, and `GET /v1/vault/files/{record}` lists the indexes it keeps, `GET .../{index}` returns one, `PUT` keeps one later (once), `DELETE` removes one. The ledger still holds only the attachments' commitments: a reader opens a kept file with the vault key and checks it against the commitment with the salt in the vault file. For a contract call, the submission is `{1: signed statement, 3: [consent bundles]}`, one bundle per consent in the statement's order: the server checks every consent the call cites against its bundle, and the signer each citation claims (section 15), before registering it, and keeps the bundles. A statement that cites consents is refused without them.
 
 **Contracts.** A server with a registrar key records the calls that need consents (an actor of the home with a delegation for type 22 whose scope covers the contract):
 
@@ -878,7 +880,7 @@ To find them, `GET /v1/requests` lists requests as JSON, oldest change first: ea
 
 **Memberships** (v0.16). A trust node's server answers `GET /m/{ledger}`, for a member's ledger id in 64 lower-case hexadecimal digits, with the complete evidence bundle (CBOR) of the newest membership on its ledger that names that ledger, whatever its state, as of a checkpoint that covers the membership's latest change (the server makes one if it must), with `Access-Control-Allow-Origin: *` and `Cache-Control: no-store`; 404 if none names it. A member's server fetches its proofs from the trust nodes it chooses, keeps the newest from each, and adds them (key 9) to the bundles it serves and exports.
 
-**Executors and connectors.** How CexChain's executor runtime talks to connectors, the programs that act in outside systems, what its answers carry, and how secrets reach them, is described in [`connectors.md`](connectors.md) (informative).
+**Executors and connectors.** How Kanhe's executor runtime talks to connectors, the programs that act in outside systems, what its answers carry, and how secrets reach them, is described in [`connectors.md`](connectors.md) (informative).
 
 **Executors' leases.** Several copies of one executor (the same actor, for a standby) take turns through a lease the server keeps in memory: a poll that names `executor` (the actor's id) and `lease` (the copy's holder id: 8 to 64 letters, digits, `-`, or `_`, random per copy) takes the lease if it is free, lapsed, or the copy's own, and holds it through its wait and for `ttl` seconds after the answer (5 to 300; default 60). The answer then carries `lease` `{granted: true, holder, ttl_ms}`. A copy that does not hold it gets no requests and the cursor it sent, with `lease` `{granted: false, holder, retry_ms}`; it polls again later. A copy renews its lease by polling, and acts only while it holds it. In a cluster, a follower sends such polls to the leader (307), so every copy asks the same server; after a restart or a failover the first copy to poll takes the lease. A lease is coordination, not authority: anyone with an executor token may poll as any executor, and what keeps a lapse from doing harm is the ledger's at-most-once answer and the idempotency key every executor passes on (the request's id, `spec/connectors.md`).
 
@@ -903,9 +905,9 @@ Its quotas bound what anyone can make it store and do: a number of ledgers in al
 
 A ledger keeps the public witnesses it registered with (in the reference implementation, `witnesses.json` beside the ledger, written by `witness register`), and its server asks each one to cosign every new checkpoint and keeps the cosignatures, which evidence then carries. Stopping keeps what was cosigned valid.
 
-**Relays.** A ledger that no party reaches directly (a laptop) is reached through a relay, the server of a public witness (`serve --relay-dir`). The relay carries the peer API, sealed: a request to a party's `/v1` API (method, path, content type, body, the peer token) is sealed with HPKE (base mode, info "CexChain relay request v1", associated data the recipient's ledger id, the sender's, and the message id) to the party's relay key (X25519), with a fresh answer key; the party's node opens it, answers it with its own API exactly as if it had come directly, and seals the answer (status, content type, body) to the answer key (info "CexChain relay answer v1", the same associated data). A message on the relay is a COSE_Sign1 by the sender's log key in effect (external data "CexChain relay message v1") over `{1: to, 2: from, 3: id (16 bytes), 4: [encapsulated key, ciphertext], ? 5: the id of the request it answers, 6: until (ms)}`. Past `until` a message is of no use: the relay refuses or drops it, and a node never answers a request found after it (a request waits at most ten minutes; its answer carries the same `until`), so a party offline for a day does not answer a day of requests when it returns. Routes, with no token:
+**Relays.** A ledger that no party reaches directly (a laptop) is reached through a relay, the server of a public witness (`serve --relay-dir`). The relay carries the peer API, sealed: a request to a party's `/v1` API (method, path, content type, body, the peer token) is sealed with HPKE (base mode, info "Kanhe relay request v1", associated data the recipient's ledger id, the sender's, and the message id) to the party's relay key (X25519), with a fresh answer key; the party's node opens it, answers it with its own API exactly as if it had come directly, and seals the answer (status, content type, body) to the answer key (info "Kanhe relay answer v1", the same associated data). A message on the relay is a COSE_Sign1 by the sender's log key in effect (external data "Kanhe relay message v1") over `{1: to, 2: from, 3: id (16 bytes), 4: [encapsulated key, ciphertext], ? 5: the id of the request it answers, 6: until (ms)}`. Past `until` a message is of no use: the relay refuses or drops it, and a node never answers a request found after it (a request waits at most ten minutes; its answer carries the same `until`), so a party offline for a day does not answer a day of requests when it returns. Routes, with no token:
 - `POST /v1/relay/messages`: the relay checks the signature with the log key its witness follows for the sender, and that the recipient is witnessed there too (403 or 404 otherwise; a sender not yet witnessed registers, section 10, and sends again). A message sent again (the same id) is kept once.
-- `GET /v1/relay/messages?to=LEDGER[&wait=S][&requests=1|&answers=ID]`: the mailbox, oldest first, as a CBOR array of messages: all, requests only, or the answers to one request; a long poll of up to 25 seconds. `DELETE /v1/relay/messages/ID?to=LEDGER` takes one. Both carry `Authorization: CexChain-Relay <base64url COSE_Sign1>` by the mailbox ledger's log key (external data "CexChain relay fetch v1") over `{1: ledger id, 2: time (ms)}`, at most five minutes from the relay's clock.
+- `GET /v1/relay/messages?to=LEDGER[&wait=S][&requests=1|&answers=ID]`: the mailbox, oldest first, as a CBOR array of messages: all, requests only, or the answers to one request; a long poll of up to 25 seconds. `DELETE /v1/relay/messages/ID?to=LEDGER` takes one. Both carry `Authorization: Kanhe-Relay <base64url COSE_Sign1>` by the mailbox ledger's log key (external data "Kanhe relay fetch v1") over `{1: ledger id, 2: time (ms)}`, at most five minutes from the relay's clock.
 
 Quotas: a message at most 17 MiB; 1,000 messages and 64 MiB per mailbox; 2,000 messages and 256 MiB a day per sender; messages kept 14 days at most. Invitation codes carry a relay as key 7, `{1: relay URL, 2: relay key, 3: the relay's witness key}`.
 
@@ -931,10 +933,10 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - A network may refuse or rate-limit a log that sends more checkpoints a day than its listing says.
 - **Time-stamp authorities** (v0.11).
   - An authority is trusted for time only, never for content: it sees a digest, not the checkpoint, and signs whatever digest it is sent. Its token proves that the checkpoint existed by its time, not that the ledger is honest; witnesses do that.
-  - A token proves nothing about entries after its checkpoint: a ledger can still date them as it likes until a later checkpoint is stamped. Verifiers that rely on time SHOULD require a token on a checkpoint after the event (CexChain's tools take `--min-timestamps`).
+  - A token proves nothing about entries after its checkpoint: a ledger can still date them as it likes until a later checkpoint is stamped. Verifiers that rely on time SHOULD require a token on a checkpoint after the event (Kanhe's tools take `--min-timestamps`).
   - A verifier relies on an authority's certificate chain at the token's time. It does not check revocation (CRL or OCSP): a verifier that must, checks the authority's status by other means. An authority whose key leaked can backdate tokens; trusting two authorities, each once, bounds what one can do.
   - The 60 seconds of the clock rule let an honest ledger whose clock runs a little ahead pass; a ledger whose clock runs further ahead gets tokens it should not keep (section 10.1).
-  - CexChain's tools run their clock ahead when `CEXCHAIN_CLOCK_OFFSET` is set (informative; for demonstrations and tests, to try time rules without waiting). A home run ahead records later registration times, fires time rules and expires requests early, and keeps those times: registration times are ordered, so once the offset is gone its new entries carry the latest time it recorded until its real clock passes it. `serve` therefore refuses to start with an offset unless it is given `--allow-clock-offset`, and its status (`/v1/status`, `clock_offset_ms`) shows the offset to anyone who can read it. A client run ahead of its home is refused (a statement issued in the future); a command that writes a ledger directory itself (without `--server`) is that ledger's clock for its writes. The variable is trusted input, like the command line: whoever sets it controls the process. Verifiers cannot tell a clock run ahead from a correct one; witnesses' and parties' own clocks are the check (see above).
+  - Kanhe's tools run their clock ahead when `KANHE_CLOCK_OFFSET` is set (informative; for demonstrations and tests, to try time rules without waiting). A home run ahead records later registration times, fires time rules and expires requests early, and keeps those times: registration times are ordered, so once the offset is gone its new entries carry the latest time it recorded until its real clock passes it. `serve` therefore refuses to start with an offset unless it is given `--allow-clock-offset`, and its status (`/v1/status`, `clock_offset_ms`) shows the offset to anyone who can read it. A client run ahead of its home is refused (a statement issued in the future); a command that writes a ledger directory itself (without `--server`) is that ledger's clock for its writes. The variable is trusted input, like the command line: whoever sets it controls the process. Verifiers cannot tell a clock run ahead from a correct one; witnesses' and parties' own clocks are the check (see above).
 - **Keys.**
   - Actor keys can be rotated, and revocation cascades through delegation chains.
   - The log key and the organization root key can be rotated (v0.4), for instance to ML-DSA. A leaked old log key can still sign a different history that never rotated. Only witnesses that followed the rotation reject it, so verifiers SHOULD require cosignatures from trusted witnesses.
@@ -969,7 +971,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
   - Requests and answers are visible to whoever holds the instance's evidence; section 15 says what they may carry. Outside responses are committed by salted digest, never carried.
 - **Connectors** ([`connectors.md`](connectors.md), informative).
   - A connector is trusted with its own requests' outcomes, and with nothing else: it holds no signing key, sees only the requests routed to it and the secrets its configuration names, and runs without the executor's environment. A connector that lies about an outcome produces a false answer, signed by the executor and attributable to it; a reconciliation against the outside system is the remedy, not the ledger.
-  - The list of requests a server gives is a hint. An executor that acted on it without verifying the instance's evidence could be made to act on requests that do not exist; CexChain's runtime never does. A server can still hide requests or delay answers.
+  - The list of requests a server gives is a hint. An executor that acted on it without verifying the instance's evidence could be made to act on requests that do not exist; Kanhe's runtime never does. A server can still hide requests or delay answers.
   - An executor's lease is held in the server's memory and granted to anyone with an executor token: it coordinates honest copies, and protects nothing. A response kept in an executor's journal may carry personal data: the journal is the executor's, owner-only, and only its salted digest is published.
 - **Keepers** (section 16).
   - A keeper's key can call only what its delegation covers: the time rules (which the contract refuses before their time, and applies once for each time) and the replies (expiry only once a deadline has passed). A compromised keeper key can fire rules on time and expire requests early within the grace, never the home's own-word actions; revoking its delegation stops it at once.
@@ -988,7 +990,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `hashes.json` | SHA-256, SM3 |
 | `signatures.json` | Ed25519, ESP256, SM2, ML-DSA from independent implementations |
 | `merkle-sha256.json`, `merkle-sm3.json` | RFC 9162 tree hashes, inclusion and consistency proofs |
-| `cose-sign1.json` | COSE_Sign1 in the CexChain profile |
+| `cose-sign1.json` | COSE_Sign1 in the Kanhe profile |
 | `pkcs8.json` | encrypted private keys |
 | `protocol-v0.1.json` | statements, log entries, checkpoints, receipts (encodings only: the statements are not a history the rules accept) |
 | `protocol-v0.2.json` | presence (passkey and hardware key), state trees and commitments, cosign requests |
@@ -997,7 +999,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.6.json` | contracts (section 15): a test contract deployed, instances created and called, with each call's input and output, consent metadata, calls the rules refuse, and contract evidence |
 | `protocol-v0.7.json` | instances created by a call (section 15): a splitting contract and the v0.6 test contract; children and their ids, calls on a child and a grandchild, splits down to the depth limit, children the rules refuse (too many, too deep, malformed, on a retired contract, on a final parent), the state tree, and signed evidence bundles: an instance, a tier-3 part with its ancestors and real consent bundles from other ledgers, and a child whose parent carried on |
 | `protocol-v0.8.json` | requests and answers (section 15): a requesting contract; requests and their ids; answers done, failed, and expired, by a device, an AI agent, a keeper, and a person by hand, on time and late, some making new requests; answers the rules refuse (a second answer, expired too early, an unknown request or another instance's, a function that is not the reply, consents cited, outside scope keys 8 and 9, rejected by the contract, malformed); the limits (17 requests in a call, a 65th open request, 4,096 bytes of params, deadlines, replies) and malformed requests; scope keys 8 and 9 and their narrowing; a final instance that takes answers and refuses the rest; requests on a creation that also creates a child; the state, the log, and signed evidence showing answered, open, and overdue requests, with an outside response committed by salted digest |
-| `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `cexchain.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
+| `protocol-v0.9.json` | the generic core (v0.9): a record of a user's type endorsed in several roles, refused a transition and a repeated endorsement, and revoked; the four mechanism types through their lifecycles, refusing endorsements and transitions they do not define; statements of type 20 and a scope naming it, which do not parse; registrations of the six removed types, of an invented `kanhe.` type, and of a version the protocol does not define, refused; the state and the log under a checkpoint |
 | `protocol-v0.10.json` | versions (v0.10): a chain of three versions across two record types, a revoked version superseded, a version endorsed and revoked after it was superseded, and a version registered by the organization over a delegated one; refused: a record superseded twice, an unknown record, a mechanism type on either side, a scope that does not cover the old type; the state, whose leaves list the superseding registration in both histories, and the log under a checkpoint |
 | `protocol-v0.11.json` | time-stamp tokens (v0.11): RFC 3161 tokens by OpenSSL's responder over the checkpoints of `protocol-v0.10.json`, one per hash, each with its imprint, time, accuracy, and authority, under a root and authority certificate made by Python's `cryptography` |
 | `protocol-v0.13.json` | open witness networks (v0.13, section 10.2): the SHA-256 checkpoint of `protocol-v0.10.json` as a checkpoint note under its origin, signed with a note key, an add-checkpoint body, network witnesses' cosignatures of the Ed25519 and ML-DSA-44 kinds (valid, and over another size or time), an anchor carrying them, and signed-note's own example, all from c2sp.org's texts with Python's `cryptography` |
@@ -1005,8 +1007,8 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.15.json` | asking about a condition (v0.15, section 12): access request metadata of both forms, with their encodings, and refused metadata, each for the one rule it breaks; claims checked as answers to requests, accepted, or refused for the one rule of acceptance (items 3 and 4) they break, values equal as numbers or amounts but encoded otherwise among the refused |
 | `protocol-v0.16.json` | trust nodes (v0.16, sections 6 and 11): membership metadata with its encodings, and refused metadata, each for the one rule it breaks; where a membership stood at given times, from its registration, transitions, revocation, and `until`; replay of a trust node's log, with the ledger's refusals; evidence bundles carrying membership proofs, verified with their reports, or refused for the one rule of step 9 they break |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
-| `evidence-v1.json` | conformance (sections 11 and 15): record evidence and contract evidence forged from this specification independently of both verifiers, each with the options to verify it with, the verdict this specification decides (a failure names the section and step that decide it), and facts its report must show. A verifier passes it: `tests/verifiers/conformance.py` runs `cexchain verify` and `contract verify` on every case, and the Python verifier (`verifiers/python`) its own command line |
-| `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |
+| `evidence-v1.json` | conformance (sections 11 and 15): record evidence and contract evidence forged from this specification independently of both verifiers, each with the options to verify it with, the verdict this specification decides (a failure names the section and step that decide it), and facts its report must show. A verifier passes it: `tests/verifiers/conformance.py` runs `kanhe verify` and `contract verify` on every case, and the Python verifier (`verifiers/python`) its own command line |
+| `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `kanhe-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |
 
 Revision v0.9 retired `protocol-v0.5.json` (native assets), and regenerated `protocol-v0.1.json`, `protocol-v0.2.json`, and `protocol-v0.4.json` with the user type `example.document/1` in place of the removed built-in types; nothing else in them changed.
 

@@ -11,15 +11,15 @@
 #include <print>
 #include <string>
 
-#include <cexchain/client/network_witnesses.hpp>
-#include <cexchain/core/protocol/network.hpp>
-#include <cexchain/node/network_witnesses.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/client/network_witnesses.hpp>
+#include <kanhe/core/protocol/network.hpp>
+#include <kanhe/node/network_witnesses.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace network = protocol::network;
 
@@ -29,7 +29,7 @@ namespace {
 std::unique_ptr<crypto::Signer> note_key(const Args& args) {
     auto key = load_signer(args.need("note-key"), args);
     if (key->algorithm() != crypto::SigAlg::ed25519) {
-        throw UsageError{"a note key is an Ed25519 key (cexchain key generate --alg ed25519)"};
+        throw UsageError{"a note key is an Ed25519 key (kanhe key generate --alg ed25519)"};
     }
     return key;
 }
@@ -52,7 +52,7 @@ protocol::SignedCheckpoint chosen_checkpoint(const ledger::Ledger& ledger, const
     }
     auto latest = ledger.latest_checkpoint();
     if (!latest) {
-        throw CommandError{"the ledger has no checkpoints yet (cexchain checkpoint create)"};
+        throw CommandError{"the ledger has no checkpoints yet (kanhe checkpoint create)"};
     }
     return std::move(*latest);
 }
@@ -134,7 +134,7 @@ int cmd_checkpoint_network_cosign(const Args& args) {
         });
     }
     if (witnesses.empty()) {
-        throw CommandError{"no network witness to ask (cexchain witness register URL --vkey VKEY)"};
+        throw CommandError{"no network witness to ask (kanhe witness register URL --vkey VKEY)"};
     }
     const protocol::SignedCheckpoint checkpoint = chosen_checkpoint(session.ledger(), args);
     const std::uint64_t size = checkpoint.checkpoint.tree_size;
@@ -200,7 +200,7 @@ int cmd_checkpoint_network_cosignatures(const Args& args) {
     if (args.json()) {
         print_json(out);
     } else if (lines.empty()) {
-        std::println("no network cosignatures yet (cexchain checkpoint network-cosign)");
+        std::println("no network cosignatures yet (kanhe checkpoint network-cosign)");
     } else {
         std::println("{:>10}  {:<23}  {}", "SIZE", "WITNESS'S TIME", "WITNESS");
         for (const std::string& line : lines) {
@@ -210,4 +210,4 @@ int cmd_checkpoint_network_cosignatures(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

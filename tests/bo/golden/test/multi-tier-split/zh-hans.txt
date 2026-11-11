@@ -2,10 +2,10 @@
   第 1 步（第 38 行）通过：issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     结果：调用被接受，实例现为正常。
   第 2 步（第 39 行）通过：supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings) -> divided
-    结果：经供应商、castings 和 gears 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 gears、供应商和 castings 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 3 步（第 40 行）通过：gears split with parts = (CNY 250_000, CNY 350_000), recipients = (forge, gears) -> divided
     处理部分 1。
-    结果：经 forge 和 gears 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 gears 和 forge 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 4 步（第 41 行）通过：forge pledge to bank1 -> pledged
     处理部分 1.1。
     结果：经 forge 和 bank1 同意，调用被接受，实例现为已质押。
@@ -47,7 +47,7 @@
   第 1 步（第 59 行）通过：issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 4
     结果：调用被接受，实例现为正常。
   第 2 步（第 60 行）通过：supplier split with parts = CNY 1_000_000, recipients = gears -> divided
-    结果：经供应商和 gears 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 gears 和供应商同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 3 步（第 61 行）通过：gears split with parts = CNY 1_000_000, recipients = forge -> refused "bo:requires split 1"
     处理部分 1。
     结果：调用被拒绝，因为拆分 的第 1 项要求未满足（bo:requires split 1）。
@@ -57,7 +57,7 @@
   第 1 步（第 64 行）通过：issuer issue with amount = CNY 1_000_000, due = 2027-06-30, tier = 1
     结果：调用被接受，实例现为正常。
   第 2 步（第 65 行）通过：supplier split with parts = (CNY 600_000, CNY 400_000), recipients = (gears, castings)
-    结果：经供应商、castings 和 gears 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
+    结果：经 gears、供应商和 castings 同意，调用被接受，实例现为已拆分；这是最终状态，实例不再接受调用。
   第 3 步（第 66 行）通过：gears pledge to bank1 -> pledged
     处理部分 1。
     结果：经 gears 和 bank1 同意，调用被接受，实例现为已质押。

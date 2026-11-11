@@ -5,7 +5,7 @@
 // WebAuthn authenticator plays the person's passkey (Touch ID, a phone, or a
 // security key), and the command-line tool runs every ceremony through its
 // localhost page, exactly as for a person at a desk.
-// Usage: node presence_test.js CEXCHAIN VERIFY_PAGE
+// Usage: node presence_test.js KANHE VERIFY_PAGE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -14,14 +14,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const [cexchain, verifyPage] = process.argv.slice(2).map((p) => path.resolve(p));
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-presence-"));
-const env = { ...process.env, CEXCHAIN_PASSPHRASE: "presence test", CEXCHAIN_LEDGER: path.join(work, "ledger"),
-              CEXCHAIN_NO_BROWSER: "1" };
-const run = (...args) => execFileSync(cexchain, args, { cwd: work, env, encoding: "utf8" });
+const [kanhe, verifyPage] = process.argv.slice(2).map((p) => path.resolve(p));
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-presence-"));
+const env = { ...process.env, KANHE_PASSPHRASE: "presence test", KANHE_LEDGER: path.join(work, "ledger"),
+              KANHE_NO_BROWSER: "1" };
+const run = (...args) => execFileSync(kanhe, args, { cwd: work, env, encoding: "utf8" });
 const fails = (...args) => {
   try {
-    execFileSync(cexchain, args, { cwd: work, env, stdio: "pipe" });
+    execFileSync(kanhe, args, { cwd: work, env, stdio: "pipe" });
   } catch (e) {
     return e.stderr.toString() + e.stdout.toString();
   }
@@ -32,7 +32,7 @@ const idFrom = (text) => text.match(/[0-9a-f]{64}/)[0];
 /// Runs a command that needs the passkey, completing its ceremony in `page`.
 function withPasskey(page, ...args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cexchain, [...args, "--no-browser"], { cwd: work, env });
+    const child = spawn(kanhe, [...args, "--no-browser"], { cwd: work, env });
     let stdout = "";
     let stderr = "";
     let opened = false;
@@ -60,7 +60,7 @@ function withPasskey(page, ...args) {
   // The ceremony page is served once, and only that page can deliver the
   // result: another local process that learns the address gets nothing.
   {
-    const child = spawn(cexchain, ["presence", "enroll", "--out", "nope.passkey", "--name", "X", "--no-browser"],
+    const child = spawn(kanhe, ["presence", "enroll", "--out", "nope.passkey", "--name", "X", "--no-browser"],
                         { cwd: work, env });
     const url = await new Promise((resolve) => {
       let text = "";

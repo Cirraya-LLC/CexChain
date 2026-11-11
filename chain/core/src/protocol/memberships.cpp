@@ -5,11 +5,11 @@
 #include <array>
 #include <string>
 
-#include <cexchain/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
 
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -65,7 +65,7 @@ Result<Membership> decode_membership(const cbor::Value& metadata) {
     if (member == nullptr || member->as_bytes() == nullptr) {
         return fail(Errc::malformed, "a membership names its member's ledger");
     }
-    CEXCHAIN_TRY(m.member, to_id(*member->as_bytes()));
+    KANHE_TRY(m.member, to_id(*member->as_bytes()));
     const cbor::Value* kind = metadata.find("kind");
     const std::string* kind_text = kind != nullptr ? kind->as_text() : nullptr;
     if (kind_text == nullptr || (*kind_text != "organization" && *kind_text != "person")) {
@@ -170,4 +170,4 @@ Standing standing_at(const Membership& membership, Timestamp registered_at,
                                 : Standing::active;
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

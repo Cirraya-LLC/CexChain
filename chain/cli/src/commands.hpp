@@ -12,7 +12,7 @@
 
 /// Command handlers, one per registry entry (see registry.cpp). Each returns
 /// the process exit code; failures are thrown as UsageError or CommandError.
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// Exit codes.
 inline constexpr int exit_ok = 0;
@@ -229,4 +229,4 @@ int cmd_keeper_revoke(const Args& args);
 int cmd_keeper_due(const Args& args);
 int cmd_keeper_run(const Args& args);
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

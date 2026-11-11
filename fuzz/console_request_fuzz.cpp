@@ -6,7 +6,7 @@
 // Every answer carries the console's CSP; a request is answered with 200
 // only for one of the console's own names, and one that changes something
 // only from the console's own page. The bearer token reader accepts only
-// "cxs_" and 43 base64url characters, and the recovery code reader only 26
+// "khs_" and 43 base64url characters, and the recovery code reader only 26
 // base32 letters and digits (with any dashes and spaces), in upper case.
 
 #include <algorithm>
@@ -19,14 +19,14 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/console/console.hpp>
-#include <cexchain/console/keystore.hpp>
-#include <cexchain/console/sessions.hpp>
-#include <cexchain/crypto/openssl.hpp>
-#include <cexchain/ledger/environment.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/console/keystore.hpp>
+#include <kanhe/console/sessions.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/ledger/environment.hpp>
 
-namespace console = cexchain::console;
-namespace http = cexchain::node::http;
+namespace console = kanhe::console;
+namespace http = kanhe::node::http;
 
 namespace {
 
@@ -44,14 +44,14 @@ std::string lower(std::string_view text) {
 }
 
 struct World {
-    cexchain::crypto::openssl::Provider provider;
-    cexchain::ledger::ManualClock clock{1'800'000'000'000};
-    cexchain::ledger::SeededEntropy entropy{1};
-    console::Sessions sessions{std::filesystem::temp_directory_path() / "cexchain-console-fuzz",
+    kanhe::crypto::openssl::Provider provider;
+    kanhe::ledger::ManualClock clock{1'800'000'000'000};
+    kanhe::ledger::SeededEntropy entropy{1};
+    console::Sessions sessions{std::filesystem::temp_directory_path() / "kanhe-console-fuzz",
                                provider, clock, entropy};
     console::Console web{
-        console::Services{std::filesystem::temp_directory_path() / "cexchain-console-fuzz",
-                          &provider, &clock, &entropy, &sessions}};
+        console::Services{std::filesystem::temp_directory_path() / "kanhe-console-fuzz", &provider,
+                          &clock, &entropy, &sessions}};
     World() { web.set_origins(console::loopback_origins(7470)); }
 };
 
@@ -62,7 +62,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string_view input(reinterpret_cast<const char*>(data), size);
 
     if (const auto token = console::bearer_token(input)) {
-        require(token->size() == 47 && token->starts_with("cxs_"));
+        require(token->size() == 47 && token->starts_with("khs_"));
     }
     if (const auto code = console::canonical_recovery_code(input)) {
         require(code->size() == 26 && std::ranges::all_of(*code, [](char c) {

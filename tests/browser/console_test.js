@@ -5,7 +5,7 @@
 // authenticator plays the person's passkey. The owner sets the console up
 // from the setup link, signs out and in again, reads Home and Things in each
 // language, by keyboard, with no Content-Security-Policy violation.
-// Usage: node console_test.js CEXCHAIN
+// Usage: node console_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -15,14 +15,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-console-"));
-const env = { ...process.env, CEXCHAIN_PASSPHRASE: "console test", CEXCHAIN_LEDGER: path.join(work, "ledger") };
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-console-"));
+const env = { ...process.env, KANHE_PASSPHRASE: "console test", KANHE_LEDGER: path.join(work, "ledger") };
 const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
 
 function freePort() {
@@ -37,7 +37,7 @@ function freePort() {
 
 async function waitRunning() {
   for (let i = 0; i < 300; i++) {
-    if (JSON.parse(run("cexchain-console", "status", "--json")).running) return;
+    if (JSON.parse(run("kanhe-console", "status", "--json")).running) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("the console did not start");
@@ -53,18 +53,18 @@ async function waitRunning() {
   // Sealed keys, the log key among them: the console starts locked, and
   // serves the ledger once unlocked.
   fs.writeFileSync(path.join(work, "unlock.txt"), "the unlock passphrase of this test\n");
-  run("cexchain-console", "key", "init", "--unlock-file", "unlock.txt");
-  run("cexchain-console", "key", "import", "log", "log.key");
+  run("kanhe-console", "key", "init", "--unlock-file", "unlock.txt");
+  run("kanhe-console", "key", "import", "log", "log.key");
 
   const port = await freePort();
-  const start = () => spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
+  const start = () => spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
   let consoleProcess = start();
   let browser;
   try {
     await waitRunning();
     const base = `http://localhost:${port}/console/`;
-    const setup = JSON.parse(run("cexchain-console", "setup-link", "--json")).link;
-    assert.ok(setup.startsWith(base + "#/enroll/cxi_"));
+    const setup = JSON.parse(run("kanhe-console", "setup-link", "--json")).link;
+    assert.ok(setup.startsWith(base + "#/enroll/khi_"));
 
     browser = await chromium.launch();
     const context = await browser.newContext({ locale: "en-GB" });
@@ -83,7 +83,7 @@ async function waitRunning() {
     // The setup link: the code leaves the address bar at once.
     await page.goto(setup);
     await page.getByRole("heading", { name: "Register your passkey" }).waitFor();
-    assert.ok(!page.url().includes("cxi_"), "the code is taken out of the address");
+    assert.ok(!page.url().includes("khi_"), "the code is taken out of the address");
     await page.getByLabel("Your name").fill("Alice");
     await page.getByLabel("This device's name (optional)").fill("test laptop");
     await page.getByRole("button", { name: "Register a passkey" }).click();
@@ -100,7 +100,7 @@ async function waitRunning() {
     await page.getByText("This console is locked").waitFor({ state: "detached" });
     await page.getByRole("heading", { name: "Home" }).waitFor();
     await page.getByText("Console Test Org").waitFor();
-    const people = JSON.parse(run("cexchain-console", "user", "list", "--json"));
+    const people = JSON.parse(run("kanhe-console", "user", "list", "--json"));
     assert.equal(people.users[0].name, "Alice");
     assert.equal(people.users[0].role, "owner");
     assert.equal(people.users[0].passkeys[0].label, "test laptop");
@@ -118,14 +118,14 @@ async function waitRunning() {
     // Signing out forgets the session; signing in takes the passkey again.
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.getByRole("heading", { name: "Sign in" }).waitFor();
-    assert.equal(JSON.parse(run("cexchain-console", "status", "--json")).sessions, 0);
+    assert.equal(JSON.parse(run("kanhe-console", "status", "--json")).sessions, 0);
     await page.getByRole("button", { name: "Sign in with a passkey" }).click();
     await page.getByRole("heading", { name: "Home" }).waitFor();
     // Signed in while unlocked, the owner's passkey got a slot of its own...
-    const slots = JSON.parse(run("cexchain-console", "key", "list", "--json")).slots.map((x) => x.kind).sort();
+    const slots = JSON.parse(run("kanhe-console", "key", "list", "--json")).slots.map((x) => x.kind).sort();
     assert.deepEqual(slots, ["passkey", "passphrase", "recovery"]);
     // ...so after a restart, signing in with it unlocks the console.
-    run("cexchain-console", "stop");
+    run("kanhe-console", "stop");
     consoleProcess = start();
     await waitRunning();
     await page.goto(base);
@@ -139,9 +139,9 @@ async function waitRunning() {
     run("key", "generate", "--out", "alice.key");
     const alice = idFrom(run("actor", "add", "--as", "root.key", "--kind", "person", "--name", "Alice",
                              "--key", "alice.key"));
-    run("cexchain-console", "key", "import", "alice", "alice.key");
-    run("cexchain-console", "user", "link", "Alice", "--actor", alice, "--key", "alice");
-    run("cexchain-console", "user", "passkeys", "Alice", "--out", "passkeys");
+    run("kanhe-console", "key", "import", "alice", "alice.key");
+    run("kanhe-console", "user", "link", "Alice", "--actor", alice, "--key", "alice");
+    run("kanhe-console", "user", "passkeys", "Alice", "--out", "passkeys");
     run("actor", "set-presence", alice, "--as", "root.key", "--add", "--credential", "passkeys/Alice-1.passkey");
     run("delegation", "grant", "--as", "root.key", "--to", alice, "--allow", "record-endorse,record-revoke",
         "--days", "30", "--require-presence");
@@ -237,7 +237,7 @@ async function waitRunning() {
   } finally {
     if (browser) await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

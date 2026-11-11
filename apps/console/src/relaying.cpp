@@ -17,17 +17,17 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/client/errors.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/console/console.hpp>
-#include <cexchain/node/client.hpp>
+#include <kanhe/client/errors.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/console/console.hpp>
+#include <kanhe/node/client.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -212,4 +212,4 @@ void Console::relay_loop(const std::stop_token& stop) const {
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

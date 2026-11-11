@@ -8,12 +8,12 @@
 #include <string>
 #include <variant>
 
-#include <cexchain/console/certificates.hpp>
-#include <cexchain/console/console.hpp>
+#include <kanhe/console/certificates.hpp>
+#include <kanhe/console/console.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 namespace {
 
@@ -45,4 +45,4 @@ http::Response Console::qr_route(const http::Request& request) const {
     return r;
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

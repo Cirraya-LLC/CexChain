@@ -16,13 +16,13 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/bo/messages.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/messages.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/core/cbor.hpp>
 
 namespace {
 
-using namespace cexchain;
+using namespace kanhe;
 
 void check(const bo::PackRead& read) {
     if (read.pack.has_value() == bo::has_errors(read.diagnostics)) {
@@ -70,16 +70,16 @@ void check(const bo::PackRead& read) {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     // Read once before timing anything: the official packs.
-    static const bool ready = !cexchain::bo::official_packs().empty();
+    static const bool ready = !kanhe::bo::official_packs().empty();
     if (!ready) {
         std::abort();
     }
     const std::string_view text(reinterpret_cast<const char*>(data), size);
-    check(cexchain::bo::read_pack(text));
-    cexchain::cbor::DecodeOptions options;
-    options.max_depth = cexchain::cbor::max_nesting_depth;
-    if (const auto value = cexchain::cbor::decode(cexchain::ByteView(data, size), options)) {
-        check(cexchain::bo::read_pack(*value));
+    check(kanhe::bo::read_pack(text));
+    kanhe::cbor::DecodeOptions options;
+    options.max_depth = kanhe::cbor::max_nesting_depth;
+    if (const auto value = kanhe::cbor::decode(kanhe::ByteView(data, size), options)) {
+        check(kanhe::bo::read_pack(*value));
     }
     return 0;
 }

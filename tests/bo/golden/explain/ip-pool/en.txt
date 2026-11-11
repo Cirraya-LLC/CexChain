@@ -24,7 +24,7 @@ Besides Bo's core words, the contract uses the commerce vocabulary pack (version
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 allocate
-  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show allocate): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the home ledger on its own word. [R19]
   4.1.3 It needs the consent of the customer. Each such call names the ledger of the customer and binds the customer to it. [R3, R23]
   4.1.4 If the instance is cooling: [R7, R19]
@@ -34,7 +34,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.7 An AI agent may start it within its delegation. [R14]
 
 4.2 reclaim
-  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of the services vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show reclaim): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by us, whose agreement it needs.
   4.2.3 If the instance is allocated, it becomes cooling; otherwise the call is refused. [R19]
   4.2.4 It sets the holder to none. [R19]
@@ -45,6 +45,6 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R4] An instance starts in the one state that no state change leads to; if there is none, in the state active.
 [R7] A state used as a condition means the instance is in that state.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
 [R23] A role that allocate binds is bound again by each allocation, with its consent: a resource goes to one holder at a time, and each allocation names it.

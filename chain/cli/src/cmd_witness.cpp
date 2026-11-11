@@ -17,17 +17,17 @@
 #include <format>
 #include <print>
 
-#include <cexchain/client/network_witnesses.hpp>
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/public_witnesses.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/client/witness.hpp>
-#include <cexchain/core/protocol/witness.hpp>
+#include <kanhe/client/network_witnesses.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/public_witnesses.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/client/witness.hpp>
+#include <kanhe/core/protocol/witness.hpp>
 
 #include "commands.hpp"
 #include "output.hpp"
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -65,14 +65,14 @@ int cmd_checkpoint_cosign_request(const Args& args) {
     const RelayReach reach(args, session);
     const auto& latest = session.ledger().latest_checkpoint();
     if (!latest) {
-        throw CommandError{"the ledger has no checkpoint yet (cexchain checkpoint create)"};
+        throw CommandError{"the ledger has no checkpoint yet (kanhe checkpoint create)"};
     }
     std::optional<node::Peer> peer;
     if (const auto name = args.get("peer")) {
         peer = peer_named(session.directory(), *name);
         if (!peer->witness_key) {
             throw CommandError{"peer " + *name +
-                               " has no witness key (cexchain peer add --witness-key)"};
+                               " has no witness key (kanhe peer add --witness-key)"};
         }
     } else if (!args.has("witness")) {
         throw UsageError{"name the witness: --witness PUBKEY or --peer NAME"};
@@ -213,7 +213,7 @@ int cmd_witness_cosign(const Args& args) {
     const std::filesystem::path path = state_path(dir, checkpoint.checkpoint.ledger_id);
     if (!std::filesystem::exists(path)) {
         throw CommandError{"this witness does not follow ledger " +
-                           hex_id(checkpoint.checkpoint.ledger_id) + " (cexchain witness add-log)"};
+                           hex_id(checkpoint.checkpoint.ledger_id) + " (kanhe witness add-log)"};
     }
     const std::uint64_t before = decode_state(path).log.size;
     const auto key = load_signer(args.need("key"), args);
@@ -264,7 +264,7 @@ int cmd_witness_status(const Args& args) {
         return exit_ok;
     }
     if (states.empty()) {
-        std::println("this witness follows no ledgers yet (cexchain witness add-log)");
+        std::println("this witness follows no ledgers yet (kanhe witness add-log)");
     }
     for (const WitnessState& s : states) {
         std::println("{}  {:<24} size {:<8} {}", short_id(s.log.ledger_id), s.name, s.log.size,
@@ -318,9 +318,9 @@ Json used_witness_json(const ledger::Ledger& ledger, const client::UsedWitness& 
     if (const auto cosigned = ledger.last_cosigned(w.key); cosigned && *cosigned) {
         last = {{"tree_size", (*cosigned)->tree_size}, {"timestamp", (*cosigned)->timestamp}};
     }
-    return {{"name", w.name},     {"url", w.url},
-            {"kind", "cexchain"}, {"key", client::witness_key_hex(w.key)},
-            {"added", w.added},   {"last_cosigned", last}};
+    return {{"name", w.name},   {"url", w.url},
+            {"kind", "kanhe"},  {"key", client::witness_key_hex(w.key)},
+            {"added", w.added}, {"last_cosigned", last}};
 }
 
 } // namespace
@@ -476,7 +476,7 @@ int cmd_witness_registered(const Args& args) {
         return exit_ok;
     }
     if (list.empty()) {
-        std::println("no public witness: cexchain witness register URL --witness-key KEY (or "
+        std::println("no public witness: kanhe witness register URL --witness-key KEY (or "
                      "--vkey VKEY, an open network's witness)");
         return exit_ok;
     }
@@ -517,4 +517,4 @@ int cmd_witness_unregister(const Args& args) {
     return exit_ok;
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

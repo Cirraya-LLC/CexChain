@@ -4,11 +4,11 @@
 #include <string>
 #include <utility>
 
-#include <cexchain/console/deferred.hpp>
+#include <kanhe/console/deferred.hpp>
 
 #include "responses.hpp"
 
-namespace cexchain::console {
+namespace kanhe::console {
 
 DeferredApi::DeferredApi(std::shared_ptr<Console> console, Open open)
     : console_(std::move(console)), open_(std::move(open)) {}
@@ -94,4 +94,4 @@ void DeferredApi::stop() {
     }
 }
 
-} // namespace cexchain::console
+} // namespace kanhe::console

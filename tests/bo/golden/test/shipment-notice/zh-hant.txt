@@ -13,7 +13,7 @@
     結果：調用獲接納，實例現為 in_transit。
   第 7 步（第 111 行）通過：carrier deliver in person at 2027-03-10 -> delivered, holder = consignee, late_charge = HKD 0
     發出的請求：通知，須於 2027-03-11 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 8 步（第 112 行）通過：consignee claim -> refused "bo:requires claim 1"
     結果：調用被拒絕，因為 claim 的第 1 項要求未獲滿足（bo:requires claim 1）。
     合約條文 4.5.2：要求 1：excursions 大於 0。
@@ -37,7 +37,7 @@
     結果：經 warehouse 及 carrier 同意，調用獲接納，實例現為 late。
   第 7 步（第 122 行）通過：carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
     發出的請求：通知，須於 2027-03-13 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
 
 測試 「the consignee's system is told of the delivery」：通過
   第 1 步（第 125 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -46,7 +46,7 @@
     結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
   第 3 步（第 127 行）通過：carrier deliver in person at 2027-03-09 -> delivered, notified = no
     發出的請求：通知，須於 2027-03-10 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 4 步（第 128 行）通過：executor notify done with result = "RCPT-1" -> delivered, notified = yes, notice = "RCPT-1"
     結果：調用獲接納，實例現為 delivered。
   第 5 步（第 129 行）通過：executor notify done -> refused
@@ -59,7 +59,7 @@
     結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
   第 3 步（第 134 行）通過：carrier deliver in person at 2027-03-09
     發出的請求：通知，須於 2027-03-10 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 4 步（第 135 行）通過：keeper notify expires at 2027-03-09 -> refused
     結果：賬本拒絕調用：請求通知要到 2027-03-10 才過期。
   第 5 步（第 136 行）通過：executor notify fails with reason = "unreachable" -> notified = no, notice = "unreachable"
@@ -78,7 +78,7 @@
     結果：經 carrier 同意，調用獲接納，實例現為 in_transit。
   第 3 步（第 143 行）通過：carrier deliver in person at 2027-03-15 -> delivered, days_late = 5, late_charge = HKD 10_000
     發出的請求：通知，須於 2027-03-16 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
 
 測試 「out of range on the way: the consignee claims, and the insurer pays」：通過
   第 1 步（第 146 行）通過：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -89,7 +89,7 @@
     結果：調用獲接納，實例現為 in_transit。
   第 4 步（第 149 行）通過：carrier deliver in person at 2027-03-09 -> delivered
     發出的請求：通知，須於 2027-03-10 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 5 步（第 150 行）通過：insurer compensate with payout = HKD 120_000 -> refused "bo:state compensate"
     結果：調用被拒絕，因為實例目前的狀態不容許 compensate（bo:state compensate）。
     合約條文 4.6.5：如實例處於 claimed 狀態，即轉為 compensated 狀態；否則拒絕調用。
@@ -110,7 +110,7 @@
     結果：調用獲接納，實例現為 in_transit。
   第 4 步（第 159 行）通過：carrier deliver in person at 2027-03-09
     發出的請求：通知，須於 2027-03-10 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 5 步（第 160 行）通過：consignee claim at 2027-03-16 -> refused "bo:requires claim 2"
     結果：調用被拒絕，因為 claim 的第 2 項要求未獲滿足（bo:requires claim 2）。
     合約條文 4.5.3：要求 2：實例上次轉換狀態至今未滿 7 日。
@@ -124,7 +124,7 @@
     結果：調用獲接納，實例現為 in_transit。
   第 4 步（第 166 行）通過：carrier deliver in person at 2027-03-09
     發出的請求：通知，須於 2027-03-10 前答覆。
-    結果：經 carrier 及 consignee 同意，調用獲接納，實例現為 delivered。
+    結果：經 consignee 及 carrier 同意，調用獲接納，實例現為 delivered。
   第 5 步（第 167 行）通過：consignee claim at 2027-03-15 -> claimed
     結果：經 consignee 同意，調用獲接納，實例現為 claimed。
   第 6 步（第 168 行）通過：insurer decline -> declined

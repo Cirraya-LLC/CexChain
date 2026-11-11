@@ -6,11 +6,11 @@
 # (carried on after a stop, nothing issued twice), each certificate at a
 # private address its QR code opens, printed from the default template and
 # from one's own, revoked, and withdrawn.
-# Usage: certificates.sh CEXCHAIN
+# Usage: certificates.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -20,16 +20,16 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="certificates test"
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_PASSPHRASE="certificates test"
+export KANHE_LEDGER="$WORK/ledger"
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN
+unset KANHE_SERVER KANHE_TOKEN
 
-# A command line as typed: cexchain-console is the program beside cexchain.
+# A command line as typed: kanhe-console is the program beside kanhe.
 run() {
     case "$1" in
-    cexchain-console) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    kanhe-console) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -43,7 +43,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -55,10 +55,10 @@ start_server() {
     fail "the server did not start"
 }
 fetch() { curl -s -o body.cbor -w '%{http_code}' "$1"; }
-cert() { run cexchain-console certificate "$@"; }
+cert() { run kanhe-console certificate "$@"; }
 
 for k in root log; do run key generate --out "$k.key" > /dev/null; done
-LEDGER_ID="$(run init --ledger "$CEXCHAIN_LEDGER" --name "Example Academy" --root-key root.key \
+LEDGER_ID="$(run init --ledger "$KANHE_LEDGER" --name "Example Academy" --root-key root.key \
     --log-key log.key --json | json 'd["ledger_id"]')"
 TYPE=example.org.diploma/1
 
@@ -71,30 +71,30 @@ cat > diploma.json << 'JSON'
             {"name": "year", "label": "Year", "type": "number", "private": false}],
  "files": "none", "printed": ["name", "degree", "year"], "answers": ["degree", "grades"]}
 JSON
-run cexchain-console kind add diploma.json > /dev/null
-run cexchain-console kind show "$TYPE" | contains "printed on its certificates: name, degree, year"
-[ "$(run cexchain-console kind show "$TYPE" --json | json 'd["printed"]')" = "['name', 'degree', 'year']" ]
-run cexchain-console kind show "$TYPE" | contains "the console answers questions about: degree, grades"
+run kanhe-console kind add diploma.json > /dev/null
+run kanhe-console kind show "$TYPE" | contains "printed on its certificates: name, degree, year"
+[ "$(run kanhe-console kind show "$TYPE" --json | json 'd["printed"]')" = "['name', 'degree', 'year']" ]
+run kanhe-console kind show "$TYPE" | contains "the console answers questions about: degree, grades"
 python3 -c 'import json; d = json.load(open("diploma.json")); d["printed"] = ["nickname"]; print(json.dumps(d))' > bad.json
-expect_exit 1 cexchain-console kind add bad.json --replace
+expect_exit 1 kanhe-console kind add bad.json --replace
 contains "names the kind's own fields" out.txt || fail "printed names its own fields"
 python3 -c 'import json; d = json.load(open("diploma.json")); d["answers"] = ["grades", "grades"]; print(json.dumps(d))' > bad.json
-expect_exit 1 cexchain-console kind add bad.json --replace
+expect_exit 1 kanhe-console kind add bad.json --replace
 contains '"answers" names grades twice' out.txt
 
 # --- The table: mistakes name their line -------------------------------------------
 issue() { cert issue "$TYPE" --as root.key "$@"; }
 printf 'Name,Degree\nAlice,\n' > missing.csv
-expect_exit 1 cexchain-console certificate issue "$TYPE" --as root.key --csv missing.csv --out x.csv
+expect_exit 1 kanhe-console certificate issue "$TYPE" --as root.key --csv missing.csv --out x.csv
 contains "line 2: the field Degree is required" out.txt || fail "a missing value"
 printf 'Name,Nickname\nAlice,Al\n' > unknown.csv
-expect_exit 1 cexchain-console certificate issue "$TYPE" --as root.key --csv unknown.csv --out x.csv
+expect_exit 1 kanhe-console certificate issue "$TYPE" --as root.key --csv unknown.csv --out x.csv
 contains 'line 1: the kind Diploma has no field "Nickname"' out.txt || fail "an unknown column"
 printf 'Name,Degree,Year\nBob,BSc,soon\n' > year.csv
-expect_exit 1 cexchain-console certificate issue "$TYPE" --as root.key --csv year.csv --out x.csv
+expect_exit 1 kanhe-console certificate issue "$TYPE" --as root.key --csv year.csv --out x.csv
 contains "line 2: the field Year is a number" out.txt || fail "a value of the wrong type"
 printf 'Name,Degree\n"Bob,BSc\n' > open.csv
-expect_exit 1 cexchain-console certificate issue "$TYPE" --as root.key --csv open.csv --out x.csv
+expect_exit 1 kanhe-console certificate issue "$TYPE" --as root.key --csv open.csv --out x.csv
 contains "never closed" out.txt || fail "an open quote"
 [ ! -e x.csv ] || fail "nothing issued from a wrong table"
 
@@ -117,7 +117,7 @@ R="$(issue --csv table.csv --out issued.csv --url https://academy.example --json
 [ "$(run record list --type "$TYPE" --json | json 'len(d)')" = 3 ] || fail "nothing issued twice"
 [ "$(issue --csv table.csv --out issued.csv --json | json 'd["issued"]')" = 0 ] || fail "all done"
 sed 's/Wong Siu Ming,MSc/Wong Siu Ming,PhD/' table.csv > changed.csv
-expect_exit 2 cexchain-console certificate issue "$TYPE" --as root.key --csv changed.csv --out issued.csv
+expect_exit 2 kanhe-console certificate issue "$TYPE" --as root.key --csv changed.csv --out issued.csv
 contains "line 3 of changed.csv changed since it was issued" out.txt || fail "a changed row"
 
 # --- Listed and shown ----------------------------------------------------------------
@@ -133,12 +133,12 @@ cert list | contains "Chan, Tai Man, BSc, 2026"
 SHOW="$(cert show "$TOKEN" --url https://academy.example --json)"
 [ "$(echo "$SHOW" | json 'd["status"]')" = valid ]
 echo "$SHOW" | json 'd["verify_url"]' |
-    contains "^https://cexchain.cirraya.com/verify/#l=$LEDGER_ID&r=[0-9a-f]\{64\}&b=https://academy.example/c/$TOKEN$" ||
+    contains "^https://kanhe.cirraya.com/verify/#l=$LEDGER_ID&r=[0-9a-f]\{64\}&b=https://academy.example/c/$TOKEN$" ||
     fail "the link its QR code holds"
 cert show "$TOKEN" --url https://academy.example --language zh-Hans | contains "&lang=zh-Hans"
 
 # --- Served: what scanning gets ------------------------------------------------------
-start_server server.json --ledger "$CEXCHAIN_LEDGER" --log-key log.key --checkpoint-interval 0
+start_server server.json --ledger "$KANHE_LEDGER" --log-key log.key --checkpoint-interval 0
 URL="$(json 'd["url"]' < server.json)"
 [ "$(fetch "$URL/c/$TOKEN")" = 200 ] || fail "GET /c/TOKEN"
 REPORT="$(run verify body.cbor --ledger-id "$LEDGER_ID" --json)"
@@ -147,7 +147,7 @@ echo "$REPORT" | json 'd["disclosed_fields"]' | contains "Chan, Tai Man" || fail
 ! echo "$REPORT" | json 'd["disclosed_fields"]' | contains "A, A, B" || fail "the grades stay sealed"
 
 # --- Printed ---------------------------------------------------------------------------
-expect_exit 1 cexchain-console certificate print --type "$TYPE" --out pages
+expect_exit 1 kanhe-console certificate print --type "$TYPE" --out pages
 contains -- "--url URL" out.txt || fail "the QR code needs the server's address"
 P="$(cert print --type "$TYPE" --out pages --url "$URL" --json)"
 [ "$(echo "$P" | json 'len(d["printed"])')" = 3 ] || fail "three pages"
@@ -164,7 +164,7 @@ printf '<p>{{name}} / {{field.year}} / {{issued}}</p>{{qr}}' > own.html
 cert print "$TOKEN" --out own --url "$URL" --template own.html > /dev/null
 contains "<p>Chan, Tai Man / 2026 / 20" "own/$TOKEN.html" || fail "one's own template"
 printf '<p>{{grades}}</p>' > sealed.html
-expect_exit 1 cexchain-console certificate print "$TOKEN" --out sealed --url "$URL" --template sealed.html
+expect_exit 1 kanhe-console certificate print "$TOKEN" --out sealed --url "$URL" --template sealed.html
 contains "{{grades}}" out.txt || fail "a sealed field cannot be printed"
 [ -z "$(ls sealed 2> /dev/null)" ] || fail "nothing written from a wrong template"
 
@@ -174,19 +174,19 @@ run record revoke --as root.key "$WONG_RECORD" --reason "issued in error" > /dev
 cert list | grep -- "$WONG" | contains revoked || fail "listed as revoked"
 cert print --type "$TYPE" --out again --url "$URL" | contains "left out 1 revoked or replaced"
 [ ! -e "again/$WONG.html" ] || fail "a revoked certificate is not printed"
-expect_exit 2 cexchain-console certificate print "$WONG" --out again --url "$URL"
+expect_exit 2 kanhe-console certificate print "$WONG" --out again --url "$URL"
 [ "$(fetch "$URL/c/$WONG")" = 200 ] || fail "the address still answers"
 run verify body.cbor --ledger-id "$LEDGER_ID" --json | json 'd["record"]["revoked"]' | contains -x True ||
     fail "scanning shows it revoked"
 cert withdraw "$LEE" | contains "took the certificate's address down"
 [ "$(fetch "$URL/c/$LEE")" = 404 ] || fail "withdrawn"
-expect_exit 2 cexchain-console certificate withdraw "$LEE"
+expect_exit 2 kanhe-console certificate withdraw "$LEE"
 [ "$(cert list --json | json 'len(d)')" = 2 ] || fail "two left"
 
 # --- Through the server, the kind from its sheet --------------------------------------
-run token create --ledger "$CEXCHAIN_LEDGER" ops --scope read,admin --out ops.token > /dev/null
+run token create --ledger "$KANHE_LEDGER" ops --scope read,admin --out ops.token > /dev/null
 C=(--server "$URL" --token-file ops.token --cache "$WORK/cache" --ledger-id "$LEDGER_ID")
-THROUGH="$(unset CEXCHAIN_LEDGER; cert list "${C[@]}" --sheet diploma.json --json)"
+THROUGH="$(unset KANHE_LEDGER; cert list "${C[@]}" --sheet diploma.json --json)"
 [ "$(echo "$THROUGH" | json 'len(d)')" = 2 ] || fail "listed through the server"
 echo "$THROUGH" | json 'd[0]["address"]' | contains "^$URL/c/" || fail "the server's address"
 
@@ -202,31 +202,31 @@ open("owner.passkey", "wb").write(credential)
 PY
 printf 'console unlock words\n' > unlock.txt
 SCRIPTED="$WORK/scripted"
-run cexchain-console setup --ledger "$SCRIPTED" --name "Example Academy" --credential owner.passkey \
+run kanhe-console setup --ledger "$SCRIPTED" --name "Example Academy" --credential owner.passkey \
     --unlock-file unlock.txt > /dev/null
-run cexchain-console kind add diploma.json --ledger "$SCRIPTED" > /dev/null
+run kanhe-console kind add diploma.json --ledger "$SCRIPTED" > /dev/null
 M=(--ledger "$SCRIPTED" --machine --unlock-file unlock.txt --csv table.csv --out machine.csv)
-expect_exit 2 cexchain-console certificate issue "$TYPE" "${M[@]}"
+expect_exit 2 kanhe-console certificate issue "$TYPE" "${M[@]}"
 contains "no valid delegation\|may not\|delegation" out.txt || fail "not allowed yet"
-expect_exit 1 cexchain-console certificate issue "$TYPE" "${M[@]}" --as root.key
+expect_exit 1 kanhe-console certificate issue "$TYPE" "${M[@]}" --as root.key
 cert allow "$TYPE" --ledger "$SCRIPTED" --unlock-file unlock.txt | contains "may now issue Diploma"
 [ "$(cert issue "$TYPE" "${M[@]}" --json | json 'd["issued"]')" = 3 ] || fail "issued by the machine"
 REC="$(cert list --ledger "$SCRIPTED" --json | json 'd[0]["record"]')"
 BY="$(run record show --ledger "$SCRIPTED" "$REC" --json | json 'd["registrant"]["id"]')"
 run actor show --ledger "$SCRIPTED" "$BY" --json | json 'd["kind"]' | contains -x device ||
     fail "issued by the organization's device"
-run cexchain-console activity --ledger "$SCRIPTED" --json | contains "certificates.issue" ||
+run kanhe-console activity --ledger "$SCRIPTED" --json | contains "certificates.issue" ||
     fail "the console's log says so"
 
 # The console's machine may answer parties' questions too, once allowed (spec v0.15).
-run cexchain-console answers allow --ledger "$SCRIPTED" --unlock-file unlock.txt --json |
+run kanhe-console answers allow --ledger "$SCRIPTED" --unlock-file unlock.txt --json |
     json 'd["machine"]' | contains -x "$BY" || fail "the same machine answers"
-run cexchain-console activity --ledger "$SCRIPTED" --json | contains "answers.allow" ||
+run kanhe-console activity --ledger "$SCRIPTED" --json | contains "answers.allow" ||
     fail "the console's log says it may answer"
-run cexchain-console answers allow --help | contains -- '--json'
+run kanhe-console answers allow --help | contains -- '--json'
 
 for command in allow issue list show withdraw print; do
     cert "$command" --help | contains -- '--json'
 done
-run cexchain-console completion bash | contains 'certificate'
+run kanhe-console completion bash | contains 'certificate'
 echo "certificates: passed"

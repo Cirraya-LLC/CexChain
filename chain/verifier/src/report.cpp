@@ -7,9 +7,9 @@
 #include <map>
 #include <span>
 
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/verifier/report.hpp>
 
-namespace cexchain::verifier {
+namespace kanhe::verifier {
 
 namespace {
 
@@ -485,7 +485,7 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     auto line = [&out](const std::string& text) {
         out += text + "\n";
     };
-    line("CexChain evidence report\n");
+    line("Kanhe evidence report\n");
     line(std::format("  Ledger       {} (id {}, {})", r.organization, short_id(r.ledger_id),
                      crypto::name(r.hash)));
     if (!ledger_checked) {
@@ -973,7 +973,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
     auto line = [&out](const std::string& text) {
         out += text + "\n";
     };
-    line("CexChain contract report\n");
+    line("Kanhe contract report\n");
     line(std::format("  Instance     {} of contract {}(id {})", short_id(e.record),
                      i.contract_name ? "\"" + *i.contract_name + "\" " : std::string(),
                      short_id(i.contract)));
@@ -1140,4 +1140,4 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
     return out;
 }
 
-} // namespace cexchain::verifier
+} // namespace kanhe::verifier

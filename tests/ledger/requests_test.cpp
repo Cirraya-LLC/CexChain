@@ -23,11 +23,11 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/protocol/contract_evidence.hpp>
-#include <cexchain/core/protocol/contracts.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/verifier/report.hpp>
+#include <kanhe/core/protocol/contract_evidence.hpp>
+#include <kanhe/core/protocol/contracts.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/verifier/report.hpp>
 
 #include "support/ledger_world.hpp"
 #include "support/snapshots.hpp"
@@ -35,9 +35,9 @@
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::Errc;
 
 const nlohmann::json& vectors() {
     static const nlohmann::json document = load_vectors("protocol-v0.8.json");
@@ -194,7 +194,7 @@ struct Service {
     }
 };
 
-std::string detail(const cexchain::Result<ledger::Registration>& r) {
+std::string detail(const kanhe::Result<ledger::Registration>& r) {
     return r ? std::string() : std::string(r.error().detail);
 }
 
@@ -371,12 +371,12 @@ TEST_CASE("a device and a person answer a service's requests, and its evidence s
     CHECK(i.overdue_requests() == std::vector<std::size_t>{3});
     CHECK(i.requests[3].id == reclaim);
     CHECK(i.requests[3].overdue);
-    const auto json = cexchain::verifier::contract_report_json(*report, true);
+    const auto json = kanhe::verifier::contract_report_json(*report, true);
     CHECK(json["instance"]["overdue_requests"] ==
-          nlohmann::ordered_json::array({cexchain::to_hex(reclaim.bytes())}));
+          nlohmann::ordered_json::array({kanhe::to_hex(reclaim.bytes())}));
     CHECK(json["calls"][4]["answer"]["late"] == true);
     CHECK(json["calls"][1]["called_by"]["kind"] == "device");
-    const std::string shown = cexchain::verifier::contract_report_text(*report, true);
+    const std::string shown = kanhe::verifier::contract_report_text(*report, true);
     CHECK(shown.contains("LATE by 1 d 0 h 0 min"));
     CHECK(shown.contains("1 OVERDUE at the checkpoint"));
     // Every consent is needed.

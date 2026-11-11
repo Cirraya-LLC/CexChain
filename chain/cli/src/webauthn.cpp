@@ -20,14 +20,14 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "args.hpp"
 #include "support.hpp"
 
 extern char** environ;
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 namespace {
 
@@ -40,7 +40,7 @@ constexpr std::string_view page_template = R"PAGE(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CexChain: confirm with your passkey</title>
+<title>Kanhe: confirm with your passkey</title>
 <style>
 :root { --bg: #f6f7f9; --card: #fff; --text: #16191d; --muted: #5d6670; --line: #e3e6ea; --accent: #2456d6; --ok: #137a3a; --bad: #b3261e; }
 @media (prefers-color-scheme: dark) { :root { --bg: #0f1114; --card: #171a1f; --text: #e8eaed; --muted: #9aa3ad; --line: #2a2f36; --accent: #7aa2ff; --ok: #5fd08a; --bad: #ff8a80; } }
@@ -72,7 +72,7 @@ const dec = (text) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g,
 const status = (text, kind) => { const s = document.getElementById("status"); s.textContent = text; s.className = kind || ""; };
 async function post(body) {
   await fetch(location.pathname + "/result", { method: "POST", body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json", "X-CexChain-Secret": req.secret } });
+    headers: { "Content-Type": "application/json", "X-Kanhe-Secret": req.secret } });
 }
 async function run() {
   document.getElementById("actions").hidden = true;
@@ -81,7 +81,7 @@ async function run() {
     let result;
     if (req.mode === "create") {
       const credential = await navigator.credentials.create({ publicKey: {
-        rp: { id: req.rpId, name: "CexChain" },
+        rp: { id: req.rpId, name: "Kanhe" },
         user: { id: dec(req.userId), name: req.userName, displayName: req.userName },
         challenge: dec(req.challenge),
         pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -8 }],
@@ -248,7 +248,7 @@ public:
     explicit RedirectFile(const std::string& url) {
         const char* base = std::getenv("TMPDIR");
         std::string pattern =
-            std::string(base != nullptr && *base != '\0' ? base : "/tmp") + "/cexchain-XXXXXX";
+            std::string(base != nullptr && *base != '\0' ? base : "/tmp") + "/kanhe-XXXXXX";
         if (::mkdtemp(pattern.data()) == nullptr) {
             return;
         }
@@ -256,7 +256,7 @@ public:
         path_ = dir_ + "/passkey.html";
         const std::string page =
             "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=" +
-            url + "\"><title>CexChain</title><a href=\"" + url + "\">Continue</a>";
+            url + "\"><title>Kanhe</title><a href=\"" + url + "\">Continue</a>";
         write_file(path_, as_bytes(page), true);
     }
     RedirectFile(const RedirectFile&) = delete;
@@ -286,9 +286,9 @@ void open_in_browser(const std::string& target) {
     std::vector<char*> environment;
     for (char** e = environ; *e != nullptr; ++e) {
         const std::string_view entry(*e);
-        if (!entry.starts_with("CEXCHAIN_PASSPHRASE=") &&
-            !entry.starts_with("CEXCHAIN_NEW_PASSPHRASE=") &&
-            !entry.starts_with("CEXCHAIN_PKCS11_PIN=") && !entry.starts_with("CEXCHAIN_TOKEN=")) {
+        if (!entry.starts_with("KANHE_PASSPHRASE=") &&
+            !entry.starts_with("KANHE_NEW_PASSPHRASE=") &&
+            !entry.starts_with("KANHE_PKCS11_PIN=") && !entry.starts_with("KANHE_TOKEN=")) {
             environment.push_back(*e);
         }
     }
@@ -337,7 +337,7 @@ nlohmann::json run_webauthn_ceremony(const nlohmann::json& request, bool open_br
     page.replace(page.find("/*REQUEST*/"), std::string_view("/*REQUEST*/").size(), safe);
 
     std::println(stderr, "Confirm with your passkey in the browser: {}", url);
-    const char* no_browser = std::getenv("CEXCHAIN_NO_BROWSER");
+    const char* no_browser = std::getenv("KANHE_NO_BROWSER");
     std::optional<RedirectFile> redirect;
     if (open_browser && (no_browser == nullptr || *no_browser == '\0')) {
         redirect.emplace(url);
@@ -379,7 +379,7 @@ nlohmann::json run_webauthn_ceremony(const nlohmann::json& request, bool open_br
         }
         if (http->method == "POST" && http->path == token + "/result") {
             if (header(*http, "origin") != "http://" + host ||
-                header(*http, "x-cexchain-secret") != secret) {
+                header(*http, "x-kanhe-secret") != secret) {
                 respond(client.fd(), "403 Forbidden", "text/plain", "forbidden");
                 continue;
             }
@@ -398,4 +398,4 @@ nlohmann::json run_webauthn_ceremony(const nlohmann::json& request, bool open_br
     }
 }
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

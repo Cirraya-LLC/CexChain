@@ -14,20 +14,20 @@
 #include <string>
 #include <string_view>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/console/backups.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/console/backups.hpp>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const cexchain::ByteView bytes(data, size);
+    const kanhe::ByteView bytes(data, size);
     try {
-        static_cast<void>(cexchain::console::sealed_backup_info(bytes));
+        static_cast<void>(kanhe::console::sealed_backup_info(bytes));
         static_cast<void>(
-            cexchain::console::open_sealed_backup(bytes, "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ"));
+            kanhe::console::open_sealed_backup(bytes, "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ"));
     } catch (const std::runtime_error&) {
         // Refused: not a sealed backup, or not that code's.
     }
     const std::string_view path(reinterpret_cast<const char*>(data), size);
-    if (cexchain::client::backup_path_allowed(path)) {
+    if (kanhe::client::backup_path_allowed(path)) {
         if (path.empty() || path.front() == '/' || path.find("..") != std::string_view::npos ||
             path.find('\\') != std::string_view::npos ||
             path.find('\0') != std::string_view::npos) {

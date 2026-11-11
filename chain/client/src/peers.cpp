@@ -4,15 +4,15 @@
 #include <algorithm>
 #include <cctype>
 
-#include <cexchain/client/peers.hpp>
-#include <cexchain/client/relay_client.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/peers.hpp>
+#include <kanhe/client/relay_client.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/tokens.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 std::vector<node::Peer> peers_of(const std::filesystem::path& dir) {
     return unwrap(node::load_peers(dir), "reading the peers");
@@ -24,12 +24,12 @@ node::Peer peer_named(const std::filesystem::path& dir, const std::string& name)
             return p;
         }
     }
-    throw ActionError{"no peer named " + name + " (cexchain peer add)"};
+    throw ActionError{"no peer named " + name + " (kanhe peer add)"};
 }
 
 node::Client peer_client(const node::Peer& peer) {
     if (!peer.url) {
-        throw ActionError{"peer " + peer.name + " has no API URL (cexchain peer add --url)"};
+        throw ActionError{"peer " + peer.name + " has no API URL (kanhe peer add --url)"};
     }
     node::ClientOptions options;
     if (peer.token_file) {
@@ -137,7 +137,7 @@ void remove_peer(const std::filesystem::path& dir, const std::string& name) {
 
 namespace {
 
-constexpr std::string_view invitation_prefix = "cxp_";
+constexpr std::string_view invitation_prefix = "khp_";
 
 bool printable(std::string_view text) {
     return std::ranges::all_of(text, [](unsigned char c) { return c >= 0x21 && c < 0x7f; });
@@ -328,4 +328,4 @@ node::Peer accept_invitation(const std::filesystem::path& dir,
     return peer;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

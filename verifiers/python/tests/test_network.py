@@ -25,8 +25,8 @@ sys.path.insert(0, str(HERE))
 
 from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: E402
 
-from cexchain_verify import cbor, cose, crypto, evidence, network, protocol, report  # noqa: E402
-from cexchain_verify.errors import VerifyError  # noqa: E402
+from kanhe_verify import cbor, cose, crypto, evidence, network, protocol, report  # noqa: E402
+from kanhe_verify.errors import VerifyError  # noqa: E402
 
 import vector_bundles  # noqa: E402
 
@@ -61,7 +61,7 @@ class OpenWitnessNetworks(unittest.TestCase):
         self.assertEqual(self.head.ledger_id.hex(), self.d["ledger_id"])
         self.assertEqual(self.head.hash, crypto.SHA256)
         self.assertEqual(network.origin(hx(self.d["ledger_id"])), self.d["origin"])
-        self.assertEqual(self.d["origin"], "cirraya.com/cexchain/" + self.d["ledger_id"])
+        self.assertEqual(self.d["origin"], "cirraya.com/kanhe/" + self.d["ledger_id"])
 
     def test_note(self):
         note = network.checkpoint_note(self.d["origin"], self.head.tree_size, self.head.root)
@@ -70,10 +70,10 @@ class OpenWitnessNetworks(unittest.TestCase):
         self.assertEqual(lines[1:], [str(self.head.tree_size), base64.b64encode(self.head.root).decode(), ""])
 
     def test_signed_note(self):
-        """The note key: Ed25519, seed SHA-256("CexChain test key: note"),
+        """The note key: Ed25519, seed SHA-256("Kanhe test key: note"),
         signature type 0x01, key name the origin."""
         origin, note = self.d["origin"], self.d["note"]
-        key = ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"CexChain test key: note").digest())
+        key = ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"Kanhe test key: note").digest())
         public = key.public_key().public_bytes_raw()
         vkey = network.parse_verifier_key(self.d["note_vkey"])
         self.assertEqual((vkey.name, vkey.kind, vkey.public.key), (origin, network.NOTE_ED25519, public))

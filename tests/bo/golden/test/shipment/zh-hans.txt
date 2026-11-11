@@ -12,7 +12,7 @@
   第 6 步（第 90 行）通过：shipper measure with readings = (6.3 °C, 8 °C, 2 °C) -> excursions = 0
     结果：调用被接受，实例现为 in_transit。
   第 7 步（第 91 行）通过：carrier deliver in person at 2027-03-10 -> delivered, holder = consignee, late_charge = HKD 0
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
   第 8 步（第 92 行）通过：consignee claim -> refused "bo:requires claim 1"
     结果：调用被拒绝，因为 claim 的第 1 项要求未满足（bo:requires claim 1）。
     合约条款 4.5.2：要求 1：excursions 大于 0。
@@ -35,7 +35,7 @@
   第 6 步（第 101 行）通过：carrier pick_up in person -> late
     结果：经 warehouse 和 carrier 同意，调用被接受，实例现为 late。
   第 7 步（第 102 行）通过：carrier deliver in person at 2027-03-12 -> delivered, days_late = 2, late_charge = HKD 4_000
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
 
 测试 “five days late: a charge for each of them”：通过
   第 1 步（第 105 行）通过：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -43,7 +43,7 @@
   第 2 步（第 106 行）通过：carrier pick_up in person at 2027-03-08
     结果：经 carrier 同意，调用被接受，实例现为 in_transit。
   第 3 步（第 107 行）通过：carrier deliver in person at 2027-03-15 -> delivered, days_late = 5, late_charge = HKD 10_000
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
 
 测试 “out of range on the way: the consignee claims, and the insurer pays”：通过
   第 1 步（第 110 行）通过：shipper create with due = 2027-03-10, amount = HKD 800_000, penalty_per_day = HKD 2_000
@@ -53,7 +53,7 @@
   第 3 步（第 112 行）通过：shipper measure with readings = (5.2 °C, 11.4 °C, 8.3 °C, 8 °C, 1.9 °C) -> excursions = 3
     结果：调用被接受，实例现为 in_transit。
   第 4 步（第 113 行）通过：carrier deliver in person at 2027-03-09 -> delivered
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
   第 5 步（第 114 行）通过：insurer compensate with payout = HKD 120_000 -> refused "bo:state compensate"
     结果：调用被拒绝，因为实例当前的状态不允许 compensate（bo:state compensate）。
     合约条款 4.6.5：如果实例处于 claimed 状态，即转为 compensated 状态；否则拒绝调用。
@@ -73,7 +73,7 @@
   第 3 步（第 122 行）通过：shipper measure with readings = 1.5 °C
     结果：调用被接受，实例现为 in_transit。
   第 4 步（第 123 行）通过：carrier deliver in person at 2027-03-09
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
   第 5 步（第 124 行）通过：consignee claim at 2027-03-16 -> refused "bo:requires claim 2"
     结果：调用被拒绝，因为 claim 的第 2 项要求未满足（bo:requires claim 2）。
     合约条款 4.5.3：要求 2：实例上次转换状态至今不满 7 天。
@@ -86,7 +86,7 @@
   第 3 步（第 129 行）通过：shipper measure with readings = 1.5 °C
     结果：调用被接受，实例现为 in_transit。
   第 4 步（第 130 行）通过：carrier deliver in person at 2027-03-09
-    结果：经 carrier 和 consignee 同意，调用被接受，实例现为 delivered。
+    结果：经 consignee 和 carrier 同意，调用被接受，实例现为 delivered。
   第 5 步（第 131 行）通过：consignee claim at 2027-03-15 -> claimed
     结果：经 consignee 同意，调用被接受，实例现为 claimed。
   第 6 步（第 132 行）通过：insurer decline -> declined

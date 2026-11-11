@@ -5,7 +5,7 @@
 # Running a ledger as a service, end to end: API tokens, the HTTP API while
 # the command line keeps writing, automatic checkpoints, a replica that
 # copies and checks everything, backups, and promotion.
-# Usage: serve.sh CEXCHAIN
+# Usage: serve.sh KANHE
 set -Eeuo pipefail
 dump_logs() {
     for log in "$WORK"/*.json.log; do
@@ -15,7 +15,7 @@ dump_logs() {
 }
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2; dump_logs >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -25,16 +25,16 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="service test"
-export CEXCHAIN_LEDGER="$WORK/primary"
-unset CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="service test"
+export KANHE_LEDGER="$WORK/primary"
+unset KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; dump_logs; exit 1; }
@@ -69,7 +69,7 @@ body_of() { http "$@" | sed -n '2,$p'; }
 # start_server FILE ARGS...: serves in the background; FILE gets its JSON.
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json,sys; json.load(open('$out'))" 2> /dev/null; then
@@ -101,7 +101,7 @@ expect_exit 2 token create x --scope write
 run token list | contains 'ops .*read,submit,admin'
 run token list --json | json 'len(d)' | contains -x 3
 run token show ops --json | json 'len(d["sha256"])' | contains -x 64
-if grep -F "$(cat ops.token)" "$CEXCHAIN_LEDGER/api-tokens" > /dev/null; then
+if grep -F "$(cat ops.token)" "$KANHE_LEDGER/api-tokens" > /dev/null; then
     fail "only hashes of tokens may be stored"
 fi
 run token revoke metrics | contains 'revoked'
@@ -119,10 +119,10 @@ URL="$(url_of primary.json)"
 json 'd["role"]' < primary.json | contains -x primary
 [ "$(status_of GET "$URL/healthz")" = 200 ]
 [ "$(status_of GET "$URL/v1/status")" = 401 ]
-[ "$(status_of GET "$URL/v1/status" cxt_wrong)" = 401 ]
+[ "$(status_of GET "$URL/v1/status" kht_wrong)" = 401 ]
 body_of GET "$URL/v1/status" "$REPLICA_TOKEN" | json 'd["organization"]' | contains -x 'Service Org'
 [ "$(status_of POST "$URL/v1/checkpoint" "$REPLICA_TOKEN")" = 403 ]
-body_of GET "$URL/metrics" "$REPLICA_TOKEN" | contains '^cexchain_log_entries '
+body_of GET "$URL/metrics" "$REPLICA_TOKEN" | contains '^kanhe_log_entries '
 
 # The command line keeps working on the served ledger; the server sees it,
 # and checkpoints on its own.
@@ -150,11 +150,11 @@ contains 'needs --ledger-id' out.txt
 expect_exit 2 replica init --from "$URL" --ledger-id "$LEDGER_ID" --ledger "$REPLICA"
 contains 'refused the API token' out.txt
 [ ! -e "$REPLICA" ] || fail "a failed replica init must not leave a directory behind"
-CEXCHAIN_TOKEN="$REPLICA_TOKEN" expect_exit 2 replica init --from "$URL" --ledger "$REPLICA" \
+KANHE_TOKEN="$REPLICA_TOKEN" expect_exit 2 replica init --from "$URL" --ledger "$REPLICA" \
     --ledger-id "$(printf '%064d' 7)"
 contains 'another ledger than the one expected' out.txt
 [ ! -e "$REPLICA" ] || fail "a refused replica init must not leave a directory behind"
-CEXCHAIN_TOKEN="$REPLICA_TOKEN" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
+KANHE_TOKEN="$REPLICA_TOKEN" run replica init --from "$URL" --ledger-id "$LEDGER_ID" \
     --ledger "$REPLICA" | contains "replica of ledger $LEDGER_ID"
 run replica status --ledger "$REPLICA" --token-file replica.token --json | json 'd["behind"]' | contains -x 0
 run replica status --json | json 'd["replica"]' | contains -x False
@@ -188,27 +188,27 @@ expect_exit 2 replica sync --ledger "$REPLICA" --token-file replica.token
 contains 'refused the API token' out.txt
 
 # --- Backups -------------------------------------------------------------------
-run backup create --ledger "$REPLICA" --out replica.cxb | contains 'unsigned'
+run backup create --ledger "$REPLICA" --out replica.khb | contains 'unsigned'
 # Unsigned: the checkpointed log verifies, and the files would be left out.
-run backup verify replica.cxb --json | json 'd["ok"] and not d["signed"] and d["skipped_files"] > 0' | contains -x True
-run backup verify replica.cxb | contains 'compare it with a witness'
-run backup create --out primary.cxb --log-key log.key --json | json 'd["files"] > 0 and d["signed"]' | contains -x True
-expect_exit 2 backup create --out other.cxb --log-key root.key
+run backup verify replica.khb --json | json 'd["ok"] and not d["signed"] and d["skipped_files"] > 0' | contains -x True
+run backup verify replica.khb | contains 'compare it with a witness'
+run backup create --out primary.khb --log-key log.key --json | json 'd["files"] > 0 and d["signed"]' | contains -x True
+expect_exit 2 backup create --out other.khb --log-key root.key
 contains "not this ledger's log key" out.txt
-run backup restore primary.cxb --ledger "$WORK/restored" | contains 'audit passed'
+run backup restore primary.khb --ledger "$WORK/restored" | contains 'audit passed'
 [ "$(run status --ledger "$WORK/restored" --json | json 'd["ledger_id"]')" = "$(run status --json | json 'd["ledger_id"]')" ]
 run record fields "$(run record list --json | json 'd[0]["id"]')" --ledger "$WORK/restored" | contains 'result'
-expect_exit 2 backup restore primary.cxb --ledger "$WORK/restored"
+expect_exit 2 backup restore primary.khb --ledger "$WORK/restored"
 python3 -c "
 import sys
-data = bytearray(open('primary.cxb', 'rb').read())
+data = bytearray(open('primary.khb', 'rb').read())
 data[-1] ^= 1
-open('damaged.cxb', 'wb').write(data)
+open('damaged.khb', 'wb').write(data)
 "
-expect_exit 3 backup verify damaged.cxb
+expect_exit 3 backup verify damaged.khb
 contains 'NOT VERIFIED' out.txt
-head -c 100 primary.cxb > truncated.cxb
-expect_exit 2 backup verify truncated.cxb
+head -c 100 primary.khb > truncated.khb
+expect_exit 2 backup verify truncated.khb
 
 # --- Promotion -----------------------------------------------------------------
 run replica promote --ledger "$REPLICA" | contains 'must stay'

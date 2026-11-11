@@ -8,11 +8,11 @@
 # token kept owner-only; the peer then reaches the inviter's API as its peer
 # (its registrar's held calls). Refused: a code changed on the way, a name
 # taken, a code that is not one.
-# Usage: parties.sh CEXCHAIN
+# Usage: parties.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 WORK="$(mktemp -d)"
 SERVERS=()
 cleanup() {
@@ -21,15 +21,15 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="parties test"
-unset CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
+export KANHE_PASSPHRASE="parties test"
+unset KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -45,7 +45,7 @@ json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 echo "== help and completion"
 for command in "peer invite" "peer accept"; do
     # shellcheck disable=SC2086
-    run $command --help | contains -F "cexchain $command" || fail "help for $command"
+    run $command --help | contains -F "kanhe $command" || fail "help for $command"
 done
 run completion bash | contains -F "invite" || fail "completion: invite"
 
@@ -67,7 +67,7 @@ run key public alice-witness.key --out alice-witness.pub > /dev/null
 run peer invite bob --url "$ALICE_URL" --witness-key alice-witness.pub --ledger alice --json > invite.json
 [ "$(json 'd["witness"]' < invite.json)" = True ] || fail "the code carries the witness key"
 CODE=$(json 'd["code"]' < invite.json)
-case "$CODE" in cxp_*) ;; *) fail "an invitation code starts with cxp_" ;; esac
+case "$CODE" in khp_*) ;; *) fail "an invitation code starts with khp_" ;; esac
 [ "$(json 'd["fingerprint"]' < invite.json)" = "$(echo "$ALICE_ID" | sed -E 's/^(.{4})(.{4})(.{4})(.{4})(.{4}).*/\1 \2 \3 \4 \5/')" ] ||
     fail "the fingerprint is the ledger id's first 20 hex digits"
 run token list --ledger alice --json | json '[(t["name"], t["scopes"]) for t in d]' |
@@ -92,7 +92,7 @@ run peer list --ledger alice --json | json '[p["name"] for p in d]' | contains -
     fail "Alice has Bob as a peer"
 
 echo "== Bob reaches Alice's API as her peer"
-"$CEXCHAIN" serve --listen "127.0.0.1:$ALICE_PORT" --json --quiet --ledger alice > alice.json 2> alice.log &
+"$KANHE" serve --listen "127.0.0.1:$ALICE_PORT" --json --quiet --ledger alice > alice.json 2> alice.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do
     if [ -s alice.json ] && python3 -c "import json; json.load(open('alice.json'))" 2> /dev/null; then break; fi
@@ -120,7 +120,7 @@ except urllib.error.HTTPError as error:
 PY
 # Another token does not.
 cp "$TOKEN_FILE" token.kept
-echo "cxt_not_the_token" > "$TOKEN_FILE"
+echo "kht_not_the_token" > "$TOKEN_FILE"
 expect_exit 2 contract pending --peer alice --ledger bob
 cp token.kept "$TOKEN_FILE"
 
@@ -134,7 +134,7 @@ import base64
 code = '$CODE'[4:]
 raw = bytearray(base64.urlsafe_b64decode(code + '=' * (-len(code) % 4)))
 raw[raw.find(bytes.fromhex('025820')) + 3] ^= 1
-print('cxp_' + base64.urlsafe_b64encode(bytes(raw)).decode().rstrip('='))")
+print('khp_' + base64.urlsafe_b64encode(bytes(raw)).decode().rstrip('='))")
 run peer accept "$TAMPERED" --name carol --ledger bob --json > carol.json
 [ "$(json 'd["fingerprint"]' < carol.json)" != "$(json 'd["fingerprint"]' < invite.json)" ] ||
     fail "a changed code shows another fingerprint"

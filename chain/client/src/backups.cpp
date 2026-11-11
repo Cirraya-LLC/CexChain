@@ -6,16 +6,16 @@
 #include <optional>
 #include <string>
 
-#include <cexchain/client/backups.hpp>
-#include <cexchain/client/support.hpp>
-#include <cexchain/ledger/environment.hpp>
-#include <cexchain/ledger/storage.hpp>
-#include <cexchain/node/contracts.hpp>
-#include <cexchain/node/peers.hpp>
-#include <cexchain/node/published.hpp>
-#include <cexchain/node/tokens.hpp>
+#include <kanhe/client/backups.hpp>
+#include <kanhe/client/support.hpp>
+#include <kanhe/ledger/environment.hpp>
+#include <kanhe/ledger/storage.hpp>
+#include <kanhe/node/contracts.hpp>
+#include <kanhe/node/peers.hpp>
+#include <kanhe/node/published.hpp>
+#include <kanhe/node/tokens.hpp>
 
-namespace cexchain::client {
+namespace kanhe::client {
 
 namespace {
 
@@ -239,4 +239,4 @@ Result<ledger::BackupSummary> restore_into(std::istream& in, const std::filesyst
     return summary;
 }
 
-} // namespace cexchain::client
+} // namespace kanhe::client

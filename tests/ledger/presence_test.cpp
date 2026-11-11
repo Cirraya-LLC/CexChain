@@ -9,20 +9,20 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/presence.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/presence.hpp>
 
 #include "support/ledger_world.hpp"
 
 namespace {
 
-using namespace cexchain::test;
-using cexchain::Bytes;
-using cexchain::ByteView;
-using cexchain::Errc;
+using namespace kanhe::test;
+using kanhe::Bytes;
+using kanhe::ByteView;
+using kanhe::Errc;
 
 Bytes bytes_of(std::string_view text) {
-    const auto view = cexchain::as_bytes(text);
+    const auto view = kanhe::as_bytes(text);
     return Bytes(view.begin(), view.end());
 }
 
@@ -62,7 +62,7 @@ Bytes der_signature(ByteView raw) {
 /// may produce.
 Bytes high_s(ByteView raw) {
     static const Bytes n =
-        *cexchain::from_hex("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551");
+        *kanhe::from_hex("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551");
     Bytes out(raw.begin(), raw.end());
     int borrow = 0;
     for (int i = 31; i >= 0; --i) {
@@ -87,7 +87,7 @@ struct Authenticator {
     }
 
     Bytes authenticator_data() const {
-        Bytes data = sha256(cexchain::as_bytes(rp_id));
+        Bytes data = sha256(kanhe::as_bytes(rp_id));
         data.push_back(flags);
         append(data, Bytes{0, 0, 0, 7});
         return data;
@@ -97,10 +97,10 @@ struct Authenticator {
                                  std::string_view tail = ",\"crossOrigin\":false}") const {
         const Bytes data = authenticator_data();
         const std::string client = "{\"type\":\"" + std::string(type) + "\",\"challenge\":\"" +
-                                   cexchain::to_base64url(challenge) + "\",\"origin\":\"" + origin +
+                                   kanhe::to_base64url(challenge) + "\",\"origin\":\"" + origin +
                                    "\"" + std::string(tail);
         Bytes message = data;
-        append(message, sha256(cexchain::as_bytes(client)));
+        append(message, sha256(kanhe::as_bytes(client)));
         Bytes signature = *key->sign(message);
         if (key->algorithm() == crypto::SigAlg::esp256) {
             signature = der_signature(use_high_s ? high_s(signature) : signature);
@@ -349,7 +349,7 @@ TEST_CASE("passkey registrations become credentials", "[presence]") {
     const Bytes challenge(32, 0x5a);
     auto attestation = [&](const Authenticator& a, std::uint8_t flags,
                            const cbor::Value& cose_key) {
-        Bytes data = sha256(cexchain::as_bytes(a.rp_id));
+        Bytes data = sha256(kanhe::as_bytes(a.rp_id));
         data.push_back(flags);
         append(data, Bytes{0, 0, 0, 0});
         append(data, Bytes(16, 0)); // AAGUID
@@ -364,7 +364,7 @@ TEST_CASE("passkey registrations become credentials", "[presence]") {
     };
     auto client = [&](const Authenticator& a, std::string_view type, ByteView c) {
         return bytes_of("{\"type\":\"" + std::string(type) + "\",\"challenge\":\"" +
-                        cexchain::to_base64url(c) + "\",\"origin\":\"" + a.origin +
+                        kanhe::to_base64url(c) + "\",\"origin\":\"" + a.origin +
                         "\",\"crossOrigin\":false}");
     };
     auto ec2 = [](const crypto::PublicKey& key, std::int64_t alg) {
@@ -454,12 +454,12 @@ TEST_CASE("presence material round-trips through the codec", "[presence]") {
         w.statement(w.org_id(), std::nullopt, protocol::DelegationGrantBody{w.org_id(), scope});
     CHECK(*protocol::decode_payload(*protocol::encode_payload(grant)) == grant);
 
-    CHECK(cexchain::from_base64url(cexchain::to_base64url(Bytes{0xfb, 0xff, 0x01})) ==
+    CHECK(kanhe::from_base64url(kanhe::to_base64url(Bytes{0xfb, 0xff, 0x01})) ==
           Bytes{0xfb, 0xff, 0x01});
-    CHECK(cexchain::to_base64url(Bytes{0xfb, 0xff}) == "-_8");
-    CHECK_FALSE(cexchain::from_base64url("-_9")); // nonzero trailing bits
-    CHECK_FALSE(cexchain::from_base64url("abc="));
-    CHECK_FALSE(cexchain::from_base64url("a"));
+    CHECK(kanhe::to_base64url(Bytes{0xfb, 0xff}) == "-_8");
+    CHECK_FALSE(kanhe::from_base64url("-_9")); // nonzero trailing bits
+    CHECK_FALSE(kanhe::from_base64url("abc="));
+    CHECK_FALSE(kanhe::from_base64url("a"));
 }
 
 TEST_CASE("a proof of presence cannot be replayed under a rotated key", "[presence][security]") {

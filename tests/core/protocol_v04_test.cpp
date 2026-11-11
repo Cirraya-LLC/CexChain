@@ -10,23 +10,23 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/keys.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/core/protocol/witness.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/keys.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/core/protocol/witness.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-namespace merkle = cexchain::merkle;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+namespace merkle = kanhe::merkle;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 

@@ -29,7 +29,7 @@ Besides Bo's core words, the contract uses the finance vocabulary pack (version 
 A call that does not meet one of an action's requirements is refused, and the instance does not change. A missing consent is not a refusal: the call waits for it.
 
 4.1 pledge
-  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
+  4.1.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show pledge): the clauses marked R19 state them, after the contract's own clauses.
   4.1.2 Started by the holder, whose agreement it needs. [R19]
   4.1.3 Its counterparty is the bank.
   4.1.4 It needs the consent of the bank at every call, since the action makes the bank the pledgee. [R31]
@@ -39,7 +39,7 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.1.8 An AI agent may start it within its delegation. [R14]
 
 4.2 transfer
-  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (cexchain bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
+  4.2.1 A built-in action of Bo, with the standard terms of Bo's standard library (kanhe bo stdlib show transfer): the clauses marked R19 state them, after the contract's own clauses.
   4.2.2 Started by the holder, whose agreement it needs. [R19]
   4.2.3 Its counterparty is the bank.
   4.2.4 It needs the consent of the bank at every call, since the action makes the bank the holder. [R31]
@@ -49,14 +49,14 @@ A call that does not meet one of an action's requirements is refused, and the in
   4.2.8 An AI agent may start it within its delegation. [R14]
 
 4.3 release
-  4.3.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
+  4.3.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show release): the clauses marked R19 state them, after the contract's own clauses.
   4.3.2 Started by the pledgee, whose agreement it needs. [R19]
   4.3.3 If the instance is pledged, it becomes active; otherwise the call is refused. [R19]
   4.3.4 It sets the pledgee to none. [R19]
   4.3.5 An AI agent may start it within its delegation. [R14]
 
 4.4 enforce
-  4.4.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (cexchain bo stdlib show enforce): the clauses marked R19 state them, after the contract's own clauses.
+  4.4.1 A built-in action of the finance vocabulary pack, with the standard terms the pack gives it (kanhe bo stdlib show enforce): the clauses marked R19 state them, after the contract's own clauses.
   4.4.2 Started by the pledgee, whose agreement it needs. [R19]
   4.4.3 If the instance is pledged, it becomes active; otherwise the call is refused. [R19]
   4.4.4 It sets the holder to the pledgee. [R19]
@@ -88,7 +88,7 @@ A call that does not meet one of an action's requirements is refused, and the in
 [R5] The states of an instance are those its state changes name.
 [R8] Changing a field that holds a party takes it from that party, so it needs that party's consent; when that party starts the action, its call is its consent.
 [R14] An AI agent may start an action within its delegation, unless the action says AI agent can propose; then the agent only proposes, and a person approves.
-[R19] A built-in action has the standard terms Bo's standard library gives it (cexchain bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
+[R19] A built-in action has the standard terms Bo's standard library gives it (kanhe bo stdlib show ACTION): who starts it, whose consent it needs, the states it starts from and leads to, and what it changes. The contract's own clauses come first and add to them; R8 adds no consent to the standard terms.
 [R20] The pledgee and the payee, and a resource's holder, used by an action (the standard terms of a built-in action included) but not declared by the contract, are fields of each instance, holding no party until an action sets them; so are a service's paid until and billed until, holding no date until it is subscribed to.
 [R25] A contract that names no UTC offset counts dates and days at UTC+08:00.
 [R31] An action that makes its counterparty (after to) the holder, the pledgee, or the payee, as transfer, pledge, and allocate do, needs the counterparty's consent at every call, even when its role was bound to a ledger when the instance was created or by another action: nobody becomes a holder, a pledgee, or a payee without agreeing.

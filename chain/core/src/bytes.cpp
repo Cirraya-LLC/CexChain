@@ -3,9 +3,9 @@
 
 #include <atomic>
 
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain {
+namespace kanhe {
 
 void secure_wipe(std::span<std::uint8_t> bytes) noexcept {
     volatile std::uint8_t* p = bytes.data();
@@ -15,4 +15,4 @@ void secure_wipe(std::span<std::uint8_t> bytes) noexcept {
     std::atomic_signal_fence(std::memory_order_seq_cst);
 }
 
-} // namespace cexchain
+} // namespace kanhe

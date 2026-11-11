@@ -9,7 +9,7 @@
 // /c/TOKEN) gets the record with the printed fields disclosed, issued by
 // the organization's device; the same table again issues nothing twice; and
 // a certificate she registers herself, in person, is published at once.
-// Usage: node console_certificates_test.js CEXCHAIN
+// Usage: node console_certificates_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -19,12 +19,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
+const kanhe = path.resolve(process.argv[2]);
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-certificates-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-certificates-"));
 
 function freePort() {
   return new Promise((resolve) => {
@@ -46,9 +46,9 @@ async function tap(page, what) {
 (async () => {
   const port = await freePort();
   const ledger = path.join(work, "ledger");
-  const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+  const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
   const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
-  const console_ = spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]),
+  const console_ = spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]),
                          { cwd: work, env });
   for (let i = 0; i < 300 && !fs.existsSync(path.join(ledger, "console", "setup-link")); i++) {
     await new Promise((r) => setTimeout(r, 100));
@@ -83,7 +83,7 @@ async function tap(page, what) {
       fields: [{ name: "name", label: "Name", required: true }, { name: "degree", label: "Degree", required: true },
                { name: "grades", label: "Grades" }],
       printed: ["name", "degree"] }));
-    run("cexchain-console", "kind", "add", sheet);
+    run("kanhe-console", "kind", "add", sheet);
     await a.getByRole("link", { name: "Kinds" }).click();
     await a.getByText("Its certificates show: name, degree").waitFor();
 
@@ -111,7 +111,7 @@ async function tap(page, what) {
     await a.getByRole("button", { name: "QR code of Chan, Tai Man BSc" }).click();
     await a.getByRole("img", { name: "QR code that opens the certificate of Chan, Tai Man BSc" }).waitFor();
     const link = await a.getByLabel("The link the QR code of Chan, Tai Man BSc holds").inputValue();
-    const named = link.match(/^https:\/\/cexchain\.cirraya\.com\/verify\/#l=([0-9a-f]{64})&r=([0-9a-f]{64})&b=(.+)$/);
+    const named = link.match(/^https:\/\/kanhe\.cirraya\.com\/verify\/#l=([0-9a-f]{64})&r=([0-9a-f]{64})&b=(.+)$/);
     assert.ok(named, link);
     const address = decodeURIComponent(named[3]);
     assert.match(address, new RegExp(`^http://localhost:${port}/c/[A-Za-z0-9_-]{22}$`));
@@ -154,7 +154,7 @@ async function tap(page, what) {
     await a.getByRole("heading", { name: "Done" }).waitFor();
     await a.getByRole("link", { name: "Certificates" }).click();
     await a.getByRole("cell", { name: "Ho Ka Ming · PhD" }).waitFor();
-    const listed = JSON.parse(run("cexchain-console", "certificate", "list", "--json"));
+    const listed = JSON.parse(run("kanhe-console", "certificate", "list", "--json"));
     assert.equal(listed.length, 3);
 
     assert.deepEqual(violations, [], "no CSP violation or script error");
@@ -166,7 +166,7 @@ async function tap(page, what) {
   } finally {
     await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

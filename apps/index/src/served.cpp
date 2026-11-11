@@ -13,13 +13,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/node/responses.hpp>
-#include <cexchain/search/query.hpp>
-#include <cexchain/search/served.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/node/responses.hpp>
+#include <kanhe/search/query.hpp>
+#include <kanhe/search/served.hpp>
 
-namespace cexchain::search {
+namespace kanhe::search {
 
 namespace {
 
@@ -217,4 +217,4 @@ Index* Served::index() const noexcept {
     return state_->ready.load();
 }
 
-} // namespace cexchain::search
+} // namespace kanhe::search

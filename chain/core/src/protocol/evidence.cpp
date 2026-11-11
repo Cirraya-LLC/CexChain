@@ -9,14 +9,14 @@
 #include <variant>
 #include <vector>
 
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/core/protocol/state.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/core/protocol/state.hpp>
 
 #include "evidence_detail.hpp"
 #include "reader.hpp"
 
-namespace cexchain::protocol {
+namespace kanhe::protocol {
 
 namespace {
 
@@ -215,8 +215,8 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
     if (!bundle.state_proofs.empty()) {
         cbor::Array proofs;
         for (const StateProof& p : bundle.state_proofs) {
-            CEXCHAIN_TRY(Bytes leaf, encode_state_leaf(p.leaf));
-            CEXCHAIN_TRY(cbor::Value leaf_value, cbor::decode(leaf));
+            KANHE_TRY(Bytes leaf, encode_state_leaf(p.leaf));
+            KANHE_TRY(cbor::Value leaf_value, cbor::decode(leaf));
             cbor::Array siblings;
             for (const crypto::Digest& s : p.siblings) {
                 siblings.push_back(cbor::Value::bytes(s.bytes()));
@@ -274,11 +274,11 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
 }
 
 Result<Id> bundle_ledger_id(ByteView encoded) {
-    CEXCHAIN_TRY(EvidenceBundle bundle, decode_bundle(encoded));
+    KANHE_TRY(EvidenceBundle bundle, decode_bundle(encoded));
     if (bundle.entries.empty()) {
         return fail(Errc::malformed, "the bundle has no genesis entry");
     }
-    CEXCHAIN_TRY(LogEntry genesis, decode_log_entry(bundle.entries.front().entry));
+    KANHE_TRY(LogEntry genesis, decode_log_entry(bundle.entries.front().entry));
     return genesis.statement_id;
 }
 
@@ -289,18 +289,18 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
     // Bundles hold many signed objects; allow more items than the default.
     cbor::DecodeOptions options;
     options.max_items = std::size_t{1} << 20;
-    CEXCHAIN_TRY(cbor::Value value, cbor::decode(encoded, options));
-    CEXCHAIN_TRY(MapReader reader, MapReader::open(value));
+    KANHE_TRY(cbor::Value value, cbor::decode(encoded, options));
+    KANHE_TRY(MapReader reader, MapReader::open(value));
     EvidenceBundle bundle;
 
-    CEXCHAIN_TRY(std::uint64_t version, reader.need_uint(0));
+    KANHE_TRY(std::uint64_t version, reader.need_uint(0));
     if (version != evidence_bundle_version) {
         return fail(Errc::unsupported, "unsupported evidence bundle version");
     }
-    CEXCHAIN_TRY(bundle.record, reader.need_id(1));
+    KANHE_TRY(bundle.record, reader.need_id(1));
 
-    CEXCHAIN_TRY(const cbor::Value* entries_value, reader.need(2));
-    CEXCHAIN_TRY(const cbor::Array* entries, detail::as_array(*entries_value));
+    KANHE_TRY(const cbor::Value* entries_value, reader.need(2));
+    KANHE_TRY(const cbor::Array* entries, detail::as_array(*entries_value));
     if (entries->empty()) {
         return fail(Errc::malformed, "a bundle needs at least the genesis entry");
     }
@@ -310,11 +310,11 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             return fail(Errc::malformed, "evidence entry must be [entry, receipt]");
         }
         EvidenceEntry e;
-        CEXCHAIN_TRY(e.entry, detail::as_bytes_value((*pair)[0]));
-        CEXCHAIN_TRY(e.receipt, detail::as_bytes_value((*pair)[1]));
+        KANHE_TRY(e.entry, detail::as_bytes_value((*pair)[0]));
+        KANHE_TRY(e.receipt, detail::as_bytes_value((*pair)[1]));
         bundle.entries.push_back(std::move(e));
     }
-    CEXCHAIN_TRY(bundle.checkpoint, reader.need_bytes(3));
+    KANHE_TRY(bundle.checkpoint, reader.need_bytes(3));
 
     auto non_empty_list = [](const cbor::Value& list_value) -> Result<const cbor::Array*> {
         const cbor::Array* list = list_value.as_array();
@@ -327,41 +327,41 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
         return list;
     };
     if (const cbor::Value* list_value = reader.get(4)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         for (const cbor::Value& item : *list) {
-            CEXCHAIN_TRY(Bytes cosignature, detail::as_bytes_value(item));
+            KANHE_TRY(Bytes cosignature, detail::as_bytes_value(item));
             bundle.cosignatures.push_back(std::move(cosignature));
         }
     }
     if (const cbor::Value* list_value = reader.get(5)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         for (const cbor::Value& item : *list) {
             const cbor::Array* parts = item.as_array();
             if (parts == nullptr || parts->size() != 3) {
                 return fail(Errc::malformed, "field disclosure must be [leaf, index, path]");
             }
             FieldDisclosure d;
-            CEXCHAIN_TRY(d.leaf, detail::as_bytes_value((*parts)[0]));
-            CEXCHAIN_TRY(d.index, detail::as_uint((*parts)[1]));
-            CEXCHAIN_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
+            KANHE_TRY(d.leaf, detail::as_bytes_value((*parts)[0]));
+            KANHE_TRY(d.index, detail::as_uint((*parts)[1]));
+            KANHE_TRY(const cbor::Array* path, detail::as_array((*parts)[2]));
             for (const cbor::Value& node : *path) {
-                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
-                CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
+                KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
                 d.path.push_back(digest);
             }
             bundle.disclosures.push_back(std::move(d));
         }
     }
     if (const cbor::Value* list_value = reader.get(6)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         for (const cbor::Value& item : *list) {
             const cbor::Array* parts = item.as_array();
             if (parts == nullptr || parts->size() != 2) {
                 return fail(Errc::malformed, "attachment opening must be [name, salt]");
             }
             AttachmentOpening a;
-            CEXCHAIN_TRY(a.name, detail::as_text((*parts)[0]));
-            CEXCHAIN_TRY(Bytes salt, detail::as_bytes_value((*parts)[1]));
+            KANHE_TRY(a.name, detail::as_text((*parts)[0]));
+            KANHE_TRY(Bytes salt, detail::as_bytes_value((*parts)[1]));
             if (salt.size() != a.salt.size()) {
                 return fail(Errc::malformed, "attachment salt must be 16 bytes");
             }
@@ -370,7 +370,7 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
         }
     }
     if (const cbor::Value* list_value = reader.get(7)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         for (const cbor::Value& item : *list) {
             const cbor::Array* parts = item.as_array();
             const cbor::Array* leaf =
@@ -380,16 +380,16 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
                             "a state proof must be [[kind, id, history], siblings]");
             }
             StateProof p;
-            CEXCHAIN_TRY(std::uint64_t kind, detail::as_uint((*leaf)[0]));
+            KANHE_TRY(std::uint64_t kind, detail::as_uint((*leaf)[0]));
             if (kind < 1 || kind > static_cast<std::uint64_t>(ObjectKind::instance)) {
                 return fail(Errc::malformed, "a state proof names an unknown kind of object");
             }
             p.leaf.kind = static_cast<ObjectKind>(kind);
-            CEXCHAIN_TRY(Bytes id, detail::as_bytes_value((*leaf)[1]));
-            CEXCHAIN_TRY(p.leaf.id, to_id(id));
-            CEXCHAIN_TRY(const cbor::Array* history, detail::as_array((*leaf)[2]));
+            KANHE_TRY(Bytes id, detail::as_bytes_value((*leaf)[1]));
+            KANHE_TRY(p.leaf.id, to_id(id));
+            KANHE_TRY(const cbor::Array* history, detail::as_array((*leaf)[2]));
             for (const cbor::Value& index : *history) {
-                CEXCHAIN_TRY(std::uint64_t i, detail::as_uint(index));
+                KANHE_TRY(std::uint64_t i, detail::as_uint(index));
                 p.leaf.history.push_back(i);
             }
             const cbor::Array& siblings = *(*parts)[1].as_array();
@@ -397,8 +397,8 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
                 return fail(Errc::malformed, "a state proof is deeper than the tree");
             }
             for (const cbor::Value& node : siblings) {
-                CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
-                CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
+                KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
                 p.siblings.push_back(digest);
             }
             if (!encode_state_leaf(p.leaf)) {
@@ -409,31 +409,31 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
         }
     }
     if (const cbor::Value* list_value = reader.get(8)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         for (const cbor::Value& item : *list) {
-            CEXCHAIN_TRY(MapReader anchor_reader, MapReader::open(item));
+            KANHE_TRY(MapReader anchor_reader, MapReader::open(item));
             Anchor a;
-            CEXCHAIN_TRY(a.checkpoint, anchor_reader.need_bytes(1));
+            KANHE_TRY(a.checkpoint, anchor_reader.need_bytes(1));
             if (const cbor::Value* tokens_value = anchor_reader.get(2)) {
-                CEXCHAIN_TRY(const cbor::Array* tokens, non_empty_list(*tokens_value));
+                KANHE_TRY(const cbor::Array* tokens, non_empty_list(*tokens_value));
                 for (const cbor::Value& token : *tokens) {
-                    CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(token));
+                    KANHE_TRY(Bytes bytes, detail::as_bytes_value(token));
                     a.timestamps.push_back(std::move(bytes));
                 }
             }
             if (const cbor::Value* proof_value = anchor_reader.get(3)) {
-                CEXCHAIN_TRY(const cbor::Array* proof, non_empty_list(*proof_value));
+                KANHE_TRY(const cbor::Array* proof, non_empty_list(*proof_value));
                 if (proof->size() > merkle::max_consistency_proof_length) {
                     return fail(Errc::malformed, "an anchor's consistency proof is too long");
                 }
                 for (const cbor::Value& node : *proof) {
-                    CEXCHAIN_TRY(Bytes bytes, detail::as_bytes_value(node));
-                    CEXCHAIN_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
+                    KANHE_TRY(Bytes bytes, detail::as_bytes_value(node));
+                    KANHE_TRY(crypto::Digest digest, crypto::Digest::from_bytes(bytes));
                     a.consistency.push_back(digest);
                 }
             }
             if (const cbor::Value* cosignatures_value = anchor_reader.get(4)) {
-                CEXCHAIN_TRY(const cbor::Array* cosignatures, non_empty_list(*cosignatures_value));
+                KANHE_TRY(const cbor::Array* cosignatures, non_empty_list(*cosignatures_value));
                 for (const cbor::Value& item_value : *cosignatures) {
                     const cbor::Array* pair = item_value.as_array();
                     const std::string* name =
@@ -452,21 +452,21 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
                 return fail(Errc::malformed,
                             "an anchor holds no time-stamp token and no network cosignature");
             }
-            CEXCHAIN_CHECK(anchor_reader.finish());
+            KANHE_CHECK(anchor_reader.finish());
             bundle.anchors.push_back(std::move(a));
         }
     }
     if (const cbor::Value* list_value = reader.get(9)) {
-        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        KANHE_TRY(const cbor::Array* list, non_empty_list(*list_value));
         if (list->size() > max_membership_proofs) {
             return fail(Errc::malformed, "a bundle carries at most 16 membership proofs");
         }
         for (const cbor::Value& item : *list) {
-            CEXCHAIN_TRY(Bytes proof, detail::as_bytes_value(item));
+            KANHE_TRY(Bytes proof, detail::as_bytes_value(item));
             bundle.memberships.push_back(std::move(proof));
         }
     }
-    CEXCHAIN_CHECK(reader.finish());
+    KANHE_CHECK(reader.finish());
     return bundle;
 }
 
@@ -548,8 +548,8 @@ Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const Led
             return verification_failure(
                 "an anchor's checkpoint is not consistent with the bundle's");
         }
-        CEXCHAIN_TRY(crypto::Digest stamped_digest,
-                     provider.digest(state.hash(), *stamped->envelope.payload));
+        KANHE_TRY(crypto::Digest stamped_digest,
+                  provider.digest(state.hash(), *stamped->envelope.payload));
 
         // Open-network witnesses' cosignatures of the checkpoint's note
         // (v0.13): SHA-256 trees only.
@@ -742,10 +742,10 @@ Result<EvidenceReport> finish_report(const crypto::Provider& provider, const Led
                                      const EvidenceBundle& bundle,
                                      std::span<const Included> included,
                                      const VerifyOptions& options, EvidenceReport report) {
-    CEXCHAIN_TRY(report,
-                 count_witnesses(provider, state, checkpoint, bundle, options, std::move(report)));
-    CEXCHAIN_TRY(report, check_anchors(provider, state, checkpoint, bundle, included, options,
-                                       std::move(report)));
+    KANHE_TRY(report,
+              count_witnesses(provider, state, checkpoint, bundle, options, std::move(report)));
+    KANHE_TRY(report, check_anchors(provider, state, checkpoint, bundle, included, options,
+                                    std::move(report)));
     return check_memberships(provider, bundle, options, std::move(report));
 }
 
@@ -783,11 +783,11 @@ Result<EvidenceReport> verify_bundle(const crypto::Provider& provider, ByteView 
 Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& provider,
                                                       ByteView encoded,
                                                       const VerifyOptions& options) {
-    CEXCHAIN_TRY(EvidenceBundle bundle, decode_bundle(encoded));
+    KANHE_TRY(EvidenceBundle bundle, decode_bundle(encoded));
 
     // Genesis fixes the ledger's identity, hash, and keys.
-    CEXCHAIN_TRY(LogEntry genesis_entry, decode_log_entry(bundle.entries.front().entry));
-    CEXCHAIN_TRY(SignedStatement genesis, parse_statement(provider, genesis_entry.statement));
+    KANHE_TRY(LogEntry genesis_entry, decode_log_entry(bundle.entries.front().entry));
+    KANHE_TRY(SignedStatement genesis, parse_statement(provider, genesis_entry.statement));
     if (genesis.id != genesis_entry.statement_id) {
         return verification_failure("the genesis entry has the wrong statement id");
     }
@@ -804,7 +804,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
     // The checkpoint every receipt must lead to. Its signature, and the
     // receipts', are checked with the log key in effect at its size, which
     // the replay below learns (the bundle carries every key rotation).
-    CEXCHAIN_TRY(SignedCheckpoint checkpoint, parse_checkpoint(bundle.checkpoint));
+    KANHE_TRY(SignedCheckpoint checkpoint, parse_checkpoint(bundle.checkpoint));
     if (checkpoint.checkpoint.ledger_id != state->ledger_id() ||
         checkpoint.checkpoint.tree_hash != state->hash()) {
         return verification_failure("the checkpoint belongs to a different ledger");
@@ -834,7 +834,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
         if ((!previous_index && index != 0) || (previous_index && index <= *previous_index)) {
             return verification_failure("entries must start at genesis and ascend by log index");
         }
-        CEXCHAIN_TRY(LogEntry log_entry, decode_log_entry(e.entry));
+        KANHE_TRY(LogEntry log_entry, decode_log_entry(e.entry));
         if (log_entry.registered_at < previous_time) {
             return verification_failure("entries go back in time");
         }
@@ -849,8 +849,8 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
             }
             item.commitment = std::move(*commitment);
         } else if (index != 0) {
-            CEXCHAIN_TRY(item.statement,
-                         parse_statement(provider, log_entry.statement, state->hash()));
+            KANHE_TRY(item.statement,
+                      parse_statement(provider, log_entry.statement, state->hash()));
             if (item.statement.id != log_entry.statement_id) {
                 return verification_failure("an entry has the wrong statement id");
             }
@@ -893,8 +893,8 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
                 outcomes.emplace(item.index, *accept);
             }
         }
-        CEXCHAIN_CHECK(state->apply(provider, item.statement, item.index,
-                                    item.log_entry.registered_at, &validation));
+        KANHE_CHECK(state->apply(provider, item.statement, item.index, item.log_entry.registered_at,
+                                 &validation));
     }
 
     // Now the keys: the checkpoint and every receipt with the log key in
@@ -1206,7 +1206,7 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
             std::ranges::find(bundle.attachments, attachment.name, &AttachmentOpening::name);
         const auto content = options.attachment_contents.find(attachment.name);
         if (opening != bundle.attachments.end() && content != options.attachment_contents.end()) {
-            CEXCHAIN_TRY(
+            KANHE_TRY(
                 crypto::Digest commitment,
                 attachment_commitment(provider, state->hash(), opening->salt, content->second));
             const bool matches = std::ranges::equal(commitment.bytes(), attachment.commitment) &&
@@ -1220,4 +1220,4 @@ Result<EvidenceReport> detail::verify_bundle_as_given(const crypto::Provider& pr
                          std::move(report));
 }
 
-} // namespace cexchain::protocol
+} // namespace kanhe::protocol

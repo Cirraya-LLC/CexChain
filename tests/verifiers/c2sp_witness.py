@@ -3,7 +3,7 @@
 """A witness of an open network, written from c2sp.org's tlog-witness,
 tlog-cosignature, tlog-checkpoint, and signed-note with Python's standard
 library and the openssl command line (3.5 or later), for tests: it knows
-nothing of CexChain.
+nothing of Kanhe.
 
 It serves add-checkpoint for one log: it checks the log's note signature
 with the log's verifier key, refuses an old size that is not the one it

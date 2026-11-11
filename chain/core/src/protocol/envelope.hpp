@@ -5,15 +5,15 @@
 
 #include <string_view>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cose.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/common.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cose.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/error.hpp>
+#include <kanhe/core/protocol/common.hpp>
 
-namespace cexchain::protocol::detail {
+namespace kanhe::protocol::detail {
 
-/// A CexChain signed object: a COSE_Sign1 whose protected header is exactly
+/// A Kanhe signed object: a COSE_Sign1 whose protected header is exactly
 /// {alg, content type, kid}, whose unprotected header is empty, and whose
 /// payload is attached.
 struct Envelope {
@@ -35,4 +35,4 @@ struct Envelope {
 [[nodiscard]] Status verify_envelope(const crypto::Provider& provider, crypto::HashAlg hash,
                                      const Envelope& envelope, const crypto::PublicKey& key);
 
-} // namespace cexchain::protocol::detail
+} // namespace kanhe::protocol::detail

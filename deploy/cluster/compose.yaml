@@ -3,9 +3,9 @@
 #
 # A three-member cluster on one Docker host, to try failover:
 #
-#   docker build -t cexchain ../..
+#   docker build -t kanhe ../..
 #   docker compose up -d
-#   docker compose exec node2 cexchain cluster status --server http://node2:8080 \
+#   docker compose exec node2 kanhe cluster status --server http://node2:8080 \
 #       --token-file /data/admin.token
 #   docker compose kill node1        # the others elect a new leader within seconds
 #
@@ -13,8 +13,8 @@
 # node1's volume; from a client container on the project's network:
 #
 #   docker run --rm --network cluster_default -v cluster_node1:/keys:ro \
-#       --entrypoint /bin/sh cexchain -c 'CEXCHAIN_TOKEN=$(cat /keys/admin.token) \
-#       cexchain record issue --server http://node2:8080 --ledger-id LEDGER_ID \
+#       --entrypoint /bin/sh kanhe -c 'KANHE_TOKEN=$(cat /keys/admin.token) \
+#       kanhe record issue --server http://node2:8080 --ledger-id LEDGER_ID \
 #       --cache /tmp/c --as /keys/root.key --type example.document/1 --field n=1'
 #
 # The bootstrap service creates the ledger, its keys (unencrypted, for the
@@ -36,7 +36,7 @@
 # the executor answer it:
 #
 #   docker run --rm --network cluster_default -v cluster_node1:/keys:ro \
-#       -v "$PWD/executor:/deploy/executor:ro" --entrypoint /bin/sh cexchain \
+#       -v "$PWD/executor:/deploy/executor:ro" --entrypoint /bin/sh kanhe \
 #       /deploy/executor/ask.sh
 #   docker compose logs -f executor          # seen, verified, acting, answered
 #   docker compose kill node1                # ask again: the executor waits,
@@ -45,11 +45,11 @@
 # The executor runs as a service on its own volume (its key, token, config,
 # and state: journal, sealed secrets) and asks node1 for work; while node1
 # restarts, or the cluster elects a leader, it waits and tries again within
-# seconds (CEXCHAIN_EXECUTOR_SERVER names another member). Replace notify.sh
+# seconds (KANHE_EXECUTOR_SERVER names another member). Replace notify.sh
 # with a call to your own system, or add a webhook connector (https only).
 
 x-member: &member
-  image: cexchain
+  image: kanhe
   restart: unless-stopped
   depends_on:
     bootstrap:
@@ -57,11 +57,11 @@ x-member: &member
 
 services:
   bootstrap:
-    image: cexchain
+    image: kanhe
     user: "0"
     entrypoint: ["/bin/sh", "/deploy/bootstrap.sh"]
     environment:
-      CEXCHAIN_PASSPHRASE: demo
+      KANHE_PASSPHRASE: demo
     volumes:
       - ./bootstrap.sh:/deploy/bootstrap.sh:ro
       - ./executor:/deploy/executor:ro
@@ -88,13 +88,13 @@ services:
 
   # The founder adds the other two once they run.
   members:
-    image: cexchain
+    image: kanhe
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        export CEXCHAIN_TOKEN="$$(cat /data/admin.token)"
+        export KANHE_TOKEN="$$(cat /data/admin.token)"
         for n in 2 3; do
-          until out="$$(cexchain cluster add --server http://node1:8080 --id "$$n" \
+          until out="$$(kanhe cluster add --server http://node1:8080 --id "$$n" \
               --raft "node$$n:7001" --api "http://node$$n:8080" 2>&1)" ||
               echo "$$out" | grep -q 'exists already'; do sleep 1; done
         done
@@ -102,14 +102,14 @@ services:
     depends_on: [node1, node2, node3]
 
   executor:
-    image: cexchain
+    image: kanhe
     restart: unless-stopped
     depends_on:
       bootstrap:
         condition: service_completed_successfully
     entrypoint: ["/bin/sh", "/deploy/executor/run.sh"]
     environment:
-      CEXCHAIN_EXECUTOR_SERVER: http://node1:8080
+      KANHE_EXECUTOR_SERVER: http://node1:8080
     volumes:
       - executor:/data
       - ./executor:/deploy/executor:ro

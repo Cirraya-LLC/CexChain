@@ -8,7 +8,7 @@
 // the log, the state commitment, and the checkpoint. The second replays the
 // log under the rules, with every refusal of the generic lifecycle and of the
 // mechanism types in place. The third covers what v0.9 removed: statement
-// type 20, and the record types under the reserved "cexchain." prefix.
+// type 20, and the record types under the reserved "kanhe." prefix.
 
 #include <cstddef>
 #include <cstdint>
@@ -21,24 +21,24 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/merkle.hpp>
-#include <cexchain/core/protocol/claims.hpp>
-#include <cexchain/core/protocol/log.hpp>
-#include <cexchain/core/protocol/memberships.hpp>
-#include <cexchain/core/protocol/record_types.hpp>
-#include <cexchain/core/protocol/state.hpp>
-#include <cexchain/core/protocol/state_tree.hpp>
-#include <cexchain/crypto/openssl.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/merkle.hpp>
+#include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/core/protocol/log.hpp>
+#include <kanhe/core/protocol/memberships.hpp>
+#include <kanhe/core/protocol/record_types.hpp>
+#include <kanhe/core/protocol/state.hpp>
+#include <kanhe/core/protocol/state_tree.hpp>
+#include <kanhe/crypto/openssl.hpp>
 
 #include "support/vectors.hpp"
 
-namespace protocol = cexchain::protocol;
-namespace crypto = cexchain::crypto;
-using cexchain::Bytes;
-using cexchain::to_hex;
-using cexchain::test::hex;
-using cexchain::test::load_vectors;
+namespace protocol = kanhe::protocol;
+namespace crypto = kanhe::crypto;
+using kanhe::Bytes;
+using kanhe::to_hex;
+using kanhe::test::hex;
+using kanhe::test::load_vectors;
 
 namespace {
 
@@ -153,7 +153,7 @@ TEST_CASE("v0.9 generic core: statements, the state, and the log", "[protocol][v
     }
     // A user's types have the generic lifecycle.
     CHECK(protocol::find_record_type("example.document/1") == nullptr);
-    CHECK(protocol::find_record_type("cexchain-example.note/1") == nullptr);
+    CHECK(protocol::find_record_type("kanhe-example.note/1") == nullptr);
 
     for (const auto& ledger : vectors()["ledgers"]) {
         const auto hash = ledger_hash(ledger);
@@ -202,7 +202,7 @@ TEST_CASE("v0.9 generic core: statements, the state, and the log", "[protocol][v
         const auto commitment_index = ledger["state_commitment"]["index"].get<std::size_t>();
         REQUIRE(commitment_index + 1 == entries.size());
         REQUIRE(commitment_index == ledger["statements"].size());
-        cexchain::merkle::Tree tree(provider(), hash);
+        kanhe::merkle::Tree tree(provider(), hash);
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const Bytes encoded = hex(text(entries[i]));
             const auto entry = protocol::decode_log_entry(encoded);

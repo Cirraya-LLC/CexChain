@@ -3,11 +3,11 @@
 # Copyright 2026 Cirraya
 #
 # Builds evidence with the native command-line tool, for the browser verifier
-# tests. Usage: make_evidence.sh CEXCHAIN DIR
+# tests. Usage: make_evidence.sh KANHE DIR
 # Writes into DIR: bundle.cbor, report.pdf, ledger-id, record-id, and
-# native-report.json (what `cexchain verify --json` reports); for a contract
+# native-report.json (what `kanhe verify --json` reports); for a contract
 # instance, contract.cbor, instance-id, contract-ledger-id, and
-# native-contract-report.json and .txt (what `cexchain contract verify` reports);
+# native-contract-report.json and .txt (what `kanhe contract verify` reports);
 # for a tier-3 part of a receivable (v0.7), part.cbor, part-id,
 # part-parent-id, part-root-id, and native-part-report.json and .txt; and for
 # an instance whose calls made requests (v0.8), requests.cbor, requests-id,
@@ -18,14 +18,14 @@
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 DIR="$2"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$DIR"
 cd "$DIR"
 rm -rf ledger ./*.key ./*.pub
-export CEXCHAIN_PASSPHRASE="browser verifier test" CEXCHAIN_LEDGER="$DIR/ledger"
-run() { "$CEXCHAIN" "$@"; }
+export KANHE_PASSPHRASE="browser verifier test" KANHE_LEDGER="$DIR/ledger"
+run() { "$KANHE" "$@"; }
 id_from() { grep -oE '[0-9a-f]{64}' | sed -n 1p; }
 
 for k in root log alice agent witness; do run key generate --out "$k.key" > /dev/null; done
@@ -109,7 +109,7 @@ OFFICER="$(run actor add --as bank-root.key --kind person --name "Credit Officer
 AGENT="$(run actor add --as bank-root.key --kind agent --name "Credit Agent" --key bank-agent.key \
     --responsible "$OFFICER" --model credit-model-7 --ledger "$DIR/bank" | id_from)"
 run delegation grant --as bank-root.key --to "$AGENT" --allow record-register \
-    --record-types cexchain.contract-consent/1 --ledger "$DIR/bank" > /dev/null
+    --record-types kanhe.contract-consent/1 --ledger "$DIR/bank" > /dev/null
 HEAD="$(core contract instance "$INSTANCE" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["head"])')"
 consent() { # AS LOG LEDGER OUT ARGS...
     local as="$1" log="$2" ledger="$3" out="$4"; shift 4

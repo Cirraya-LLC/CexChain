@@ -7,7 +7,7 @@
 // laptop's passkey is lost, and the recovery code registers a new one on
 // another device (another virtual authenticator), after which the lost one
 // signs in no more.
-// Usage: node console_first_run_test.js CEXCHAIN
+// Usage: node console_first_run_test.js KANHE
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -17,16 +17,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
-const cexchain = path.resolve(process.argv[2]);
-// The programs beside cexchain: a command line's first word may name one.
+const kanhe = path.resolve(process.argv[2]);
+// The programs beside kanhe: a command line's first word may name one.
 const programOf = (args) =>
-  ["bo", "cexchain-console", "cexchain-index"].includes(args[0])
-    ? [path.join(path.dirname(cexchain), args[0]), args.slice(1)]
-    : [cexchain, args];
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "cexchain-first-run-"));
+  ["bo", "kanhe-console", "kanhe-index"].includes(args[0])
+    ? [path.join(path.dirname(kanhe), args[0]), args.slice(1)]
+    : [kanhe, args];
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "kanhe-first-run-"));
 const ledger = path.join(work, "ledger");
 // The console suggests a backup folder in the home folder: this test's.
-const env = { ...process.env, CEXCHAIN_LEDGER: ledger, CEXCHAIN_NO_BROWSER: "1", HOME: work };
+const env = { ...process.env, KANHE_LEDGER: ledger, KANHE_NO_BROWSER: "1", HOME: work };
 const run = (...args) => execFileSync(...programOf(args), { cwd: work, env, encoding: "utf8" });
 
 function freePort() {
@@ -41,7 +41,7 @@ function freePort() {
 
 async function waitRunning() {
   for (let i = 0; i < 300; i++) {
-    if (JSON.parse(run("cexchain-console", "status", "--json")).running) return;
+    if (JSON.parse(run("kanhe-console", "status", "--json")).running) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error("the console did not start");
@@ -73,19 +73,19 @@ async function device(browser, violations) {
 const pages = [];
 
 const slotKinds = () =>
-  JSON.parse(run("cexchain-console", "key", "list", "--json")).slots.map((s) => s.kind).sort();
+  JSON.parse(run("kanhe-console", "key", "list", "--json")).slots.map((s) => s.kind).sort();
 
 (async () => {
   const port = await freePort();
   const start = () =>
-    spawn(...programOf(["cexchain-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
+    spawn(...programOf(["kanhe-console", "run", "--port", String(port), "--quiet"]), { cwd: work, env });
   let consoleProcess = start();
   let browser;
   try {
     await waitRunning();
     const base = `http://localhost:${port}/console/`;
     const setup = fs.readFileSync(path.join(ledger, "console", "setup-link"), "utf8").trim();
-    assert.ok(setup.startsWith(base + "#/enroll/cxi_"));
+    assert.ok(setup.startsWith(base + "#/enroll/khi_"));
 
     browser = await chromium.launch();
     const violations = [];
@@ -122,7 +122,7 @@ const slotKinds = () =>
 
     // Step 3: the backup folder, suggested in the home folder.
     await page.getByRole("heading", { name: "Where should backups go?" }).waitFor();
-    const suggested = path.join(work, "CexChain backups");
+    const suggested = path.join(work, "Kanhe backups");
     assert.equal(await page.getByLabel("Backup folder").inputValue(), suggested);
     await click(page.getByRole("button", { name: "Use this folder" }));
 
@@ -140,17 +140,17 @@ const slotKinds = () =>
     assert.ok(clicks < 10, `the first run took ${clicks} clicks`);
     console.log(`first run to Home: ${clicks} clicks`);
     assert.deepEqual(slotKinds(), ["passkey", "recovery"]);
-    const keys = JSON.parse(run("cexchain-console", "key", "list", "--json")).keys.map((k) => k.name).sort();
+    const keys = JSON.parse(run("kanhe-console", "key", "list", "--json")).keys.map((k) => k.name).sort();
     assert.deepEqual(keys, ["log", "machine", "owner", "root", "witness"]);
-    const settings = JSON.parse(run("cexchain-console", "settings", "show", "--json"));
+    const settings = JSON.parse(run("kanhe-console", "settings", "show", "--json"));
     assert.equal(settings.backup_folder, suggested);
     assert.ok(fs.statSync(suggested).isDirectory());
-    const people = JSON.parse(run("cexchain-console", "user", "list", "--json"));
+    const people = JSON.parse(run("kanhe-console", "user", "list", "--json"));
     assert.equal(people.users.length, 1);
     assert.equal(people.users[0].role, "owner");
 
     // After a restart, signing in with the passkey unlocks the console.
-    run("cexchain-console", "stop");
+    run("kanhe-console", "stop");
     consoleProcess = start();
     await waitRunning();
     await page.goto(base);
@@ -167,7 +167,7 @@ const slotKinds = () =>
     await page.getByLabel("Language for new browsers").selectOption("zh-Hans-CN");
     await page.getByRole("button", { name: "Save" }).click();
     await page.getByText("Saved.").waitFor();
-    assert.equal(JSON.parse(run("cexchain-console", "settings", "show", "--json")).language, "zh-Hans-CN");
+    assert.equal(JSON.parse(run("kanhe-console", "settings", "show", "--json")).language, "zh-Hans-CN");
     const fresh = await browser.newContext({ locale: "en-GB" });
     const freshPage = await fresh.newPage();
     await freshPage.goto(base);
@@ -176,14 +176,14 @@ const slotKinds = () =>
     await page.getByLabel("Language for new browsers").selectOption("");
     await page.getByRole("button", { name: "Save" }).click();
     await page.getByText("Saved.").waitFor();
-    assert.equal(JSON.parse(run("cexchain-console", "settings", "show", "--json")).language, null);
+    assert.equal(JSON.parse(run("kanhe-console", "settings", "show", "--json")).language, null);
     // A backup now, sealed in the folder; the recovery code restores it elsewhere.
     await page.getByRole("button", { name: "Back up now" }).click();
     await page.getByText(/^Last backup: .*\.cexbackup\)$/).first().waitFor();
     const sealed = fs.readdirSync(suggested).filter((f) => f.endsWith(".cexbackup"));
     assert.equal(sealed.length >= 1, true, "a sealed backup in the folder");
     fs.writeFileSync(path.join(work, "code.txt"), `${code}\n`);
-    const restored = JSON.parse(run("cexchain-console", "restore", path.join(suggested, sealed[0]), "--ledger",
+    const restored = JSON.parse(run("kanhe-console", "restore", path.join(suggested, sealed[0]), "--ledger",
                                     path.join(work, "restored"), "--recovery-code-file",
                                     path.join(work, "code.txt"), "--json"));
     assert.equal(restored.ledger_id, JSON.parse(run("status", "--json")).ledger_id);
@@ -215,7 +215,7 @@ const slotKinds = () =>
       await phone.page.getByText("does not unlock this console yet").waitFor({ state: "detached" });
     }
     // The console and the ledger know only the phone's passkey.
-    const after = JSON.parse(run("cexchain-console", "user", "list", "--json")).users[0];
+    const after = JSON.parse(run("kanhe-console", "user", "list", "--json")).users[0];
     assert.equal(after.passkeys.length, 1);
     assert.equal(after.passkeys[0].label, "phone");
     assert.deepEqual(slotKinds(), ["passkey", "recovery"]);
@@ -226,7 +226,7 @@ const slotKinds = () =>
     await page.getByText("the passkey did not sign in").waitFor();
 
     // After a restart, the phone's passkey unlocks the console.
-    run("cexchain-console", "stop");
+    run("kanhe-console", "stop");
     consoleProcess = start();
     await waitRunning();
     await phone.page.goto(base);
@@ -246,7 +246,7 @@ const slotKinds = () =>
   } finally {
     if (browser) await browser.close();
     try {
-      run("cexchain-console", "stop");
+      run("kanhe-console", "stop");
     } catch {
       // Not running: nothing to stop.
     }

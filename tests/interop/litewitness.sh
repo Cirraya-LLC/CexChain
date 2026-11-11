@@ -4,17 +4,17 @@
 #
 # Interop with an open network's witness (spec v0.13): litewitness
 # (filippo.io/torchwood), the implementation witness networks run, cosigns
-# a CexChain ledger's checkpoint notes. It is configured, as a network's
+# a Kanhe ledger's checkpoint notes. It is configured, as a network's
 # maintainers would, with the ledger's origin and note key from `witness
 # network-entry`; the ledger asks it with `checkpoint network-cosign`,
 # first from nothing and then with a consistency proof, and a verifier that
 # trusts its verifier key counts its cosignature in exported evidence.
-# Usage: litewitness.sh CEXCHAIN   ($LITEWITNESS, $WITNESSCTL: the programs,
+# Usage: litewitness.sh KANHE   ($LITEWITNESS, $WITNESSCTL: the programs,
 # default on PATH; ssh-agent, ssh-keygen, and python3 must be on PATH)
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+KANHE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 LITEWITNESS="${LITEWITNESS:-litewitness}"
 WITNESSCTL="${WITNESSCTL:-witnessctl}"
 WORK="$(mktemp -d)"
@@ -26,11 +26,11 @@ cleanup() {
 trap cleanup EXIT
 cd "$WORK"
 
-export CEXCHAIN_PASSPHRASE="interop test"
-unset CEXCHAIN_SERVER CEXCHAIN_TOKEN CEXCHAIN_CLOCK_OFFSET
-export CEXCHAIN_LEDGER="$WORK/ledger"
+export KANHE_PASSPHRASE="interop test"
+unset KANHE_SERVER KANHE_TOKEN KANHE_CLOCK_OFFSET
+export KANHE_LEDGER="$WORK/ledger"
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
-run() { "$CEXCHAIN" "$@"; }
+run() { "$KANHE" "$@"; }
 fail() { echo "FAIL: $*"; exit 1; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 issue() { run record issue --as root.key --type example.document/1 --field n="$1" --json | json 'd["record"]["id"]'; }

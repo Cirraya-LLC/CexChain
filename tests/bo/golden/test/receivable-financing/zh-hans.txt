@@ -36,7 +36,7 @@
     结果：调用被拒绝，因为转让 的第 1 项要求未满足（bo:requires transfer 1）。
     合约条款 4.2.5：要求 1：相对方不是持有人。
   第 3 步（第 39 行）通过：supplier transfer to factor1 -> active
-    结果：经供应商和 factor1 同意，调用被接受，实例现为正常。
+    结果：经 factor1 和供应商同意，调用被接受，实例现为正常。
   第 4 步（第 40 行）通过：supplier pledge to bank1 -> consent of factor1
     结果：调用正在等待 factor1 同意。
   第 5 步（第 41 行）通过：factor1 pledge to bank1 -> pledged

@@ -7,14 +7,14 @@
 #include <span>
 #include <vector>
 
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/crypto.hpp>
-#include <cexchain/core/error.hpp>
-#include <cexchain/core/protocol/evidence.hpp>
-#include <cexchain/ledger/verify.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/crypto.hpp>
+#include <kanhe/core/error.hpp>
+#include <kanhe/core/protocol/evidence.hpp>
+#include <kanhe/ledger/verify.hpp>
 
 // Internal to the ledger library (and its tests).
-namespace cexchain::ledger::detail {
+namespace kanhe::ledger::detail {
 
 /// A signature check, as `crypto::Provider::verify` was asked it, and the
 /// outcome.
@@ -59,4 +59,4 @@ private:
 check_ahead(const crypto::Provider& provider, ByteView encoded, bool contract_evidence,
             std::span<const crypto::PublicKey> trusted_witnesses, SignatureCache* cache);
 
-} // namespace cexchain::ledger::detail
+} // namespace kanhe::ledger::detail

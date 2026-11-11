@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 #
-# CexChain is generic: it registers, moves, and proves any thing, under any
+# Kanhe is generic: it registers, moves, and proves any thing, under any
 # rules, among any parties, and what a thing is, its users define. Industry
 # stories (supply-chain finance, a supply agreement) live in examples/ and the
 # docs, never in the product's own texts. This test keeps industry words out
@@ -19,20 +19,20 @@
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
-export CEXCHAIN_PASSPHRASE="generic words test"
-unset CEXCHAIN_LEDGER CEXCHAIN_SERVER CEXCHAIN_TOKEN
+export KANHE_PASSPHRASE="generic words test"
+unset KANHE_LEDGER KANHE_SERVER KANHE_TOKEN
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 id_from() { grep -oE '[0-9a-f]{64}' | sed -n 1p; }
@@ -40,9 +40,9 @@ mkdir texts
 
 # --- The command lines: every program's commands' help, and completion --------
 count=0
-for program in cexchain bo cexchain-console cexchain-index; do
-    [ "$program" = cexchain ] || [ -x "$(dirname "$CEXCHAIN")/$program" ] || continue
-    if [ "$program" = cexchain ]; then p=(); else p=("$program"); fi
+for program in kanhe bo kanhe-console kanhe-index; do
+    [ "$program" = kanhe ] || [ -x "$(dirname "$KANHE")/$program" ] || continue
+    if [ "$program" = kanhe ]; then p=(); else p=("$program"); fi
     run ${p[@]+"${p[@]}"} --help > "texts/$program-overview.txt"
     run ${p[@]+"${p[@]}"} help --json > "texts/$program-help.json"
     python3 -c 'import json, sys; [print(c["command"]) for c in json.load(open(sys.argv[1]))]' \
@@ -85,7 +85,7 @@ EOF
 # --- The browser verifier's page ---------------------------------------------
 for f in "$SOURCE"/chain/verifier/wasm/page.html "$SOURCE"/chain/verifier/wasm/verifier-api.js \
     "$SOURCE"/chain/verifier/wasm/verifier_wasm.cpp "$SOURCE"/chain/verifier/src/*.cpp \
-    "$SOURCE"/chain/verifier/include/cexchain/verifier/*.hpp; do
+    "$SOURCE"/chain/verifier/include/kanhe/verifier/*.hpp; do
     cp "$f" "texts/page-$(basename "$f")"
 done
 
@@ -95,7 +95,7 @@ for f in "$SOURCE"/apps/console/web/*.html "$SOURCE"/apps/console/web/*.js "$SOU
 done
 
 # --- The scan ------------------------------------------------------------------
-BO="$([ -x "$(dirname "$CEXCHAIN")/bo" ] && echo True || echo False)"
+BO="$([ -x "$(dirname "$KANHE")/bo" ] && echo True || echo False)"
 python3 - texts "$BO" << 'EOF'
 import json, os, re, sys
 

@@ -8,7 +8,7 @@
 # split), with messages in each official language; checking source, its
 # tokens (the lexer), its tree (the parser), and its model (the checker), in
 # each language and mixed; building it (bo build) and deploying the built
-# file (cexchain contract deploy), then a Bo agreement through a ledger and
+# file (kanhe contract deploy), then a Bo agreement through a ledger and
 # its registrar, with a consent from a ledger on SM3, verified offline and
 # rebuilt from the deploy its evidence carries (bo rebuild); the contract text
 # (bo explain, of a source or a deploy, with an instance's state) in each
@@ -26,11 +26,11 @@
 # the spec's VAT, tested on both sides of its rate change, explained in each
 # language, and billed on a ledger, where a bill keeps the rate it was made
 # with.
-# Usage: bo.sh CEXCHAIN
+# Usage: bo.sh KANHE
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO (from lines ${BASH_LINENO[*]}): $BASH_COMMAND" >&2' ERR
 
-CEXCHAIN="$1"
+KANHE="$1"
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GOLDEN="$SOURCE/tests/bo/golden/pack-digests.txt"
 GOLDENS="$SOURCE/tests/bo/golden"
@@ -42,15 +42,15 @@ cleanup() {
 }
 trap cleanup EXIT
 cd "$WORK"
-unset CEXCHAIN_LANGUAGE CEXCHAIN_LEDGER CEXCHAIN_TOKEN CEXCHAIN_SERVER
-export CEXCHAIN_PASSPHRASE="bo test"
+unset KANHE_LANGUAGE KANHE_LEDGER KANHE_TOKEN KANHE_SERVER
+export KANHE_PASSPHRASE="bo test"
 
-# A command line as typed: bo, cexchain-console, and cexchain-index are the
-# programs beside cexchain.
+# A command line as typed: bo, kanhe-console, and kanhe-index are the
+# programs beside kanhe.
 run() {
     case "$1" in
-    bo | cexchain-console | cexchain-index) "$(dirname "$CEXCHAIN")/$1" "${@:2}" ;;
-    *) "$CEXCHAIN" "$@" ;;
+    bo | kanhe-console | kanhe-index) "$(dirname "$KANHE")/$1" "${@:2}" ;;
+    *) "$KANHE" "$@" ;;
     esac
 }
 fail() { echo "FAIL: $*"; [ -f out.txt ] && cat out.txt; exit 1; }
@@ -64,7 +64,7 @@ contains() { grep "$@" > /dev/null; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 start_server() {
     local out="$1"; shift
-    "$CEXCHAIN" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
+    "$KANHE" serve --listen 127.0.0.1:0 --json --quiet "$@" > "$out" 2> "$out.log" &
     SERVERS+=("$!")
     for _ in $(seq 1 300); do
         if [ -s "$out" ] && python3 -c "import json; json.load(open('$out'))" 2> /dev/null; then
@@ -88,7 +88,7 @@ for command in rebuild reason; do
 done
 run bo --help > out.txt
 contains -E "^  packs list +List the language packs" out.txt || fail "overview lists packs list"
-contains -F "cexchain contract export" out.txt || fail "overview: a deployed contract's file"
+contains -F "kanhe contract export" out.txt || fail "overview: a deployed contract's file"
 run bo completion bash > out.txt
 contains -F 'complete -o filenames -F _bo bo' out.txt || fail "completion: its own function"
 contains -F '"vocab") words="check list show"' out.txt || fail "completion: bo vocab"
@@ -306,7 +306,7 @@ contains -F "failed" out.txt || fail "failed"
 # In the reader's language (the pack's own text for that code is only its own).
 expect_exit 2 bo packs check missing.pack --language zh-Hant-HK
 contains -F "語言包 acme-terms 未拼寫關鍵字 kw.use；每個語言包均須拼寫所有關鍵字" out.txt || fail "zh-Hant"
-CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo packs check missing.pack
+KANHE_LANGUAGE=zh-Hans expect_exit 2 bo packs check missing.pack
 contains -F "语言包 acme-terms 没有拼写关键字 kw.use；每个语言包都必须拼写全部关键字" out.txt || fail "zh-Hans"
 expect_exit 2 bo packs check missing.pack --json
 json 'd["ok"], d["packs"][0]["ok"], [x["code"] for x in d["packs"][0]["diagnostics"] if x["severity"] == "error"]' < out.txt > codes.txt
@@ -430,7 +430,7 @@ contains -F "(lex.ambiguous-money)" out.txt || fail "money"
 contains -Fx "bad.bo: 3 errors" out.txt || fail "count"
 expect_exit 2 bo check bad.bo --language zh-Hant-HK
 contains -F "bad.bo:3:6: error: 5,000：逗號不可用作數字分組；請寫 5_000 (lex.digit-comma)" out.txt || fail "zh-Hant"
-CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check bad.bo
+KANHE_LANGUAGE=zh-Hans expect_exit 2 bo check bad.bo
 contains -F "不能使用制表符（Tab）" out.txt || fail "zh-Hans"
 expect_exit 2 bo check bad.bo --json
 json '[(x["code"], x["span"]["line"], x["span"]["column"]) for x in d["diagnostics"]]' < out.txt > codes.txt
@@ -473,7 +473,7 @@ contains -F "parse.bo:5:1: error: 可提款 is one name here, since nothing decl
 contains -Fx "parse.bo: 3 errors" out.txt || fail "count (the block under a failed line is skipped)"
 expect_exit 2 bo check parse.bo --language zh-Hant-HK
 contains -F "parse.bo:2:12: error: bank 不可接在此動作之後：可寫 由 訂約方、予 訂約方 或 連同 輸入項，每項最多一次 (parse.can)" out.txt || fail "zh-Hant"
-CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check parse.bo --stage parse
+KANHE_LANGUAGE=zh-Hans expect_exit 2 bo check parse.bo --stage parse
 contains -F "parse.bo:4:9: error: use 用于声明词汇包，须在任何代码块之外单独成行：使用 finance (parse.reserved)" out.txt || fail "zh-Hans"
 contains -Fx "contract X" out.txt || fail "the tree of what parsed"
 expect_exit 2 bo check parse.bo --json
@@ -532,7 +532,7 @@ contains -Fx "model.bo: 4 errors" out.txt || fail "count"
 expect_exit 2 bo check model.bo --language zh-Hant-HK
 contains -F "model.bo:6:10: error: 持有人 存放的是訂約方，而非港元金額 (check.field-type)" out.txt || fail "zh-Hant"
 contains -F "model.bo:8:8: error: 美元金額與港元金額是不同貨幣；Bo 從不換算貨幣 (check.mixed-currencies)" out.txt || fail "zh-Hant currencies"
-CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check model.bo --stage model
+KANHE_LANGUAGE=zh-Hans expect_exit 2 bo check model.bo --stage model
 contains -F "model.bo:7:15: error: 银行 不是此合约的参与方：请把它加入 参与方 一行 (check.unknown-party)" out.txt || fail "zh-Hans"
 contains -Fx "contract C" out.txt || fail "the model of what checked"
 expect_exit 2 bo check model.bo --json
@@ -561,7 +561,7 @@ cp "$BUILDS/agreement-en/source.bo" agreement.bo
 GOLDEN_HASH="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/.*sha256 \([0-9a-f]*\),.*/\1/')"
 GOLDEN_SIZE="$(sed -n 2p "$BUILDS/agreement-en/build.txt" | sed 's/^code: \([0-9]*\) bytes.*/\1/')"
 COMPILER="$(run bo version --json | json 'd["compiler"]')"
-contains -E "^cexchain-bo [0-9.]+; codegen 5; edition 1$" <<< "$COMPILER" || fail "the compiler string"
+contains -E "^kanhe-bo [0-9.]+; codegen 5; edition 1$" <<< "$COMPILER" || fail "the compiler string"
 run bo build agreement.bo > out.txt 2> warnings.txt
 contains -Fx "agreement.bo: built contract Agreement (Bo edition 1)" out.txt || fail "build"
 contains -F "functions  amend, close, countersign, create (creates), sign" out.txt || fail "functions"
@@ -687,8 +687,8 @@ run bo explain agreement.bo > text.txt
 contains -Fx "Contract Agreement" text.txt || fail "title"
 contains -Fx "  4.2.2 Requirement 1: if the amount is over HKD 1,000,000, the customer must prove presence in person, with a passkey or a hardware key. [R6, R13]" text.txt || fail "an inferred clause, marked"
 contains -F "[R6] Over N compares N with the action's one amount" text.txt || fail "the rule explained"
-CEXCHAIN_LANGUAGE=zh-Hans run bo explain agreement.bo > text.txt
-diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "\$CEXCHAIN_LANGUAGE"
+KANHE_LANGUAGE=zh-Hans run bo explain agreement.bo > text.txt
+diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "\$KANHE_LANGUAGE"
 run bo explain agreement.bo --language zh-Hant > text.txt
 contains -F "  4.2.2 要求 1：如金額超過港元 1,000,000，客戶須以通行密鑰或硬件密鑰證明本人親身在場。〔R6、R13〕" text.txt || fail "zh-Hant"
 # The demo's agreement, in Simplified Chinese.
@@ -799,7 +799,7 @@ expect_exit 2 bo fmt tab.bo --write
 contains -F "tab.bo:2:1: error: " out.txt || fail "fmt: the problem"
 contains -Fx "tab.bo: not formatted" out.txt || fail "fmt: not formatted"
 cmp -s tab.bo tab-before.bo || fail "a file with errors is not written"
-CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo fmt tab.bo
+KANHE_LANGUAGE=zh-Hant expect_exit 2 bo fmt tab.bo
 contains -F "(lex.tab)" out.txt || fail "fmt: the code"
 contains -F "縮排" out.txt || fail "fmt: the problem in Traditional Chinese"
 expect_exit 2 bo fmt tab.bo --json
@@ -827,7 +827,7 @@ cp "$SOURCE/examples/supply-agreement/supply-agreement.bo" supply.bo
 run bo test supply.bo > report.txt
 contains -Fx 'Test "signed by all three, then closed": passed' report.txt || fail "test: passed"
 contains -Fx '  Step 2 (line 30) passed: we sign -> signed' report.txt || fail "test: a step as written"
-contains -Fx '    Result: accepted with the consent of the supplier and the bank, and the instance is signed.' report.txt || fail "test: implicit consents"
+contains -Fx '    Result: accepted with the consent of the bank and the supplier, and the instance is signed.' report.txt || fail "test: implicit consents"
 contains -Fx '    Result: the call waits for the consent of the bank.' report.txt || fail "test: a consent withheld"
 contains -Fx '    Result: the call waits for us to make it.' report.txt || fail "test: the home starts sign"
 contains -Fx '    The contract text, 4.2.3: If the instance is signed, it becomes closed; otherwise the call is refused.' report.txt || fail "test: the clause of a refusal"
@@ -836,8 +836,8 @@ contains -Fx "2 tests: 2 passed, 0 failed." report.txt || fail "test: the count"
 run bo test supply.bo --language zh-Hant-HK > report.txt
 contains -Fx '測試 「nobody signs alone」：通過' report.txt || fail "test: zh-Hant"
 contains -Fx '    結果：調用正等待銀行同意。' report.txt || fail "test: zh-Hant waits"
-CEXCHAIN_LANGUAGE=zh-Hans run bo test supply.bo > report.txt
-contains -Fx '共 2 个测试：2 个通过，0 个失败。' report.txt || fail "test: \$CEXCHAIN_LANGUAGE"
+KANHE_LANGUAGE=zh-Hans run bo test supply.bo > report.txt
+contains -Fx '共 2 个测试：2 个通过，0 个失败。' report.txt || fail "test: \$KANHE_LANGUAGE"
 run bo test supply.bo --json > test.json
 for language in zh-Hant-HK zh-Hans-CN; do
     run bo fmt supply.bo --language "$language" > "supply-$language.bo"
@@ -854,7 +854,7 @@ contains -Fx "True True 2 2 0 ['bank', 'supplier', 'we']" out.txt || fail "test 
 json '[(s["subject"], s["action"], s["result"]["outcome"], s["result"].get("parties")) for s in d["tests"][1]["steps"]]' < test.json > out.txt
 contains -Fx "[('we', 'create', 'accepted', None), ('we', 'sign', 'waits', ['bank']), ('supplier', 'sign', 'waits', ['we']), ('we', 'close', 'refused', None)]" out.txt || fail "test --json: steps"
 json 'd["tests"][1]["steps"][3]["result"]["reason"], d["tests"][1]["steps"][3]["result"]["clause"]["number"], len(d["tests"][0]["steps"][1]["calls"]), d["tests"][0]["steps"][1]["calls"][1]["consents"]' < test.json > out.txt
-contains -Fx "bo:state close 4.2.3 2 ['supplier', 'bank']" out.txt || fail "test --json: reason, clause, calls"
+contains -Fx "bo:state close 4.2.3 2 ['bank', 'supplier']" out.txt || fail "test --json: reason, clause, calls"
 # The agreement's tests, from each spelling: the same results.
 for spelling in en zh-hant zh-hans mixed; do
     run bo test "$BUILDS/agreement-$spelling/source.bo" --json | json 'd["passed"], d["failed"]' > out.txt
@@ -876,7 +876,7 @@ printf 'contract A\nparties we\n\nthing R\n  amount HKD\n\ncan go by we\n  -> ac
 expect_exit 2 bo test nostart.bo
 contains -F "nostart.bo:11:3: error: a test begins by creating its instance" out.txt || fail "test: check.test-start"
 contains -Fx "nostart.bo: 1 error: the tests run once the contract builds" out.txt || fail "test: not run"
-CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo test nostart.bo
+KANHE_LANGUAGE=zh-Hant expect_exit 2 bo test nostart.bo
 contains -F "測試須以建立實例開始" out.txt || fail "test: the problem in Traditional Chinese"
 expect_exit 2 bo test nostart.bo --json
 json 'd["ok"], d["built"], "tests" in d, d["diagnostics"][0]["code"]' < out.txt > codes.txt
@@ -951,7 +951,7 @@ json 'd["verdict"], d["needs"]' < dry.json > out.txt
 contains -Fx "needs ['$S_ID']" out.txt || fail "sign needs the customer"
 d contract call "$I" countersign --as d-root.key --dry-run | contains -F "bo:state countersign" || fail "countersign too early"
 # The chain shows the contract's reason as given; bo says it in words.
-CEXCHAIN_LANGUAGE=zh-Hant-HK run bo reason "bo:state countersign" |
+KANHE_LANGUAGE=zh-Hant-HK run bo reason "bo:state countersign" |
     contains -Fx "實例目前的狀態不容許 countersign" || fail "a refusal in the reader's language"
 run bo reason "bo:state countersign" --json | json 'd["words"]' |
     contains -F "countersign" || fail "bo reason --json"
@@ -1029,8 +1029,8 @@ for language in zh-Hant-HK zh-Hans-CN; do
     run bo explain deployed.boc --language "$language" | sed '1,/^$/d' > text.txt
     diff "$TEXTS/agreement/$file.txt" text.txt > /dev/null || fail "bo explain ($language)"
 done
-CEXCHAIN_LANGUAGE=zh-Hans run bo explain deployed.boc | sed '1,/^$/d' > text.txt
-diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "bo explain: \$CEXCHAIN_LANGUAGE"
+KANHE_LANGUAGE=zh-Hans run bo explain deployed.boc | sed '1,/^$/d' > text.txt
+diff "$TEXTS/agreement/zh-hans.txt" text.txt > /dev/null || fail "bo explain: \$KANHE_LANGUAGE"
 # An instance: its status and parties on the ledger, its state in the text's
 # words (money in HKD, the date at +08:00, the text in quotes).
 d contract instance "$I" --state-out closed.state > instance.txt
@@ -1134,7 +1134,7 @@ NB="$(exported "$(json 'd["contract"]["id"]' < nosource.json)")"
 expect_exit 3 bo rebuild "$NB"
 contains -F "MALFORMED: a Bo deploy carries its source" out.txt || fail "no source"
 V="$(deploy_raw other.wasm "acme-bo 2.1" agreement.bundle)"
-run bo rebuild "$(exported "$V")" | contains -F 'not rebuilt: built with "acme-bo 2.1", which is not cexchain-bo' || fail "another compiler"
+run bo rebuild "$(exported "$V")" | contains -F 'not rebuilt: built with "acme-bo 2.1", which is not kanhe-bo' || fail "another compiler"
 # A contract not written in Bo: nothing for bo to rebuild or explain.
 U="$(d contract deploy agreement.wasm --function create=create --function close=call --compiler x \
     --as d-root.key --json | json 'd["contract"]["id"]')"
@@ -1158,7 +1158,7 @@ contains -Fx "unfreeze         finance   unfreeze: started by the home ledger, o
 contains -Fx "transfer         core      transfer: started by the holder; to a counterparty, who consents; active → active" out.txt || fail "stdlib list: a core action"
 run bo stdlib list --language zh-Hant-HK > out.txt
 contains -Fx "pledge           finance   質押: 由持有人發起；予相對方，須經其同意；正常 → 已質押" out.txt || fail "stdlib list: zh-Hant"
-CEXCHAIN_LANGUAGE=zh-Hans run bo stdlib list --json > list.json
+KANHE_LANGUAGE=zh-Hans run bo stdlib list --json > list.json
 json '[(a["function"], a["word"], a["starter"], a["counterparty"], a["from"], a["to"]) for a in d][8]' < list.json > out.txt
 contains -Fx "('redeem', '赎回', 'field.holder', False, ['state.active', 'state.pledged'], ['state.redeemed'])" out.txt || fail "stdlib list --json"
 run bo stdlib show pledge > out.txt
@@ -1379,7 +1379,7 @@ contains -F "Result: refused, since when.suspend does not apply yet: its time ha
 contains -F "The contract text, 5.2: When the instance is 3 days overdue or more (counted from its due date):" out.txt || fail "time: the rule's clause"
 run bo test hosting.bo --json | json '[e for t in d["tests"] for s in t["steps"] for e in s["result"].get("events", []) if e.startswith("when:")]' > out.txt
 contains -F "'when:when.suspend late=604800000'" out.txt || fail "time: how late the keeper came"
-CEXCHAIN_LANGUAGE=zh-Hant-HK run bo test hosting.bo | contains -F "when.suspend 尚未適用：其時間未到，或其條件不成立（bo:when when.suspend）" || fail "time: zh-Hant"
+KANHE_LANGUAGE=zh-Hant-HK run bo test hosting.bo | contains -F "when.suspend 尚未適用：其時間未到，或其條件不成立（bo:when when.suspend）" || fail "time: zh-Hant"
 run bo build hosting.bo | contains -F "functions  create (creates), extend, reopen, settle, when.suspend, when.terminate" || fail "time: the functions"
 run bo explain hosting.bo > text.txt
 diff "$TEXTS/time/en.txt" text.txt > /dev/null || fail "time: the text"
@@ -1496,7 +1496,7 @@ cp "$GOLDENS/check-error-bills/source.bo" bills-errors.bo
 expect_exit 2 bo check bills-errors.bo
 contains -F "Fee is a fixed amount, which is never rounded: give it no rounding mode (check.charge-rounding)" out.txt || fail "errors: a fixed amount"
 contains -F "(check.charge-on)" out.txt || fail "errors: on a charge"
-CEXCHAIN_LANGUAGE=zh-Hant-HK run bo check bills-errors.bo > out.txt 2>&1 || true
+KANHE_LANGUAGE=zh-Hant-HK run bo check bills-errors.bo > out.txt 2>&1 || true
 contains -F "Fee 是定額，不會捨入：請勿為其寫捨入方式" out.txt || fail "errors: zh-Hant"
 printf 'contract L\nparties we\nthing R\n  names list text\ncan go by we\n  each n in names\n    active -> gone\n' > each-errors.bo
 expect_exit 2 bo check each-errors.bo
@@ -1558,7 +1558,7 @@ json '[(s["expected"].get("fields"), s["result"].get("differing")) for t in d["t
 contains -F "[({'days_late': 13, 'fee': 500000}, {'fee': 2600000})]" out.txt || fail "measures: --json gives the values"
 # A default needs an instance field and a value written out.
 printf 'contract C\nparties we\nthing T\n  lowest 2 °C = 3 °C\n  count number = 1 + 1\n' > defaults.bo
-CEXCHAIN_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
+KANHE_LANGUAGE=zh-Hans expect_exit 2 bo check defaults.bo
 contains -F "lowest 不能设默认值" out.txt || fail "measures: check.default-field in zh-Hans"
 contains -F "(check.default-value)" out.txt || fail "measures: check.default-value"
 
@@ -1569,7 +1569,7 @@ contains -Fx "3 tests: 3 passed, 0 failed." report.txt || fail "requests: the te
 contains -F "Requests made: notify, to be answered by 2027-03-09." report.txt || fail "requests: a request made"
 contains -F "refused by the ledger: the request notify expires only at 2027-03-09." report.txt || fail "requests: an early expiry"
 contains -F "refused by the ledger: the instance has no open request notify." report.txt || fail "requests: no request"
-CEXCHAIN_LANGUAGE=zh-Hant run bo test requests.bo | contains -F "發出的請求：通知，須於 2027-03-09 前答覆。" || fail "requests: the report in zh-Hant"
+KANHE_LANGUAGE=zh-Hant run bo test requests.bo | contains -F "發出的請求：通知，須於 2027-03-09 前答覆。" || fail "requests: the report in zh-Hant"
 run bo test requests.bo --json > tests.json
 json 'd["tests"][0]["steps"][1]["result"]["requests"], d["tests"][0]["steps"][2]["answer"], d["tests"][0]["steps"][2]["result"]["events"]' < tests.json > out.txt
 contains -Fx "[{'kind': 'notify', 'deadline': 1804521600000}] {'kind': 'notify', 'outcome': 'done'} ['answer:notify:done']" out.txt || fail "requests: test --json"
@@ -1602,7 +1602,7 @@ expect_exit 2 bo check bad-requests.bo
 for code in request-kind request-within request-value request-count answer-twice answer-unasked answer-line test-answer; do
     contains -F "(check.$code)" out.txt || fail "requests: check.$code"
 done
-CEXCHAIN_LANGUAGE=zh-Hant expect_exit 2 bo check bad-requests.bo
+KANHE_LANGUAGE=zh-Hant expect_exit 2 bo check bad-requests.bo
 contains -F "答覆永不被拒絕" out.txt || fail "requests: check.answer-line in zh-Hant"
 # The compose file's sample contract for its executor service (deploy/cluster)
 # builds and passes its tests; its scripts parse.

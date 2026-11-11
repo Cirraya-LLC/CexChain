@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""Writes testvectors/evidence-v1.json: a conformance suite of CexChain
+"""Writes testvectors/evidence-v1.json: a conformance suite of Kanhe
 evidence that every verifier must pass.
 
 Each case is one evidence bundle (spec section 11) or one instance's
@@ -78,7 +78,7 @@ def iso(ms: int) -> str:
 
 
 def seed(name: str) -> bytes:
-    return hashlib.sha256(f"CexChain test key: evidence {name}".encode()).digest()
+    return hashlib.sha256(f"Kanhe test key: evidence {name}".encode()).digest()
 
 
 def _der(tag: int, content: bytes) -> bytes:
@@ -99,7 +99,7 @@ def _sm2_pem(d: int, point: bytes) -> str:
 
 
 class Key:
-    """A throwaway signing key, derived from its name: seed = SHA-256("CexChain
+    """A throwaway signing key, derived from its name: seed = SHA-256("Kanhe
     test key: evidence <name>")."""
 
     def __init__(self, name: str, alg: int = ED25519):
@@ -129,7 +129,7 @@ class Key:
         return [self.alg, self.key]
 
     def sign(self, message: bytes) -> bytes:
-        """A signature in CexChain's wire format for the algorithm (section 3)."""
+        """A signature in Kanhe's wire format for the algorithm (section 3)."""
         if self.alg == ED25519 or self.alg in MLDSA_KEYS:
             return self._key.sign(message)
         if self.alg == ESP256:
@@ -156,7 +156,7 @@ class Key:
 # ---------------------------------------------------------------------------
 
 def challenge(forge: "Forge", key: Key, payload: dict) -> bytes:
-    return forge.h(b"CexChain presence v1" + forge.kid(key) + g.dcbor(payload))
+    return forge.h(b"Kanhe presence v1" + forge.kid(key) + g.dcbor(payload))
 
 
 def passkey_credential(key: Key, credential_id: bytes, label: str) -> dict:
@@ -846,7 +846,7 @@ def record_cases(suite: Suite, one: Authority, two: Authority) -> None:
     d3 = f.grant(device, {1: [17]})
     r = f.record(agent, "example.org.draft/1", delegation=d2, fields={"text": "draft findings"},
                  provenance={1: MODEL, 2: "2026-10", 3: f.h(b"the measurements"),
-                             4: [["cexchain_issue", f.h(b"tool v1")]]})
+                             4: [["kanhe_issue", f.h(b"tool v1")]]})
     e1 = f.about(17, r, {2: "reviewer"}, person, d1)
     e2 = f.about(17, r, {2: "instrument"}, device, d3)
     f.commit()
@@ -857,7 +857,7 @@ def record_cases(suite: Suite, one: Authority, two: Authority) -> None:
                   "events": [
                       f.event_fact(f.index[r], provenance={"model": MODEL, "model_version": "2026-10",
                                                            "input_commitment": f.h(b"the measurements").hex(),
-                                                           "tools": [{"name": "cexchain_issue",
+                                                           "tools": [{"name": "kanhe_issue",
                                                                       "digest": f.h(b"tool v1").hex()}]}),
                       f.event_fact(f.index[e1], provenance=None),
                       f.event_fact(f.index[e2], provenance=None)],
@@ -1376,7 +1376,7 @@ def claim_cases(suite: Suite) -> None:
     report says whether the source is live, revoked, or replaced since."""
     f = Forge("Claims Employer")
     hr = f.actor(PERSON, "HR Officer", Key("claims hr"))
-    d_hr = f.grant(hr, {1: [16, 19], 2: [CLAIM, EMPLOYMENT]})  # strictly ascending (UTF-8 bytes)
+    d_hr = f.grant(hr, {1: [16, 19], 2: sorted([CLAIM, EMPLOYMENT], key=str.encode)})  # strictly ascending (UTF-8 bytes)
     payroll = f.actor(DEVICE, "Payroll System", Key("claims payroll"))
     d_pay = f.grant(payroll, {1: [16, 19], 2: [EMPLOYMENT]})
     s1 = f.record(payroll, EMPLOYMENT, delegation=d_pay, fields={
@@ -1766,12 +1766,12 @@ def contract_cases(suite: Suite) -> None:
 
 
 DESCRIPTION = (
-    "A conformance suite of CexChain evidence (spec sections 11 and 15): each case is one evidence bundle "
-    "(kind \"record\", verified as `cexchain verify` does) or one instance's contract evidence (kind \"contract\", "
-    "as `cexchain contract verify` does), with the options to verify it with, the verdict the specification "
+    "A conformance suite of Kanhe evidence (spec sections 11 and 15): each case is one evidence bundle "
+    "(kind \"record\", verified as `kanhe verify` does) or one instance's contract evidence (kind \"contract\", "
+    "as `kanhe contract verify` does), with the options to verify it with, the verdict the specification "
     "decides, and, for a failure, the section and step that decide it. tools/testvectors/evidence_suite.py "
-    "forges every ledger from spec/README.md and spec/cexchain.cddl alone, independently of the C++ programs and "
-    "of the Python verifier: statements signed with throwaway keys (seed = SHA-256(\"CexChain test key: evidence "
+    "forges every ledger from spec/README.md and spec/kanhe.cddl alone, independently of the C++ programs and "
+    "of the Python verifier: statements signed with throwaway keys (seed = SHA-256(\"Kanhe test key: evidence "
     "<name>\"); Ed25519, ESP256, SM2 through the openssl command line, ML-DSA), log entries, state commitments, "
     "checkpoints, receipts, cosignatures, and anchors with RFC 3161 tokens by OpenSSL's responder (`openssl ts`), "
     "whose authorities' root and certificates `cryptography` makes (P-256, valid 2020-2040). Contract calls run "
@@ -1781,7 +1781,7 @@ DESCRIPTION = (
     "file, CBOR [alg, key]), `min_witnesses`, `tsa_roots` (trusted authorities' root certificates, PEM), "
     "`min_timestamps`, `attachments` (contents by name, hex), `require_presence` and `require_answered` "
     "(contract evidence only); an option left out is not used. A verifier must reach `verified`. When verified, "
-    "its JSON report (the fields of `cexchain verify --json` or `cexchain contract verify --json`) must match "
+    "its JSON report (the fields of `kanhe verify --json` or `kanhe contract verify --json`) must match "
     "`facts`, which hold only what was forged: a fact object matches a report object when every key of the fact "
     "is in the report and its value matches; a fact list matches a report list of the same length, element by "
     "element; any other value matches only an equal value (true, false, null, numbers, and strings exactly). "

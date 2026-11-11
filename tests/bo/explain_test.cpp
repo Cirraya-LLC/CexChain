@@ -8,7 +8,7 @@
 // compiled code decides (requirement numbers, final states, the creation
 // function), every inferred clause marked and every rule used explained,
 // texts in quotation marks (R18), spacing in Chinese, and a pack without
-// sentences. Set CEXCHAIN_UPDATE_GOLDENS=1 to rewrite the goldens after a
+// sentences. Set KANHE_UPDATE_GOLDENS=1 to rewrite the goldens after a
 // deliberate change.
 
 #include <algorithm>
@@ -26,21 +26,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cexchain/bo/checker.hpp>
-#include <cexchain/bo/concepts.hpp>
-#include <cexchain/bo/explain.hpp>
-#include <cexchain/bo/lexer.hpp>
-#include <cexchain/bo/model.hpp>
-#include <cexchain/bo/pack.hpp>
-#include <cexchain/bo/parser.hpp>
-#include <cexchain/core/bytes.hpp>
-#include <cexchain/core/cbor.hpp>
+#include <kanhe/bo/checker.hpp>
+#include <kanhe/bo/concepts.hpp>
+#include <kanhe/bo/explain.hpp>
+#include <kanhe/bo/lexer.hpp>
+#include <kanhe/bo/model.hpp>
+#include <kanhe/bo/pack.hpp>
+#include <kanhe/bo/parser.hpp>
+#include <kanhe/core/bytes.hpp>
+#include <kanhe/core/cbor.hpp>
 
-using namespace cexchain::bo;
+using namespace kanhe::bo;
 
 namespace {
 
-const std::filesystem::path golden_dir = CEXCHAIN_BO_GOLDEN_DIR;
+const std::filesystem::path golden_dir = KANHE_BO_GOLDEN_DIR;
 /// The source tree: the demo's contract is one of the cases.
 const std::filesystem::path source_dir = golden_dir.parent_path().parent_path().parent_path();
 
@@ -161,7 +161,7 @@ bool contains(std::string_view text, std::string_view part) {
 } // namespace
 
 TEST_CASE("the contract text's goldens, the same from every spelling", "[bo][explain]") {
-    const bool update = std::getenv("CEXCHAIN_UPDATE_GOLDENS") != nullptr;
+    const bool update = std::getenv("KANHE_UPDATE_GOLDENS") != nullptr;
     std::size_t texts = 0;
     for (const Case& c : cases()) {
         INFO(c.name);
@@ -386,13 +386,13 @@ TEST_CASE("an instance's state, in the text's words", "[bo][explain]") {
     const Checked checked = check(source, parsed.file);
     REQUIRE(!has_errors(checked.diagnostics));
     // 2030-01-01 13:30 at +08:00; money in cents; GB in bytes.
-    const auto state = cexchain::cbor::parse_diagnostic(
+    const auto state = kanhe::cbor::parse_diagnostic(
         R"({"state": "active", "fields": {"label": "a", "approved": true, "total": -12345,
             "ends": 1893475800000, "size": 1500000000, "count": 1234567,
             "holder": h'1111111111111111111111111111111111111111111111111111111111111111',
             "other": 1}})");
     REQUIRE(state);
-    const LedgerLabel label = [](cexchain::ByteView id) {
+    const LedgerLabel label = [](kanhe::ByteView id) {
         return "ledger " + std::to_string(id.size()) + " bytes";
     };
     const auto values = [&](const Pack* pack) {
@@ -413,7 +413,7 @@ TEST_CASE("an instance's state, in the text's words", "[bo][explain]") {
                                    "count: 1,234,567", "持有人: ledger 32 bytes"});
     // A value not of its field's type is shown as it is.
     const auto odd =
-        cexchain::cbor::parse_diagnostic(R"({"state": "gone", "fields": {"total": "x"}})");
+        kanhe::cbor::parse_diagnostic(R"({"state": "gone", "fields": {"total": "x"}})");
     REQUIRE(odd);
     const ExplainedState s = explain_state(checked.model, *odd, nullptr, label);
     CHECK(s.state.empty());

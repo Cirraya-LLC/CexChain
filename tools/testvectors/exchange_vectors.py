@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 """Test vectors for proposal and consent files (`exchange-file` in
-spec/cexchain.cddl, extension .cexchain), encoded with cbor2 independently of
+spec/kanhe.cddl, extension .kanhe), encoded with cbor2 independently of
 the C++ code: files a reader takes, each with the fields it reads, and files
 it refuses, each with the reason. Writes testvectors/exchange-v1.json.
 
@@ -122,7 +122,7 @@ def main() -> None:
         refused("keys out of order", cbor2.dumps(backwards), "encoding"),
     ]
     document = {
-        "description": "Proposal and consent files (exchange-file in spec/cexchain.cddl, .cexchain), "
+        "description": "Proposal and consent files (exchange-file in spec/kanhe.cddl, .kanhe), "
                        "encoded independently with cbor2: files a reader takes, with what it reads, "
                        "and files it refuses, with why.",
         "accepted": accept,

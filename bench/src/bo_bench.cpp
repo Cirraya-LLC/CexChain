@@ -13,7 +13,7 @@
 #include "bench.hpp"
 #include "fixture.hpp"
 
-namespace cexchain::bench {
+namespace kanhe::bench {
 
 int bo_bench(const Options& options) {
     const std::uint64_t repeat = std::max<std::uint64_t>(1, options.number("repeat", 20));
@@ -60,4 +60,4 @@ int bo_bench(const Options& options) {
     return 0;
 }
 
-} // namespace cexchain::bench
+} // namespace kanhe::bench

@@ -9,8 +9,8 @@
 # acts through its connectors, and answers; while that member restarts, or
 # the cluster elects a leader, it waits and tries again within seconds.
 set -eu
-cexchain executor secret set notify-token --state /data/state \
+kanhe executor secret set notify-token --state /data/state \
     --from-file /run/secrets/notify_token > /dev/null
-exec cexchain executor run --config /data/executor.json --state /data/state \
-    --server "${CEXCHAIN_EXECUTOR_SERVER:-http://node1:8080}" \
+exec kanhe executor run --config /data/executor.json --state /data/state \
+    --server "${KANHE_EXECUTOR_SERVER:-http://node1:8080}" \
     --token-file /data/executor.token --as /data/executor.key

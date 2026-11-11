@@ -10,14 +10,14 @@
 #include <string_view>
 #include <vector>
 
-#include <cexchain/core/failure.hpp>
+#include <kanhe/core/failure.hpp>
 
-namespace cexchain::cli {
+namespace kanhe::cli {
 
 /// A mistake in how the command was invoked.
-using cexchain::UsageError;
+using kanhe::UsageError;
 /// Any other failure, with a message for the user.
-using CommandError = cexchain::ActionError;
+using CommandError = kanhe::ActionError;
 
 struct CommandSpec;
 
@@ -39,7 +39,7 @@ public:
     [[nodiscard]] std::string need(std::string_view name) const;
     /// True if machine-readable output was requested.
     [[nodiscard]] bool json() const { return has("json"); }
-    /// --ledger, or $CEXCHAIN_LEDGER.
+    /// --ledger, or $KANHE_LEDGER.
     [[nodiscard]] std::filesystem::path ledger() const;
     /// The same, or else this computer's place for a person's ledger (the
     /// console's commands: one console per person, wherever it was set up).
@@ -52,8 +52,8 @@ private:
 };
 
 /// Where a person's ledger lives on this computer: on macOS
-/// ~/Library/Application Support/CexChain/ledger, elsewhere
-/// $XDG_DATA_HOME/cexchain/ledger (~/.local/share by default).
+/// ~/Library/Application Support/Kanhe/ledger, elsewhere
+/// $XDG_DATA_HOME/kanhe/ledger (~/.local/share by default).
 [[nodiscard]] std::filesystem::path default_ledger_directory();
 
-} // namespace cexchain::cli
+} // namespace kanhe::cli

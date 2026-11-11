@@ -11,6 +11,7 @@
 #include <mutex>
 #include <poll.h>
 #include <spawn.h>
+#include <string_view>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -18,19 +19,19 @@
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/event.h>
-#define CEXCHAIN_PROCESS_KQUEUE 1
+#define KANHE_PROCESS_KQUEUE 1
 #elif defined(__linux__)
 #include <sys/syscall.h>
 #if defined(SYS_pidfd_open)
-#define CEXCHAIN_PROCESS_PIDFD 1
+#define KANHE_PROCESS_PIDFD 1
 #endif
 #endif
 
-#include <cexchain/node/process.hpp>
+#include <kanhe/node/process.hpp>
 
 extern char** environ; // NOLINT(readability-redundant-declaration)
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -92,7 +93,7 @@ enum class Exit : std::uint8_t {
     unsupported,
 };
 
-#if defined(CEXCHAIN_PROCESS_KQUEUE)
+#if defined(KANHE_PROCESS_KQUEUE)
 /// Blocks until `pid` exits or `until`, by kqueue's EVFILT_PROC (macOS, the
 /// BSDs). A child that has already exited (a zombie) cannot be registered:
 /// that is an exit too.
@@ -134,7 +135,7 @@ Exit block_until_exit(pid_t pid, clock::time_point until) noexcept {
     ::close(queue);
     return result;
 }
-#elif defined(CEXCHAIN_PROCESS_PIDFD)
+#elif defined(KANHE_PROCESS_PIDFD)
 /// Blocks until `pid` exits or `until`, by a pidfd (Linux 5.3 and later),
 /// which polls readable once the process has exited.
 Exit block_until_exit(pid_t pid, clock::time_point until) noexcept {
@@ -222,7 +223,7 @@ Result<ChildProcess> ChildProcess::start(const std::string& program,
     argv.push_back(nullptr);
     std::vector<char*> envp;
     for (char** e = environ; e != nullptr && *e != nullptr; ++e) {
-        if (std::strncmp(*e, "CEXCHAIN_", 9) != 0) {
+        if (!std::string_view(*e).starts_with("KANHE_")) {
             envp.push_back(*e);
         }
     }
@@ -472,4 +473,4 @@ ExitStatus ChildProcess::terminate(std::chrono::milliseconds grace) {
     return *exited_;
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

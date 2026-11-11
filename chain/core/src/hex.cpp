@@ -3,9 +3,9 @@
 
 #include <optional>
 
-#include <cexchain/core/bytes.hpp>
+#include <kanhe/core/bytes.hpp>
 
-namespace cexchain {
+namespace kanhe {
 
 namespace {
 
@@ -162,4 +162,4 @@ Result<Bytes> from_base64(std::string_view text) {
     return out;
 }
 
-} // namespace cexchain
+} // namespace kanhe

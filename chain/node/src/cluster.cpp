@@ -21,14 +21,14 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 
-#include <cexchain/core/cbor.hpp>
-#include <cexchain/core/protocol/common.hpp>
-#include <cexchain/core/protocol/statement.hpp>
-#include <cexchain/node/cluster.hpp>
+#include <kanhe/core/cbor.hpp>
+#include <kanhe/core/protocol/common.hpp>
+#include <kanhe/core/protocol/statement.hpp>
+#include <kanhe/node/cluster.hpp>
 
 #include "cluster_parts.hpp"
 
-namespace cexchain::node {
+namespace kanhe::node {
 
 namespace {
 
@@ -538,4 +538,4 @@ Status Cluster::step_down() {
     return {};
 }
 
-} // namespace cexchain::node
+} // namespace kanhe::node

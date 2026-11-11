@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
-"""Generates CexChain test vectors using implementations independent of CexChain.
+"""Generates Kanhe test vectors using implementations independent of Kanhe.
 
 Requirements: Python 3.11+, the packages in requirements.txt, and an OpenSSL 3.5+
 command-line tool (used for SM2, which the Python cryptography package lacks).
@@ -35,7 +35,7 @@ OUT = ROOT / "testvectors"
 
 SM2_DISTINGUISHING_ID = "1234567812345678"
 
-# COSE algorithm identifiers (IANA registry; SM2/SM3 use CexChain private-use values).
+# COSE algorithm identifiers (IANA registry; SM2/SM3 use Kanhe private-use values).
 COSE = {
     "SHA-256": -16,
     "SHA-384": -43,
@@ -52,7 +52,7 @@ COSE = {
 MESSAGES = [
     b"",
     b"abc",
-    b"CexChain verifiable records",
+    b"Kanhe verifiable records",
     bytes(range(256)) * 4,
 ]
 
@@ -329,7 +329,7 @@ def generate_signatures(openssl: str) -> None:
     vectors = ed25519_vectors() + esp256_vectors() + sm2_vectors(openssl) + mldsa_vectors()
     write(
         "signatures.json",
-        "Signatures in CexChain wire encoding (ECDSA and SM2 as r||s; ESP256 in low-S form). Each "
+        "Signatures in Kanhe wire encoding (ECDSA and SM2 as r||s; ESP256 in low-S form). Each "
         "valid vector is followed by variants with a modified message and a modified signature. "
         "ESP256 and SM2 vectors are also checked by pure-Python verifiers. Invalid vectors may carry "
         "expected_error (default verification_failed).",
@@ -406,7 +406,7 @@ class MerkleOracle:
 def generate_merkle(alg: str, hashlib_name: str, file_name: str) -> None:
     oracle = MerkleOracle(hashlib_name)
     entries = [bytes.fromhex(x) for x in REFERENCE_LEAVES]
-    entries += [f"CexChain entry {i}".encode() for i in range(len(entries), 13)]
+    entries += [f"Kanhe entry {i}".encode() for i in range(len(entries), 13)]
 
     roots = [oracle.mth(entries[:n]).hex() for n in range(len(entries) + 1)]
     if alg == "SHA-256":
@@ -467,9 +467,9 @@ def generate_cose(openssl: str) -> None:
 
     ed = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(COSE_ED25519_SEED))
     ed_public = ed.public_key().public_bytes_raw()
-    for payload, aad, detached in [(b"CexChain statement", b"", False),
+    for payload, aad, detached in [(b"Kanhe statement", b"", False),
                                    (b"", b"", False),
-                                   (b"CexChain statement", b"context", False),
+                                   (b"Kanhe statement", b"context", False),
                                    (b"detached document", b"", True)]:
         add("Ed25519", ed_public, ed.sign, b"ed-key", payload, aad, detached, seed=COSE_ED25519_SEED)
 
@@ -480,10 +480,10 @@ def generate_cose(openssl: str) -> None:
         assert ecdsa_p256_verify(p256_public, message, signature)
         return signature
 
-    add("ESP256", p256_public, esp256_sign, b"p256-key", b"CexChain statement")
+    add("ESP256", p256_public, esp256_sign, b"p256-key", b"Kanhe statement")
 
     ml = mldsa.MLDSA65PrivateKey.generate()
-    add("ML-DSA-65", ml.public_key().public_bytes_raw(), ml.sign, b"mldsa-key", b"CexChain statement")
+    add("ML-DSA-65", ml.public_key().public_bytes_raw(), ml.sign, b"mldsa-key", b"Kanhe statement")
 
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp)
@@ -502,7 +502,7 @@ def generate_cose(openssl: str) -> None:
             assert sm2_verify(spki[-65:], message, signature, SM2_DISTINGUISHING_ID.encode())
             return signature
 
-        add("SM2-SM3", spki[-65:], sm2_sign, b"sm2-key", b"CexChain statement")
+        add("SM2-SM3", spki[-65:], sm2_sign, b"sm2-key", b"Kanhe statement")
 
     write("cose-sign1.json",
           "Tagged COSE_Sign1 messages built with cbor2 and independent signers. Protected header "
@@ -579,7 +579,7 @@ def generate_pkcs8(openssl: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Protocol v0.1 objects (spec/cexchain.cddl)
+# Protocol v0.1 objects (spec/kanhe.cddl)
 # ---------------------------------------------------------------------------
 #
 # A deterministic CBOR encoder written here from RFC 8949 section 4.2.1 rather
@@ -617,10 +617,10 @@ def dcbor(value) -> bytes:
     raise TypeError(type(value))
 
 
-STATEMENT_TYPE = "application/cexchain-statement+cbor"
-CHECKPOINT_TYPE = "application/cexchain-checkpoint+cbor"
-COSIGNATURE_TYPE = "application/cexchain-cosignature+cbor"
-STATE_TYPE = "application/cexchain-state+cbor"
+STATEMENT_TYPE = "application/kanhe-statement+cbor"
+CHECKPOINT_TYPE = "application/kanhe-checkpoint+cbor"
+COSIGNATURE_TYPE = "application/kanhe-cosignature+cbor"
+STATE_TYPE = "application/kanhe-state+cbor"
 HASHES = {-16: "sha256", -65538: "sm3"}
 VDS = {-16: 1, -65538: -65537}
 
@@ -658,14 +658,14 @@ def ed_public(key) -> list:
 
 # A record type of a user's own (spec v0.9, section 6): the generic lifecycle.
 # Revision v0.9 removed the built-in industry types the v0.1, v0.2, and v0.4
-# vectors used (cexchain.certificate/1, cexchain.delivery/1); they were
+# vectors used (kanhe.certificate/1, kanhe.delivery/1); they were
 # regenerated with these, and nothing else in them changed.
 USER_TYPE = "example.document/1"
 USER_TYPE_2 = "example.note/1"
 
 
 def generate_protocol() -> None:
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest()
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest()
              for name in ("org_root", "log", "witness", "person", "agent")}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_244_800_000  # 2026-10-06T00:00:00Z
@@ -696,7 +696,7 @@ def generate_protocol() -> None:
                            4: t0 + 86_400_000, 5: True}}})
         agent = add("register agent", "person", {0: 1, 1: 2, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 3, 6: nonce(4), 7: {
             1: 2, 2: "Drafting Agent", 3: ed_public(keys["agent"]), 4: person,
-            5: {1: "claude-opus-5-5", 2: "2026-09", 3: "cexchain-mcp/0.1"}}})
+            5: {1: "claude-opus-5-5", 2: "2026-09", 3: "kanhe-mcp/0.1"}}})
 
         salt = lambda i: bytes([0xA0 + i]) * 16
         fields = [
@@ -716,7 +716,7 @@ def generate_protocol() -> None:
             1: USER_TYPE, 2: field_root, 3: len(leaves),
             4: [["report.pdf", "application/pdf", len(attachment_content), lg.h(attachment_salt + attachment_content)]],
             5: {"issuer": "Cirraya Test Org", "product": "Stainless steel flange DN50"}},
-            9: {1: "claude-opus-5-5", 2: "2026-09", 3: lg.h(b"inspection data"), 4: [["cexchain_issue", lg.h(b"tool v1")]]}})
+            9: {1: "claude-opus-5-5", 2: "2026-09", 3: lg.h(b"inspection data"), 4: [["kanhe_issue", lg.h(b"tool v1")]]}})
         add("endorse record", "person", {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
             1: record, 2: "inspector"}})
         add("transition record", "person", {0: 1, 1: 18, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 6, 6: nonce(7), 7: {
@@ -761,14 +761,14 @@ def generate_protocol() -> None:
         })
 
     document = {
-        "description": "CexChain protocol v0.1 objects built by an independent Python encoder from "
-                       "spec/cexchain.cddl: every statement's encoding, log entries, a checkpoint and "
+        "description": "Kanhe protocol v0.1 objects built by an independent Python encoder from "
+                       "spec/kanhe.cddl: every statement's encoding, log entries, a checkpoint and "
                        "its cosignature, receipts, and a record's field commitments. The statements show "
                        "encodings only, not a history the ledger rules accept. The record's type is a "
                        "user's, example.document/1 (regenerated in v0.9, which removed the built-in "
                        "industry types). All signatures are Ed25519 (deterministic), so every object "
                        "must be reproduced byte for byte. Keys are throwaway test keys: "
-                       "seed = SHA-256(\"CexChain test key: <name>\").",
+                       "seed = SHA-256(\"Kanhe test key: <name>\").",
         "seeds": seeds,
         "ledgers": ledgers,
     }
@@ -778,7 +778,7 @@ def generate_protocol() -> None:
 
 # ---------------------------------------------------------------------------
 # Protocol v0.2 additions: proof of presence, the state commitment, cosign
-# requests (spec/cexchain.cddl, revision v0.2)
+# requests (spec/kanhe.cddl, revision v0.2)
 # ---------------------------------------------------------------------------
 
 def b64url(data: bytes) -> str:
@@ -817,7 +817,7 @@ def smt_proof(lg: Ledger, leaves: list, identifier: bytes) -> list[bytes]:
 
 
 def generate_protocol_v02() -> None:
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest()
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest()
              for name in ("org_root", "log", "witness", "person", "agent", "passkey", "ukey")}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_244_800_000
@@ -860,7 +860,7 @@ def generate_protocol_v02() -> None:
         endorse = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 5, 6: nonce(6), 7: {
             1: record, 2: "inspector"}}
         # Bound to the signing key's id, so a rotated key cannot reuse the proof.
-        challenge = lg.h(b"CexChain presence v1" + lg.kid(keys["person"]) + dcbor(endorse))
+        challenge = lg.h(b"Kanhe presence v1" + lg.kid(keys["person"]) + dcbor(endorse))
         authenticator_data = hashlib.sha256(b"localhost").digest() + b"\x05" + (7).to_bytes(4, "big")
         client_data = ('{"type":"webauthn.get","challenge":"' + b64url(challenge) +
                        '","origin":"http://localhost:43210","crossOrigin":false}').encode()
@@ -871,7 +871,7 @@ def generate_protocol_v02() -> None:
         # The person approves with the UKey: its key signs the challenge itself.
         approve = {0: 1, 1: 17, 2: ledger_id, 3: person, 4: delegation, 5: t0 + 6, 6: nonce(8), 7: {
             1: record, 2: "approver"}}
-        ukey_challenge = lg.h(b"CexChain presence v1" + lg.kid(keys["person"]) + dcbor(approve))
+        ukey_challenge = lg.h(b"Kanhe presence v1" + lg.kid(keys["person"]) + dcbor(approve))
         approve[8] = {1: ukey_id, 4: keys["ukey"].sign(ukey_challenge)}
         add("approve with a hardware key", "person", approve)
         add("revoke person", "org_root", {0: 1, 1: 4, 2: ledger_id, 3: org, 5: t0 + 7, 6: nonce(7), 7: {
@@ -926,15 +926,15 @@ def generate_protocol_v02() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.2, built by an "
-                       "independent Python encoder from spec/cexchain.cddl: a passkey and hardware key "
+        "description": "Kanhe protocol objects added in specification revision v0.2, built by an "
+                       "independent Python encoder from spec/kanhe.cddl: a passkey and hardware key "
                        "registration (actor-set-presence), statements with proof of presence (an Ed25519 "
                        "WebAuthn assertion; a hardware key's signature over the challenge), a delegation that requires presence, the state commitment (root, "
                        "proofs, and the log entry that carries it), and a cosign request. The record's type is "
                        "a user's, example.document/1, with the generic lifecycle (regenerated in v0.9, which "
                        "removed the built-in industry types). All signatures are "
                        "Ed25519 (deterministic), so every object must be reproduced byte for byte. Keys "
-                       "are throwaway test keys: seed = SHA-256(\"CexChain test key: <name>\").",
+                       "are throwaway test keys: seed = SHA-256(\"Kanhe test key: <name>\").",
         "seeds": seeds,
         "ledgers": ledgers,
     }
@@ -943,7 +943,7 @@ def generate_protocol_v02() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Protocol v0.3 additions: access across organizations (spec/cexchain.cddl,
+# Protocol v0.3 additions: access across organizations (spec/kanhe.cddl,
 # revision v0.3), with HPKE (RFC 9180) implemented here from the RFC
 # ---------------------------------------------------------------------------
 
@@ -993,7 +993,7 @@ def generate_protocol_v03() -> None:
     from cryptography.hazmat.primitives.asymmetric import x25519
 
     def seed(name: str) -> bytes:
-        return hashlib.sha256(f"CexChain test key: {name}".encode()).digest()
+        return hashlib.sha256(f"Kanhe test key: {name}".encode()).digest()
 
     factory_ledger = hashlib.sha256(b"factory ledger").digest()
     bank_ledger = hashlib.sha256(b"bank ledger").digest()
@@ -1017,7 +1017,7 @@ def generate_protocol_v03() -> None:
     record_bundle = b"record evidence bundle"
     grant_bundle = b"grant evidence bundle"
     contents = dcbor({1: record_bundle, 2: {"report.pdf": b"%PDF-1.7 test report"}})
-    enc, ciphertext = hpke_seal_base(recipient_public, seed("ephemeral"), b"CexChain delivery v1",
+    enc, ciphertext = hpke_seal_base(recipient_public, seed("ephemeral"), b"Kanhe delivery v1",
                                      grant_id, contents)
     delivery = dcbor({1: 1, 2: grant_bundle, 3: {1: enc, 2: ciphertext}})
 
@@ -1029,12 +1029,12 @@ def generate_protocol_v03() -> None:
         return value
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.3 (access across "
-                       "organizations), built by an independent Python encoder from spec/cexchain.cddl: the "
+        "description": "Kanhe protocol objects added in specification revision v0.3 (access across "
+                       "organizations), built by an independent Python encoder from spec/kanhe.cddl: the "
                        "metadata of access requests, grants, and receipts, and a delivery whose contents are "
                        "sealed with HPKE (RFC 9180, implemented here from the RFC; base mode, X25519, "
                        "HKDF-SHA256, AES-256-GCM) using a fixed ephemeral key. Keys are throwaway test keys: "
-                       "seed = SHA-256(\"CexChain test key: <name>\").",
+                       "seed = SHA-256(\"Kanhe test key: <name>\").",
         "access_request": {"metadata": dcbor(request).hex(), "values": {k: hexed(v) for k, v in request.items()}},
         "access_grant": {"metadata": dcbor(grant).hex(), "values": {k: hexed(v) for k, v in grant.items()}},
         "access_receipt": {"metadata": dcbor(receipt).hex(), "values": {k: hexed(v) for k, v in receipt.items()}},
@@ -1045,7 +1045,7 @@ def generate_protocol_v03() -> None:
             "record_bundle": record_bundle.hex(),
             "attachments": {"report.pdf": b"%PDF-1.7 test report".hex()},
             "grant_id": grant_id.hex(),
-            "info": "CexChain delivery v1",
+            "info": "Kanhe delivery v1",
             "recipient_pkcs8": recipient_pkcs8.hex(),
             "recipient_public_key": recipient_public.hex(),
             "encapsulated_key": enc.hex(),
@@ -1057,12 +1057,12 @@ def generate_protocol_v03() -> None:
 
 # ---------------------------------------------------------------------------
 # Protocol v0.4 additions: rotating the log key and the organization's root
-# key (spec/cexchain.cddl, revision v0.4)
+# key (spec/kanhe.cddl, revision v0.4)
 # ---------------------------------------------------------------------------
 
 def generate_protocol_v04() -> None:
     names = ("org_root", "log", "log_2", "root_2", "person")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_244_800_000
 
@@ -1152,8 +1152,8 @@ def generate_protocol_v04() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.4 (key rotation), built "
-                       "by an independent Python encoder from spec/cexchain.cddl: the log key rotated with "
+        "description": "Kanhe protocol objects added in specification revision v0.4 (key rotation), built "
+                       "by an independent Python encoder from spec/kanhe.cddl: the log key rotated with "
                        "ledger-rotate-log-key (statement type 8) and the organization's root key with "
                        "actor-rotate-key on itself, a statement under the new root key, the organization's "
                        "state leaf with both rotations, the state commitment and checkpoint signed by the new "
@@ -1161,7 +1161,7 @@ def generate_protocol_v04() -> None:
                        "carrying both rotations with inclusion paths (key 4). The record's type is a user's, "
                        "example.document/1 (regenerated in v0.9, which removed the built-in industry types). "
                        "All signatures are Ed25519 "
-                       "(deterministic). Keys are throwaway test keys: seed = SHA-256(\"CexChain test key: "
+                       "(deterministic). Keys are throwaway test keys: seed = SHA-256(\"Kanhe test key: "
                        "<name>\").",
         "seeds": seeds,
         "ledgers": ledgers,
@@ -1176,10 +1176,10 @@ def generate_protocol_v04() -> None:
 # contract consents, contract evidence
 # ---------------------------------------------------------------------------
 
-CONTRACT_CONSENT = "cexchain.contract-consent/1"
+CONTRACT_CONSENT = "kanhe.contract-consent/1"
 
 
-def oracle_contract(w, entry_name="cexchain_call") -> bytes:
+def oracle_contract(w, entry_name="kanhe_call") -> bytes:
     """The test contract. Its arguments decide its output, so that vectors
     reach every outcome:
       - a byte string: the output is its content;
@@ -1334,7 +1334,7 @@ def generate_protocol_v06() -> None:
     import wasm_ref as w
 
     names = ("org_root", "log", "registrar", "clerk", "agent")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_244_800_000
     day = 86_400_000
@@ -1477,7 +1477,7 @@ def generate_protocol_v06() -> None:
         interface = {"propose": 1, "sign": 2, "update": 2, "close": 2}
         refuse("deploy bytes that are not WebAssembly", "org_root", payload(org, 21, {
             1: b"\0asm\x01", 2: interface, 3: "wasm", 4: "hand"}))
-        refuse("deploy a module without cexchain_call", "org_root", payload(org, 21, {
+        refuse("deploy a module without kanhe_call", "org_root", payload(org, 21, {
             1: no_entry, 2: interface, 3: "wasm", 4: "hand"}))
         refuse("deploy an interface that creates nothing", "org_root", payload(org, 21, {
             1: code, 2: {"update": 2}, 3: "wasm", 4: "hand"}), malformed=True)
@@ -1626,8 +1626,8 @@ def generate_protocol_v06() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.6 (contracts), built by an "
-                       "independent Python encoder from spec/cexchain.cddl and run by the reference interpreter "
+        "description": "Kanhe protocol objects added in specification revision v0.6 (contracts), built by an "
+                       "independent Python encoder from spec/kanhe.cddl and run by the reference interpreter "
                        "tools/testvectors/wasm_ref.py. The test contract (oracle_contract in "
                        "tools/testvectors/generate.py) outputs the content of byte-string arguments, aborts with "
                        "text arguments, and otherwise accepts with HASH(input) as the state. A home ledger "
@@ -1642,7 +1642,7 @@ def generate_protocol_v06() -> None:
                        "(accept, needs, malformed, or the trap). `instances` gives each instance's final state "
                        "(encoded), status, parties, head, and finality. Consent records and bundles of other "
                        "ledgers are opaque bytes; a citation pins HASH(bundle) under the home's hash. Signatures "
-                       "are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"Kanhe test key: "
                        "<name>\").",
         "t0": 1_791_244_800_000,
         "contract": code.hex(),
@@ -1720,7 +1720,7 @@ class PartyLedger:
         self.lg = Ledger(hash_id)
         self.name = name
         self.root_key, self.log_key = (ed25519.Ed25519PrivateKey.from_private_bytes(
-            hashlib.sha256(f"CexChain test key: {name} {role}".encode()).digest()) for role in ("root", "log"))
+            hashlib.sha256(f"Kanhe test key: {name} {role}".encode()).digest()) for role in ("root", "log"))
         self.t0 = t0
         genesis = {0: 1, 1: 1, 5: t0, 6: bytes([0xE1]) * 16, 7: {
             1: hash_id, 2: name, 3: ed_public(self.root_key), 4: ed_public(self.log_key)}}
@@ -1730,7 +1730,7 @@ class PartyLedger:
         self.consents = 0
 
     def consent(self, metadata: dict) -> tuple[bytes, bytes]:
-        """Registers a cexchain.contract-consent/1 record; returns its id and
+        """Registers a kanhe.contract-consent/1 record; returns its id and
         its evidence bundle."""
         self.consents += 1
         index = len(self.entries)
@@ -1755,7 +1755,7 @@ def generate_protocol_v07() -> None:
     import test_contracts
 
     names = ("org_root", "log", "registrar", "clerk")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_791_331_200_000  # 2026-10-07T00:00:00Z
     day = 86_400_000
@@ -2186,8 +2186,8 @@ def generate_protocol_v07() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.7 (instances created by a "
-                       "call), built by an independent Python encoder from spec/cexchain.cddl and run by the "
+        "description": "Kanhe protocol objects added in specification revision v0.7 (instances created by a "
+                       "call), built by an independent Python encoder from spec/kanhe.cddl and run by the "
                        "reference interpreter tools/testvectors/wasm_ref.py. Two hand-assembled contracts: the "
                        "splitting contract (split_contract in tools/testvectors/test_contracts.py: a receivable "
                        "[amount, tier] held by {holder}, which splits into child parts and needs the holder's "
@@ -2213,7 +2213,7 @@ def generate_protocol_v07() -> None:
                        "(`entries`), the objects it proves (`involved`: the instance, its contract, then each "
                        "event's signer, delegations, and grantors, in log order), and the consent bundles' "
                        "hashes (`pins`). Signatures are Ed25519 (deterministic); keys are throwaway: seed = "
-                       "SHA-256(\"CexChain test key: <name>\"), and for party ledgers \"<name> root\" and "
+                       "SHA-256(\"Kanhe test key: <name>\"), and for party ledgers \"<name> root\" and "
                        "\"<name> log\".",
         "t0": t0,
         "max_depth": MAX_DEPTH,
@@ -2245,7 +2245,7 @@ def generate_protocol_v08() -> None:
     import test_contracts
 
     names = ("org_root", "log", "clerk", "agent", "executor", "billing", "keeper")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_792_022_400_000  # 2026-10-15T00:00:00Z
     minute, hour, day = 60_000, 3_600_000, 86_400_000
@@ -2915,8 +2915,8 @@ def generate_protocol_v08() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects added in specification revision v0.8 (requests and answers), "
-                       "built by an independent Python encoder from spec/cexchain.cddl and run by the reference "
+        "description": "Kanhe protocol objects added in specification revision v0.8 (requests and answers), "
+                       "built by an independent Python encoder from spec/kanhe.cddl and run by the reference "
                        "interpreter tools/testvectors/wasm_ref.py. The requesting contract (request_contract in "
                        "tools/testvectors/test_contracts.py, interface `interface`) writes byte-string arguments as "
                        "its output, aborts with text arguments, makes one request {1: kind, 2: params, 3: time + "
@@ -2948,7 +2948,7 @@ def generate_protocol_v08() -> None:
                        "per call, the requests it made and its answer (request, status, lateness, actor, signer, "
                        "delegation); the instance's requests, the open ones, and those overdue at the checkpoint. "
                        "`contract_checks` counts the inputs on which the contract agreed with an independent model. "
-                       "Signatures are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test "
+                       "Signatures are Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"Kanhe test "
                        "key: <name>\"), and for the customer's ledger \"Customer root\" and \"Customer log\".",
         "t0": t0,
         "limits": {"requests": MAX_REQUESTS, "open": MAX_OPEN, "params": MAX_PARAMS, "deadline": MAX_DEADLINE},
@@ -2968,33 +2968,33 @@ def generate_protocol_v08() -> None:
 # ---------------------------------------------------------------------------
 # Protocol v0.9: the generic core (spec sections 4 to 6): a user's record
 # types with the generic lifecycle, the four mechanism types with theirs, the
-# reserved "cexchain." prefix, and statement type 20 reserved
+# reserved "kanhe." prefix, and statement type 20 reserved
 # ---------------------------------------------------------------------------
 
 # Statement types v0.9 defines; 20 (asset-action, v0.5) is reserved.
 STATEMENT_TYPES_V09 = (1, 2, 3, 4, 5, 6, 7, 8, 16, 17, 18, 19, 21, 22, 23)
 # A claim (v0.14, section 6): a condition on another record's fields.
-CLAIM = "cexchain.claim/1"
+CLAIM = "kanhe.claim/1"
 # The mechanism types: initial state and transitions. None defines a role.
 # Revisions v0.9 to v0.13 define the first four, and their vectors keep to
 # them (MECHANISM_TYPES_V09); v0.14 adds claims.
 MECHANISM_TYPES = {
-    "cexchain.access-request/1": ("requested", {("requested", "withdrawn")}),
-    "cexchain.access-grant/1": ("granted", set()),
-    "cexchain.access-receipt/1": ("received", set()),
+    "kanhe.access-request/1": ("requested", {("requested", "withdrawn")}),
+    "kanhe.access-grant/1": ("granted", set()),
+    "kanhe.access-receipt/1": ("received", set()),
     CONTRACT_CONSENT: ("given", {("given", "withdrawn")}),
     CLAIM: ("confirmed", set()),
 }
 MECHANISM_TYPES_V09 = {kind: lifecycle for kind, lifecycle in MECHANISM_TYPES.items() if kind != CLAIM}
-RESERVED_PREFIX = "cexchain."
+RESERVED_PREFIX = "kanhe."
 # The types earlier revisions built in, which v0.9 removed.
-REMOVED_TYPES = ("cexchain.certificate/1", "cexchain.delivery/1", "cexchain.agreement/1",
-                 "cexchain.receivable/1", "cexchain.warehouse-receipt/1", "cexchain.asset-consent/1")
+REMOVED_TYPES = ("kanhe.certificate/1", "kanhe.delivery/1", "kanhe.agreement/1",
+                 "kanhe.receivable/1", "kanhe.warehouse-receipt/1", "kanhe.asset-consent/1")
 
 
 def generate_protocol_v09() -> None:
     names = ("org_root", "log", "clerk")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_792_108_800_000  # 2026-10-16T00:00:00Z
     minute, day = 60_000, 86_400_000
@@ -3145,14 +3145,14 @@ def generate_protocol_v09() -> None:
             1: consent, 2: "withdrawn", 3: "given"}), "transition")
         root, count = fields(("note", "ask for the record"),)
         request = add("register an access request", "clerk", payload(clerk, 16, {
-            1: "cexchain.access-request/1", 2: root, 3: count, 5: {
+            1: "kanhe.access-request/1", 2: root, 3: count, 5: {
                 "ledger": peer, "record": lg.h(b"their record"), "purpose": "check the dates",
                 "until": t0 + 30 * day, "recipient": bytes([0x42]) * 32}}, delegation))
         add("withdraw the access request", "clerk", payload(clerk, 18, {
             1: request, 2: "requested", 3: "withdrawn"}, delegation))
         root, count = fields(("note", "grant the record"),)
         grant = add("register an access grant", "org_root", payload(org, 16, {
-            1: "cexchain.access-grant/1", 2: root, 3: count, 5: {
+            1: "kanhe.access-grant/1", 2: root, 3: count, 5: {
                 "ledger": peer, "request": lg.h(b"their request"), "record": document, "fields": ["title"],
                 "attachments": [], "until": t0 + 30 * day, "recipient": bytes([0x43]) * 32}}))
         refuse("a transition on an access grant", "org_root", payload(org, 18, {
@@ -3160,23 +3160,23 @@ def generate_protocol_v09() -> None:
         add("end the grant by revoking it", "org_root", payload(org, 19, {1: grant, 2: "no longer needed"}))
         root, count = fields(("note", "receipt"),)
         add("register an access receipt", "clerk", payload(clerk, 16, {
-            1: "cexchain.access-receipt/1", 2: root, 3: count, 5: {
+            1: "kanhe.access-receipt/1", 2: root, 3: count, 5: {
                 "ledger": peer, "grant": lg.h(b"their grant"), "delivery": lg.h(b"delivery")}}, delegation))
 
-        # The prefix is the nine bytes "cexchain.": a type that merely starts
-        # with "cexchain" is a user's.
+        # The prefix is the six bytes "kanhe.": a type that merely starts
+        # with "kanhe" is a user's.
         root, count = fields(("text", "shopping list"),)
-        add("register a record whose type starts with cexchain but not the prefix", "clerk", payload(clerk, 16, {
-            1: "cexchain-example.note/1", 2: root, 3: count}, delegation))
+        add("register a record whose type starts with kanhe but not the prefix", "clerk", payload(clerk, 16, {
+            1: "kanhe-example.note/1", 2: root, 3: count}, delegation))
 
         # The removed types, an invented one, and a version the protocol
         # does not define: all reserved. The asset types carry the metadata
         # v0.5 required, so the prefix is the only rule they break.
         asset_metadata = {
-            "cexchain.receivable/1": {"holder": peer, "amount": 100_000, "currency": "HKD", "due": t0 + 90 * day},
-            "cexchain.warehouse-receipt/1": {"holder": peer, "quantity": 10, "unit": "t"},
+            "kanhe.receivable/1": {"holder": peer, "amount": 100_000, "currency": "HKD", "due": t0 + 90 * day},
+            "kanhe.warehouse-receipt/1": {"holder": peer, "quantity": 10, "unit": "t"},
         }
-        for kind in REMOVED_TYPES + ("cexchain.document/1", "cexchain.access-request/2"):
+        for kind in REMOVED_TYPES + ("kanhe.document/1", "kanhe.access-request/2"):
             root, count = fields(("text", kind),)
             body = {1: kind, 2: root, 3: count}
             if kind in asset_metadata:
@@ -3221,20 +3221,20 @@ def generate_protocol_v09() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects of specification revision v0.9 (the generic core), built by an "
-                       "independent Python encoder from spec/cexchain.cddl. A ledger whose organization is a "
+        "description": "Kanhe protocol objects of specification revision v0.9 (the generic core), built by an "
+                       "independent Python encoder from spec/kanhe.cddl. A ledger whose organization is a "
                        "household registers a person and delegates record statements to them. The person "
                        "registers a record of a user's own type (example.document/1), which takes endorsements "
                        "in any role, once per actor and role, no transition, and is revoked: the generic "
                        "lifecycle. The four mechanism types go through their lifecycles: a contract consent and "
                        "an access request are withdrawn (record-transition), an access grant is ended by "
                        "revocation, an access receipt stays received; none takes an endorsement. A type that "
-                       "merely starts with \"cexchain\" (cexchain-example.note/1) is a user's. Each statement "
+                       "merely starts with \"kanhe\" (kanhe-example.note/1) is a user's. Each statement "
                        "registers at its `registered_at` (the log entries carry it). `refused` statements either "
                        "break the CDDL (`malformed`: statement type 20, reserved since v0.9, and a scope naming "
                        "it; `why` is \"unknown type\") or are validated against the state after the first "
                        "`after` statements, at `at`, and break exactly one rule, which `why` names: \"reserved "
-                       "type\" (a registration of a type with the prefix \"cexchain.\" that is not a mechanism "
+                       "type\" (a registration of a type with the prefix \"kanhe.\" that is not a mechanism "
                        "type: the six types v0.9 removed, an invented one, and a version the protocol does not "
                        "define; the asset types carry the metadata v0.5 required), \"transition\" (not in the "
                        "type's lifecycle), \"state\" (not the record's current state), \"role\" (a mechanism "
@@ -3243,7 +3243,7 @@ def generate_protocol_v09() -> None:
                        "registrant, history, and endorsements. `log_entries` holds the whole log, ending with "
                        "the state commitment over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) "
                        "covers it. Signatures are Ed25519 (deterministic); keys are throwaway: seed = "
-                       "SHA-256(\"CexChain test key: <name>\").",
+                       "SHA-256(\"Kanhe test key: <name>\").",
         "t0": t0,
         "statement_types": list(STATEMENT_TYPES_V09),
         "mechanism_types": [{"type": kind, "initial": initial, "transitions": sorted([list(t) for t in transitions])}
@@ -3273,7 +3273,7 @@ FORM_2 = "example.org.form/2"
 
 def generate_protocol_v10() -> None:
     names = ("org_root", "log", "clerk", "typist")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_793_491_200_000  # 2026-11-01T00:00:00Z
     minute, day = 60_000, 86_400_000
@@ -3470,8 +3470,8 @@ def generate_protocol_v10() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects of specification revision v0.10 (versions), built by an "
-                       "independent Python encoder from spec/cexchain.cddl. A school's ledger registers a clerk, "
+        "description": "Kanhe protocol objects of specification revision v0.10 (versions), built by an "
+                       "independent Python encoder from spec/kanhe.cddl. A school's ledger registers a clerk, "
                        "delegated record statements on both of its form types (example.org.form/1 and /2), and a "
                        "typist, delegated registrations of the second type only. Five versions of a form form "
                        "one chain (`versions`, oldest first): each registration names the record it supersedes "
@@ -3487,7 +3487,7 @@ def generate_protocol_v10() -> None:
                        "revocation, registrant, history, endorsements, and the records it supersedes and that "
                        "superseded it. `log_entries` holds the whole log, ending with the state commitment over "
                        "`state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers it. Signatures are "
-                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"Kanhe test key: "
                        "<name>\").",
         "t0": t0,
         "seeds": seeds,
@@ -3511,9 +3511,9 @@ def generate_protocol_v11(openssl: str) -> None:
     from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
     v10 = json.loads((OUT / "protocol-v0.10.json").read_text())
-    root_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"CexChain test key: tsa_root").digest(), "big")
+    root_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"Kanhe test key: tsa_root").digest(), "big")
                                      % (2**255), ec.SECP256R1())
-    tsa_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"CexChain test key: tsa").digest(), "big")
+    tsa_key = ec.derive_private_key(int.from_bytes(hashlib.sha256(b"Kanhe test key: tsa").digest(), "big")
                                     % (2**255), ec.SECP256R1())
     start = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
     end = datetime.datetime(2040, 1, 1, tzinfo=datetime.timezone.utc)
@@ -3605,7 +3605,7 @@ def generate_protocol_v13() -> None:
     sign1 = sign1.value if isinstance(sign1, cbor2.CBORTag) else sign1
     payload = cbor2.loads(sign1[2])
     size, root = payload[3], payload[4]
-    origin = "cirraya.com/cexchain/" + lg["ledger_id"]
+    origin = "cirraya.com/kanhe/" + lg["ledger_id"]
     note = f"{origin}\n{size}\n{base64.b64encode(root).decode()}\n"
 
     def b64(data: bytes) -> str:
@@ -3618,7 +3618,7 @@ def generate_protocol_v13() -> None:
         return f"{name}+{key_id(name, kind, public).hex()}+{b64(bytes([kind]) + public)}"
 
     def seeded(name: str) -> ed25519.Ed25519PrivateKey:
-        return ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(f"CexChain test key: {name}".encode()).digest())
+        return ed25519.Ed25519PrivateKey.from_private_bytes(hashlib.sha256(f"Kanhe test key: {name}".encode()).digest())
 
     raw = serialization.Encoding.Raw, serialization.PublicFormat.Raw
     note_key = seeded("note")
@@ -3663,7 +3663,7 @@ def generate_protocol_v13() -> None:
         "description": "Open witness networks of specification revision v0.13 (section 10.2), written from "
                        "c2sp.org's signed-note, tlog-checkpoint, tlog-cosignature, and tlog-witness with Python's "
                        "`cryptography`. `note` is the checkpoint note of the SHA-256 ledger of protocol-v0.10.json "
-                       "(its signed checkpoint is `checkpoint`): the origin cirraya.com/cexchain/ followed by the "
+                       "(its signed checkpoint is `checkpoint`): the origin cirraya.com/kanhe/ followed by the "
                        "ledger id in hex, the tree size, and the root in base64. `signed_note` adds the note key's "
                        "log signature (Ed25519, type 0x01, key name the origin; its verifier key is `note_vkey`), "
                        "and `add_checkpoint` is the body of a first add-checkpoint (old size 0, no proof). Each "
@@ -3671,7 +3671,7 @@ def generate_protocol_v13() -> None:
                        "time, signature); `valid` says whether they verify against `note`. `anchor` is an "
                        "evidence anchor (key 1 the checkpoint, key 4 the two valid cosignatures). `c2sp_example` "
                        "is signed-note's own example: its verifier key verifies its note. Keys are throwaway: "
-                       "Ed25519 seed = SHA-256(\"CexChain test key: <name>\"); the ML-DSA-44 key is random, so "
+                       "Ed25519 seed = SHA-256(\"Kanhe test key: <name>\"); the ML-DSA-44 key is random, so "
                        "its bytes change each time the vectors are made.",
         "ledger_id": lg["ledger_id"],
         "checkpoint": checkpoint.hex(),
@@ -3693,7 +3693,7 @@ def generate_protocol_v13() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Protocol v0.14: claims (spec sections 5, 6, and 11): a cexchain.claim/1
+# Protocol v0.14: claims (spec sections 5, 6, and 11): a kanhe.claim/1
 # record says that, in another record of the ledger (its source), a condition
 # on fields holds or does not, without disclosing them
 # ---------------------------------------------------------------------------
@@ -3858,7 +3858,7 @@ SPEC_CLAIM_WORDS = 'monthly_salary is above HKD 30,000.00 and status is one of "
 
 def claim_metadata_cases(t0: int) -> tuple[list, list]:
     """Claim metadata on its own: (valid cases, refused cases)."""
-    source = hashlib.sha256(b"CexChain claim source").digest()
+    source = hashlib.sha256(b"Kanhe claim source").digest()
     request = [hashlib.sha256(b"Peer ledger").digest(), hashlib.sha256(b"an access request").digest()]
     day = 86_400_000
 
@@ -4025,7 +4025,7 @@ def claim_metadata_cases(t0: int) -> tuple[list, list]:
 
 def generate_protocol_v14() -> None:
     names = ("org_root", "log", "clerk")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     t0 = 1_794_268_800_000  # 2026-11-10T00:00:00Z
     minute, second, day = 60_000, 1_000, 86_400_000
@@ -4194,7 +4194,7 @@ def generate_protocol_v14() -> None:
         clerk = add("register the clerk", "org_root", payload(org, 2, {
             1: 1, 2: "HR Clerk", 3: ed_public(keys["clerk"])}))
         clerks = add("delegate employment records and claims to the clerk", "org_root", payload(org, 5, {
-            1: clerk, 2: {1: [16, 17, 18, 19], 2: [CLAIM, EMPLOYMENT]}}))
+            1: clerk, 2: {1: [16, 17, 18, 19], 2: sorted([CLAIM, EMPLOYMENT], key=str.encode)}}))
 
         # A claim on a live record of a generic type, in the specification's
         # words.
@@ -4306,8 +4306,8 @@ def generate_protocol_v14() -> None:
         })
 
     document = {
-        "description": "CexChain protocol objects of specification revision v0.14 (claims), built by an "
-                       "independent Python encoder from spec/README.md and spec/cexchain.cddl. `claim_type` is the "
+        "description": "Kanhe protocol objects of specification revision v0.14 (claims), built by an "
+                       "independent Python encoder from spec/README.md and spec/kanhe.cddl. `claim_type` is the "
                        "fifth mechanism type's lifecycle (initial state \"confirmed\", no transitions, no roles; "
                        "withdrawn by revoking it). `claim_metadata` holds claim metadata (record key 5) on its "
                        "own: `valid` cases, each its deterministic CBOR (`metadata`), its condition as JSON, and "
@@ -4340,7 +4340,7 @@ def generate_protocol_v14() -> None:
                        "`checkpoint_time` is past until (`lapsed`), the subject, and the access request it "
                        "answers (`for`). `log_entries` holds the whole log, ending with the state commitment "
                        "over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers it. Signatures are "
-                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"CexChain test key: "
+                       "Ed25519 (deterministic); keys are throwaway: seed = SHA-256(\"Kanhe test key: "
                        "<name>\").",
         "t0": t0,
         "claim_type": {"type": CLAIM, "initial": MECHANISM_TYPES[CLAIM][0], "transitions": [], "roles": []},
@@ -4724,15 +4724,15 @@ def generate_protocol_v15() -> None:
 
     t0 = 1_794_268_800_000  # 2026-11-10T00:00:00Z
     # The recipient key of a request for data: the X25519 key of protocol-v0.3.json.
-    key = x25519.X25519PrivateKey.from_private_bytes(hashlib.sha256(b"CexChain test key: recipient").digest())
+    key = x25519.X25519PrivateKey.from_private_bytes(hashlib.sha256(b"Kanhe test key: recipient").digest())
     recipient = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     valid, refused = access_request_cases(t0, recipient)
     answers = claim_answer_cases(t0, recipient)
     document = {
-        "description": "CexChain protocol objects of specification revision v0.15 (asking about a condition), "
+        "description": "Kanhe protocol objects of specification revision v0.15 (asking about a condition), "
                        "built by an independent Python encoder from spec/README.md (sections 6 and 12) and "
-                       "spec/cexchain.cddl. `access_requests` holds the metadata (record key 5) of "
-                       "cexchain.access-request/1 records on its own. `valid` cases are of both forms, a request "
+                       "spec/kanhe.cddl. `access_requests` holds the metadata (record key 5) of "
+                       "kanhe.access-request/1 records on its own. `valid` cases are of both forms, a request "
                        "for data (a recipient key, and optional fields and attachments) and a request about a "
                        "condition (1 to 16 terms of a claim's condition): each its deterministic CBOR "
                        "(`metadata`) and its values, `recipient` (hex), `fields`, and `attachments` null when "
@@ -4762,7 +4762,7 @@ def generate_protocol_v15() -> None:
                        "Items 1, 2, and 5 (the claim's evidence, its being live and not lapsed, and its "
                        "source's) need evidence bundles, which these cases leave out. Ids are fixed: the "
                        "requester's ledger 11..11, the ledger asked 22..22, the record 33..33, the request 44..44 "
-                       "(hex); the recipient key is the X25519 key of seed SHA-256(\"CexChain test key: "
+                       "(hex); the recipient key is the X25519 key of seed SHA-256(\"Kanhe test key: "
                        "recipient\"), that of protocol-v0.3.json.",
         "access_requests": {"valid": valid, "refused": refused},
         "answers": answers,
@@ -4778,7 +4778,7 @@ def generate_protocol_v15() -> None:
 # sixth mechanism type, and membership proofs in evidence bundles (key 9)
 # ---------------------------------------------------------------------------
 
-MEMBERSHIP = "cexchain.membership/1"
+MEMBERSHIP = "kanhe.membership/1"
 MEMBERSHIP_INITIAL = "active"
 # The transitions in the specification's order (section 6, "Mechanism types").
 MEMBERSHIP_TRANSITIONS = (("active", "suspended"), ("suspended", "active"), ("active", "ended"),
@@ -5007,7 +5007,7 @@ def membership_replay(t0: int) -> dict:
     """A trust node's log, for each hash, replayed under the ledger rules
     (sections 5 and 6), in the format of protocol-v0.14.json's ledgers."""
     names = ("org_root", "log", "registrar")
-    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    seeds = {name: hashlib.sha256(f"Kanhe test key: {name}".encode()).hexdigest() for name in names}
     keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
     minute, day = 60_000, 86_400_000
     school = bytes([0x1A, 0x2B]) + hashlib.sha256(b"Kowloon Example School").digest()[2:]
@@ -5163,7 +5163,7 @@ def membership_replay(t0: int) -> dict:
         registrar = add("register the registrar", "org_root", payload(org, 2, {
             1: 1, 2: "Membership Registrar", 3: ed_public(keys["registrar"])}))
         registrars = add("delegate memberships and notices to the registrar", "org_root", payload(org, 5, {
-            1: registrar, 2: {1: [16, 17, 18, 19], 2: [MEMBERSHIP, NOTICE]}}))
+            1: registrar, 2: {1: [16, 17, 18, 19], 2: sorted([MEMBERSHIP, NOTICE], key=str.encode)}}))
         checked = {"member": school, "kind": "organization", "name": "Kowloon Example School", "verified": True,
                    "registration": "12345678", "jurisdiction": "HK", "until": t0 + 365 * day}
 
@@ -5328,7 +5328,7 @@ def membership_bundle_cases(t0: int) -> tuple[list, list]:
 
     at(node, 1 * minute)
     registrar = node.actor(es.PERSON, "Membership Registrar", es.Key("HK Trust Ltd registrar"))
-    registrars = node.grant(registrar, {1: [16, 18, 19], 2: [MEMBERSHIP, LISTING]})
+    registrars = node.grant(registrar, {1: [16, 18, 19], 2: sorted([MEMBERSHIP, LISTING], key=str.encode)})
     m1 = member_of(node, registrar, registrars, {**checked, "until": t0 + 365 * day}, 10 * minute)
     m7 = member_of(node, node.org, None, checked, 11 * minute)
     m5 = member_of(node, registrar, registrars, {**checked, "until": t0 + 50 * minute}, 12 * minute)
@@ -5480,12 +5480,12 @@ def generate_protocol_v16() -> None:
         return {"type": kind, "initial": initial, "transitions": [list(t) for t in ordered]}
 
     document = {
-        "description": "CexChain protocol objects of specification revision v0.16 (trust nodes), built by an "
-                       "independent Python encoder from spec/README.md (sections 6 and 11) and spec/cexchain.cddl. "
+        "description": "Kanhe protocol objects of specification revision v0.16 (trust nodes), built by an "
+                       "independent Python encoder from spec/README.md (sections 6 and 11) and spec/kanhe.cddl. "
                        "Times are milliseconds since the epoch. `mechanism_types` lists the six mechanism types "
                        "in the specification's table order, each with its initial state and transitions (the "
                        "membership's in the table's order, the others' sorted). `membership_metadata` holds "
-                       "membership metadata (record key 5 of a cexchain.membership/1 record) on its own: `valid` "
+                       "membership metadata (record key 5 of a kanhe.membership/1 record) on its own: `valid` "
                        "cases, each its deterministic CBOR (`metadata`) and its values (`membership`: the member's "
                        "ledger id in hex, and the optional keys only when present), the specification's example "
                        "first; `refused` cases, each breaking one rule of the `membership` CDDL or its limits in "
@@ -5520,10 +5520,10 @@ def generate_protocol_v16() -> None:
                        "for an absent optional key), its registration time, and its standing at "
                        "`checkpoint_time` (`at_checkpoint`). `log_entries` holds the whole log, ending with the "
                        "state commitment over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers "
-                       "it; keys are seed = SHA-256(\"CexChain test key: <name>\"), `seeds`. `bundles` holds "
+                       "it; keys are seed = SHA-256(\"Kanhe test key: <name>\"), `seeds`. `bundles` holds "
                        "member ledgers' evidence bundles carrying membership proofs (key 9), written by hand "
-                       "(tools/testvectors/evidence_suite.py's Forge; keys are seed = SHA-256(\"CexChain test "
-                       "key: evidence <ledger name> root\"), \"... log\", and \"CexChain test key: evidence HK "
+                       "(tools/testvectors/evidence_suite.py's Forge; keys are seed = SHA-256(\"Kanhe test "
+                       "key: evidence <ledger name> root\"), \"... log\", and \"Kanhe test key: evidence HK "
                        "Trust Ltd registrar\"). Each `valid` case is a bundle (`bundle`, hex) of the member "
                        "ledger `ledger`, the verifier's trust list (`trust_nodes`, each a ledger id and the name "
                        "the verifier gives it), and what the report states of each proof, in the bundle's order "
@@ -5617,7 +5617,7 @@ def generate_vm_v1() -> None:
         imports=["input_size", "input_read", "hash", "output_write"])
     m = add_module("hash", hasher)
     for h in ("sha256", "sm3"):
-        add_run(f"hash {h}", "hash", m, b"CexChain contract input", h)
+        add_run(f"hash {h}", "hash", m, b"Kanhe contract input", h)
     aborts = w.assemble([{"body": [("i32.const", 0), ("i32.const", 2000), ("call", 0)]}],
                         imports=["abort"], data=[(0, b"refused: " + b"x" * 1500)])
     m = add_module("abort", aborts)
@@ -5863,15 +5863,15 @@ def generate_vm_v1() -> None:
         "tail call": body_bytes(b"\x12\x00"),
         "start section": w.assemble([{"body": [("nop",)]}], raw_sections=[(8, b"\x00")]),
         "import from another module": w.assemble([{"body": [("nop",)]}], imports=["input_size"]).replace(
-            b"\x08cexchain", b"\x08cexchai_"),
+            b"\x05kanhe", b"\x05kanh_"),
         "unknown host function": w.assemble([{"body": [("nop",)]}], imports=["input_size"]).replace(
             b"\x0ainput_size", b"\x0ainput_sizz"),
         "memory of 17 pages": w.assemble([{"body": [("nop",)]}], memory=(1, 17)),
         "memory without maximum, 17 pages": w.assemble([{"body": [("nop",)]}], memory=(17, None)),
         "table of 1025": w.assemble([{"body": [("nop",)]}], table=(1025, None)),
         "no memory export": w.assemble([{"body": [("nop",)]}], memory=None),
-        "no cexchain_call": w.assemble([{"body": [("nop",)]}], entry_name="main"),
-        "cexchain_call with a parameter": w.assemble([{"params": ["i32"], "body": [("nop",)]}]),
+        "no kanhe_call": w.assemble([{"body": [("nop",)]}], entry_name="main"),
+        "kanhe_call with a parameter": w.assemble([{"params": ["i32"], "body": [("nop",)]}]),
         "duplicate export": w.assemble([{"body": [("nop",)]}],
                                        exports_extra=[w.name_("memory") + b"\x02\x00"]),
         "data out of bounds": w.assemble([{"body": [("nop",)]}], data=[(65535, b"ab")]),
@@ -5888,9 +5888,9 @@ def generate_vm_v1() -> None:
             b"\x02\x7f\x02\x40\x41\x00\x0e\x01\x00\x01\x0b\x41\x00\x0b\x1a"),
         "if without else changes type": body_bytes(b"\x41\x01\x04\x7f\x41\x01\x0b\x1a"),
         "u32 too long": w.assemble([{"body": [("nop",)]}], entry_name=None, exports_extra=[
-            w.name_("cexchain_call") + b"\x00\x80\x80\x80\x80\x80\x00"]),
+            w.name_("kanhe_call") + b"\x00\x80\x80\x80\x80\x80\x00"]),
         "u32 too large": w.assemble([{"body": [("nop",)]}], entry_name=None, exports_extra=[
-            w.name_("cexchain_call") + b"\x00\x80\x80\x80\x80\x10"]),
+            w.name_("kanhe_call") + b"\x00\x80\x80\x80\x80\x10"]),
     }
     for name, wasm in refused.items():
         add_module(name, wasm, refused=name)
@@ -5982,8 +5982,8 @@ def generate_vm_v1() -> None:
             add_run(f"{name}.{j}", name, m, rng.randbytes(64), hash_name)
 
     document = {
-        "description": "CexChain contract execution (spec section 14): modules in and out of the "
-                       "deterministic WebAssembly profile, and invocations of cexchain_call with their "
+        "description": "Kanhe contract execution (spec section 14): modules in and out of the "
+                       "deterministic WebAssembly profile, and invocations of kanhe_call with their "
                        "outcome (ok, or the trap's name), output, fuel used, and abort reason. Built by "
                        "the independent reference interpreter tools/testvectors/wasm_ref.py; the random "
                        "programs (seeded) check every implementation against it, fuel included.",
