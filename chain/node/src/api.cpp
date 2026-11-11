@@ -37,6 +37,7 @@
 #include <cexchain/node/responses.hpp>
 #include <cexchain/node/timestamps.hpp>
 #include <cexchain/node/tokens.hpp>
+#include <cexchain/node/trust.hpp>
 
 #include "files.hpp"
 #include "request_query.hpp"
@@ -193,6 +194,9 @@ enum class Endpoint {
     published_list,
     publish,
     unpublish,
+    /// GET /m/LEDGER: the evidence of this ledger's newest membership naming
+    /// that ledger, for anyone (spec v0.16, trust.hpp).
+    membership_evidence,
     vault_public_key,
     vault_record,
     /// GET /v1/vault/files/RECORD: the indexes of its kept files.
@@ -350,6 +354,8 @@ struct LedgerApi::State {
     std::atomic<std::uint64_t> auto_checkpoints = 0;
 
     mutable std::mutex event_mutex;
+    /// Which ledger each of this ledger's memberships names (v0.16).
+    mutable MembershipIndex membership_index;
     /// The witness keeps state of its own (what it last cosigned).
     std::mutex witness_mutex;
 
@@ -1573,9 +1579,91 @@ struct LedgerApi::State {
         if (!bundle) {
             return error_response(bundle.error());
         }
+        with_memberships(*bundle);
         auto encoded = protocol::encode_bundle(*bundle);
         return encoded ? binary("application/cbor", std::move(*encoded))
                        : error_response(encoded.error());
+    }
+
+    /// Adds the membership proofs this ledger keeps (v0.16) to a bundle of
+    /// its own (trust.hpp).
+    void with_memberships(protocol::EvidenceBundle& bundle) const {
+        std::string type;
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            if (const protocol::RecordState* r = s.record(bundle.record)) {
+                type = r->record_type;
+            }
+        });
+        add_membership_proofs(options.directory, type, bundle);
+    }
+
+    // ---- memberships (v0.16) ---------------------------------------------
+
+    /// GET /m/LEDGER: the complete evidence of the newest membership naming
+    /// LEDGER, whatever its state; any page may read it.
+    http::Response membership_evidence(std::string_view ledger_text) const {
+        auto response = [&]() -> http::Response {
+            const auto member = id_from(ledger_text);
+            if (!member) {
+                return error_response(400, "invalid_argument", "a ledger id is 64 hex digits");
+            }
+            const auto record = membership_index.newest(*provider, *ledger, *member);
+            if (!record) {
+                return error_response(404, "not_found", "no membership here names that ledger");
+            }
+            if (options.log_keys.empty()) {
+                return error_response(501, "unsupported", "this server has no log key");
+            }
+            auto bundle = ledger->export_evidence(log_keys(), *record);
+            if (!bundle) {
+                return error_response(bundle.error());
+            }
+            auto encoded = protocol::encode_bundle(*bundle);
+            if (!encoded) {
+                return error_response(encoded.error());
+            }
+            http::Response out = binary("application/cbor", std::move(*encoded));
+            out.headers.emplace_back("Cache-Control", "no-store");
+            return out;
+        }();
+        response.headers.emplace_back("Access-Control-Allow-Origin", "*");
+        return response;
+    }
+
+    /// GET /m/LEDGER, catching up with the files and checkpointing first when
+    /// the membership changed since the latest checkpoint, so that a
+    /// suspension shows at once.
+    void membership_request(const http::Request& r, const Routed& routed, std::string principal,
+                            Done& done) {
+        const std::string text(std::string_view(r.path).substr(routed.rest));
+        const auto member = id_from(text);
+        auto newest = [this, member] {
+            return member ? membership_index.newest(*provider, *ledger, *member) : std::nullopt;
+        };
+        const bool can_write =
+            !options.read_only && !replica && !cluster && !options.log_keys.empty();
+        if (!can_write || !member || !ledger->outdated()) {
+            const auto record = newest();
+            if (!can_write || !record || covered(*record)) {
+                finish(done, principal, answer_safely(r, routed, principal, 0));
+                return;
+            }
+        }
+        queue_locked([this, text, newest, principal = std::move(principal),
+                      done = std::move(done)](const http::Response* refusal) mutable {
+            if (refusal != nullptr) {
+                finish(done, principal, *refusal);
+                return;
+            }
+            // Caught up with the files: checkpoint unless that covers it now.
+            if (const auto record = newest(); record && !covered(*record)) {
+                if (auto made = ledger->checkpoint(log_keys()); !made) {
+                    finish(done, principal, error_response(made.error()));
+                    return;
+                }
+            }
+            finish(done, principal, membership_evidence(text));
+        });
     }
 
     // ---- published records -----------------------------------------------
@@ -1597,6 +1685,7 @@ struct LedgerApi::State {
                 return error_response(bundle.error());
             }
             bundle->disclosures = std::move(published->disclosures);
+            with_memberships(*bundle);
             auto encoded = protocol::encode_bundle(*bundle);
             if (!encoded) {
                 return error_response(encoded.error());
@@ -1625,13 +1714,18 @@ struct LedgerApi::State {
         return last;
     }
 
+    /// Whether the latest checkpoint covers every statement about `record`.
+    bool covered(const protocol::Id& record) const {
+        const auto last = last_about(record);
+        const auto latest = ledger->latest_checkpoint();
+        return !last || (latest && latest->checkpoint.tree_size > *last);
+    }
+
     /// Whether the latest checkpoint covers every statement about the record
     /// published under `token` (an unknown token needs none).
     bool published_covered(std::string_view token) const {
         auto published = load_published(options.directory, token);
-        const auto last = published ? last_about(published->record) : std::nullopt;
-        const auto latest = ledger->latest_checkpoint();
-        return !last || (latest && latest->checkpoint.tree_size > *last);
+        return !published || covered(published->record);
     }
 
     /// GET /c/TOKEN, checkpointing first when the record changed since the
@@ -3881,6 +3975,11 @@ struct LedgerApi::State {
                 return method_not_allowed("GET");
             }
             found = Routed{Endpoint::published_evidence, Access::open, rest};
+        } else if (match("/m/")) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::membership_evidence, Access::open, rest};
         } else if (path == "/v1/published") {
             if (!get && !post) {
                 return method_not_allowed("GET, POST");
@@ -3998,6 +4097,8 @@ struct LedgerApi::State {
             return evidence(rest);
         case Endpoint::published_evidence:
             return published_evidence(rest);
+        case Endpoint::membership_evidence:
+            return membership_evidence(rest);
         case Endpoint::published_list:
             return published_list();
         case Endpoint::publish:
@@ -4224,6 +4325,10 @@ struct LedgerApi::State {
         }
         if (routed.endpoint == Endpoint::published_evidence) {
             published_request(r, routed, std::move(principal), done);
+            return;
+        }
+        if (routed.endpoint == Endpoint::membership_evidence) {
+            membership_request(r, routed, std::move(principal), done);
             return;
         }
         if (routed.endpoint == Endpoint::requests) {

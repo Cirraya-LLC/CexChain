@@ -1194,7 +1194,13 @@ private:
              {"attachments",
               {{"type", "object"},
                {"additionalProperties", {{"type", "string"}}},
-               {"description", "Attachment name to file path, to check contents."}}}},
+               {"description", "Attachment name to file path, to check contents."}}},
+             {"trust_nodes",
+              {{"type", "object"},
+               {"additionalProperties", {{"type", "string"}}},
+               {"description",
+                "Trust nodes to believe (spec v0.16): ledger id to the name to give it. The "
+                "evidence's memberships from others are reported and relied on for nothing."}}}},
             json::array({"bundle_path"}), read_only, [](const Tool&, const json& arguments) {
                 const crypto::openssl::Provider provider;
                 protocol::VerifyOptions options;
@@ -1205,18 +1211,27 @@ private:
                 for (const auto& [name, path] : string_map(arguments, "attachments")) {
                     options.attachment_contents[name] = read_file(path);
                 }
+                for (const auto& [ledger_id, name] : string_map(arguments, "trust_nodes")) {
+                    options.trust_nodes.push_back(
+                        {unwrap(protocol::to_id(unwrap(from_hex(ledger_id), "trust node")),
+                                "trust node"),
+                         name});
+                }
                 const auto report =
                     ledger::verify_bundle(provider, read_file(text_arg(arguments, "bundle_path")),
                                           options, on_all_cores());
                 if (!report) {
                     throw ToolError{"VERIFICATION FAILED: " + std::string(report.error().detail)};
                 }
-                return json{{"verified", true},
-                            {"record_type", report->record_type},
-                            {"state", report->state},
-                            {"revoked", report->revoked},
-                            {"report",
-                             verifier::report_text(*report, options.expected_ledger.has_value())}};
+                const bool checked = options.expected_ledger.has_value();
+                return json{
+                    {"verified", true},
+                    {"record_type", report->record_type},
+                    {"state", report->state},
+                    {"revoked", report->revoked},
+                    {"memberships",
+                     json::parse(verifier::report_json(*report, checked)["memberships"].dump())},
+                    {"report", verifier::report_text(*report, checked)}};
             });
     }
 

@@ -558,6 +558,9 @@ std::string_view record_type_purpose(std::string_view type) {
     if (type == "cexchain.claim/1") {
         return "confirming a condition on another record's fields, without them (claim issue)";
     }
+    if (type == "cexchain.membership/1") {
+        return "a trust node's word on who runs another ledger (trust member add)";
+    }
     return {};
 }
 

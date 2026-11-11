@@ -45,6 +45,10 @@ def _common(p: argparse.ArgumentParser, issuer: str):
                    help="trust time-stamp authorities under this root certificate (PEM or DER) [repeatable]")
     p.add_argument("--min-timestamps", metavar="N", type=int, default=0,
                    help="fail unless at least N trusted time-stamp authorities stamped it")
+    p.add_argument("--trust-node", metavar="LEDGER=NAME", action="append", default=[],
+                   help="believe this trust node's memberships (spec v0.16, section 11): its ledger id (64 hex "
+                        "digits) and the name to call it by, which the report gives it; a membership proof from "
+                        "any other ledger is reported and relied on for nothing [repeatable]")
 
 
 def _bundle_parser() -> argparse.ArgumentParser:
@@ -110,6 +114,24 @@ def _witness_vkeys(texts: list[str]) -> list:
     return keys
 
 
+def _trust_nodes(items: list[str]) -> dict:
+    """--trust-node LEDGER=NAME: a full ledger id and a non-empty name; a
+    ledger named twice is a usage error."""
+    nodes = {}
+    for item in items:
+        text, sep, name = item.partition("=")
+        try:
+            ledger = bytes.fromhex(text) if len(text) == 64 else b""
+        except ValueError:
+            ledger = b""
+        if not sep or len(ledger) != 32 or not name:
+            raise UsageError(f"--trust-node takes LEDGER=NAME, a full ledger id (64 hex digits) and a name ({item!r})")
+        if ledger in nodes:
+            raise UsageError(f"--trust-node names the ledger {text} twice")
+        nodes[ledger] = name
+    return nodes
+
+
 def _ledger_id(text: str | None) -> bytes | None:
     if text is None:
         return None
@@ -166,6 +188,7 @@ def _bundle_main(argv: list[str]) -> int:
     try:
         ledger_id = _ledger_id(args.ledger_id)
         vkeys = _witness_vkeys(args.witness_vkey)
+        nodes = _trust_nodes(args.trust_node)
     except UsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return EXIT_USAGE
@@ -179,7 +202,7 @@ def _bundle_main(argv: list[str]) -> int:
         return EXIT_INPUT
     try:
         result = verify_bundle(data, ledger_id=ledger_id, witnesses=witnesses, tsa_roots_pem=roots,
-                               attachments=files, network_witnesses=vkeys)
+                               attachments=files, network_witnesses=vkeys, trust_nodes=nodes)
     except VerifyError as e:
         return _not_verified(args, e)
     failure = _required(result, args)
@@ -193,6 +216,7 @@ def _contract_main(argv: list[str]) -> int:
     try:
         ledger_id = _ledger_id(args.ledger_id)
         vkeys = _witness_vkeys(args.witness_vkey)
+        nodes = _trust_nodes(args.trust_node)
     except UsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return EXIT_USAGE
@@ -205,7 +229,7 @@ def _contract_main(argv: list[str]) -> int:
         return EXIT_INPUT
     try:
         result = verify_contract_evidence(data, ledger_id=ledger_id, witnesses=witnesses, tsa_roots_pem=roots,
-                                          network_witnesses=vkeys)
+                                          network_witnesses=vkeys, trust_nodes=nodes)
     except VerifyError as e:
         return _not_verified(args, e)
     if args.deploy_out is not None:

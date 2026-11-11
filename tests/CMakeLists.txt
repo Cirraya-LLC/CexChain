@@ -28,6 +28,7 @@ add_executable(cexchain_tests
     core/cose_test.cpp
     core/crypto_test.cpp
     core/hex_test.cpp
+    core/memberships_test.cpp
     core/merkle_test.cpp
     core/protocol_test.cpp
     core/protocol_v02_test.cpp
@@ -42,6 +43,7 @@ add_executable(cexchain_tests
     core/protocol_v013_test.cpp
     core/protocol_v014_test.cpp
     core/protocol_v015_test.cpp
+    core/protocol_v016_test.cpp
     core/exchange_test.cpp
     core/vm_test.cpp
     crypto/openssl_test.cpp
@@ -54,6 +56,7 @@ add_executable(cexchain_tests
     ledger/concurrency_test.cpp
     ledger/evidence_test.cpp
     ledger/claims_test.cpp
+    ledger/memberships_test.cpp
     ledger/ledger_test.cpp
     ledger/parallel_test.cpp
     ledger/presence_test.cpp
@@ -264,6 +267,9 @@ add_test(NAME files_end_to_end
 # Claims: conditions confirmed on a record's fields, without them.
 add_test(NAME claims_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/claims.sh $<TARGET_FILE:cexchain>)
+# Trust nodes: memberships, their proofs, and the evidence that carries them.
+add_test(NAME trust_end_to_end
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/trust.sh $<TARGET_FILE:cexchain>)
 # Records published at a private address (a certificate's QR code).
 add_test(NAME published_end_to_end
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cli/published.sh $<TARGET_FILE:cexchain>)

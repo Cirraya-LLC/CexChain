@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Cirraya
 """Replaying statements under the ledger rules (spec section 5), with
-records' lifecycles and claims (section 6), proof of presence (section 7),
+records' lifecycles, claims, and memberships (section 6), proof of presence (section 7),
 the log key in effect (section 8), state histories (section 9), and
 contracts (section 15, in contracts.py).
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import claims, contracts, cose, crypto, presence, protocol
+from . import claims, contracts, cose, crypto, memberships, presence, protocol
 from .errors import VerifyError
 from .protocol import (ACTOR_REGISTER, ACTOR_REVOKE, ACTOR_ROTATE_KEY, ACTOR_SET_PRESENCE, AGENT,
                        CONTRACT_CALL, CONTRACT_DEPLOY, CONTRACT_RETIRE, DELEGATION_GRANT, DELEGATION_REVOKE,
@@ -38,6 +38,7 @@ MECHANISM_TYPES = {
     "cexchain.access-receipt/1": ("received", set()),
     "cexchain.contract-consent/1": ("given", {("given", "withdrawn")}),
     claims.CLAIM_TYPE: ("confirmed", set()),  # v0.14: withdrawn by revoking it
+    memberships.MEMBERSHIP_TYPE: (memberships.INITIAL, memberships.TRANSITIONS),  # v0.16; revoked for cause
 }
 
 KIND_NAMES = {ORGANIZATION: "organization", PERSON: "person", AGENT: "agent", protocol.DEVICE: "device"}
@@ -83,6 +84,7 @@ class Record:
     endorsements: set = field(default_factory=set)
     history: list = field(default_factory=list)
     claim: claims.Claim | None = None  # a cexchain.claim/1 record's metadata (v0.14)
+    membership: memberships.Membership | None = None  # a cexchain.membership/1 record's metadata (v0.16)
 
 
 @dataclass
@@ -495,11 +497,12 @@ class Ledger(contracts.ContractRules):
                 if old.superseded_by is not None:
                     fail("the record was superseded already")
         claim = self._check_claim(applied, f) if kind == claims.CLAIM_TYPE else None
+        membership = self._check_membership(f) if kind == memberships.MEMBERSHIP_TYPE else None
         initial = MECHANISM_TYPES[kind][0] if kind in MECHANISM_TYPES else GENERIC_INITIAL
         self.records[applied.id] = Record(
             id=applied.id, type=kind, field_root=f["field_root"], field_count=f["field_count"],
             attachments=f["attachments"], metadata=f["metadata"], supersedes=f["supersedes"],
-            registrant=signer.id, state=initial, history=[applied.index], claim=claim)
+            registrant=signer.id, state=initial, history=[applied.index], claim=claim, membership=membership)
         if old is not None:
             # The registration is a statement about both records (section 9).
             old.superseded_by = applied.id
@@ -526,6 +529,15 @@ class Ledger(contracts.ContractRules):
         if source.superseded_by is not None:
             fail("a claim's source is superseded")
         return claim
+
+    def _check_membership(self, f: dict) -> memberships.Membership:
+        """Section 6, memberships (v0.16): the metadata's shape and keys, and
+        a member other than this ledger. The registration is a statement
+        about the membership only: the member's ledger is another ledger."""
+        membership = memberships.parse(f["metadata"])
+        if membership.member == self.id:
+            fail("a membership names the ledger's own id as its member")
+        return membership
 
     def _record_endorse(self, applied: Applied, signer: Actor, chain):
         f = applied.statement.fields

@@ -10,6 +10,7 @@
 //     witnesses: [publicKeyFileBytes],         // trusted witness keys
 //     timestampRoots: [certificateFileBytes],  // trusted time-stamp authorities' roots
 //     attachments: { "report.pdf": pdfBytes }, // contents to check
+//     trustNodes: [{ ledger: "<64 hex digits>", name: "HK Trust" }], // trust nodes believed
 //   });
 //   report.verified  // true or false; report.error explains a failure
 
@@ -58,6 +59,13 @@ async function createCexChainVerifier(factory) {
     for (const root of options.timestampRoots || []) {
       if (withBytes(root, (p, n) => module._cexchain_add_timestamp_root(p, n)) !== 0) {
         return { verified: false, error: "a time-stamp authority's root is not a certificate (PEM or DER)" };
+      }
+    }
+    for (const node of options.trustNodes || []) {
+      const ok = withString(node.ledger.trim().toLowerCase(), (ledger) =>
+        withString(node.name, (name) => module._cexchain_add_trust_node(ledger, name)));
+      if (ok !== 0) {
+        return { verified: false, error: "a trust node is a ledger id (64 hex digits) and a name" };
       }
     }
     for (const [name, content] of Object.entries(options.attachments || {})) {

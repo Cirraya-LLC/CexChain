@@ -24,6 +24,8 @@ cexchain_add_fuzzer(network_parse_fuzz cexchain::crypto_openssl)
 cexchain_add_fuzzer(protocol_parse_fuzz cexchain::crypto_openssl cexchain::ledger)
 # Claims' metadata (spec v0.14), from whoever registers a record.
 cexchain_add_fuzzer(claim_fuzz)
+# Memberships' metadata (spec v0.16), inside every membership proof.
+cexchain_add_fuzzer(membership_fuzz)
 # The state in a snapshot file, its contracts' code the v0.6 vectors' contract.
 cexchain_add_fuzzer(state_snapshot_fuzz)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

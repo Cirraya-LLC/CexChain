@@ -2,10 +2,10 @@
 # Copyright 2026 Cirraya
 """Evidence bundles assembled from the independent test vectors.
 
-The protocol vectors of revisions v0.2, v0.4, v0.9, v0.10, and v0.14 hold whole
-logs that the ledger rules accept, each ending with a state commitment, and a
-checkpoint over them, all built by tools/testvectors/generate.py (not by the
-C++ code). Their keys are throwaway test keys with published seeds, so a test
+The protocol vectors of revisions v0.2, v0.4, v0.9, v0.10, v0.14, and v0.16
+(a trust node's log, with memberships) hold whole logs that the ledger rules
+accept, each ending with a state commitment, and a checkpoint over them, all
+built by tools/testvectors/generate.py (not by the C++ code). Their keys are throwaway test keys with published seeds, so a test
 can sign the receipts a bundle needs. This module packs those logs into
 evidence bundles, one per record: every entry of the log, its receipt, and
 a state proof for every object. Both verifiers must accept them.
@@ -105,8 +105,10 @@ def all_bundles():
                 name = f"{version}-{'sha256' if ledger['hash'] == crypto.SHA256 else 'sm3'}-{record.hex()[:8]}"
                 data = bundle(ledger, document["seeds"], log_key_name, record, leaves)
                 yield name, ledger["ledger_id"], record.hex(), data
-    for version in ("v0.9", "v0.10", "v0.14"):
+    for version in ("v0.9", "v0.10", "v0.14", "v0.16"):
         document = json.loads((VECTORS / f"protocol-{version}.json").read_text())
+        if version == "v0.16":
+            document = document["replay"]
         for ledger in document["ledgers"]:
             leaves = _leaves(ledger["state_leaves"])
             for record in ledger["records"]:

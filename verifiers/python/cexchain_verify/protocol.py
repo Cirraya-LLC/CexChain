@@ -566,6 +566,11 @@ class Bundle:
     openings: list  # [(name, salt)]
     proofs: list
     anchors: list
+    memberships: list = field(default_factory=list)  # v0.16: membership proofs, each an encoded bundle
+
+
+# A bundle carries at most this many membership proofs (key 9, v0.16).
+MAX_MEMBERSHIP_PROOFS = 16
 
 
 def _nonempty_list(value, what: str) -> list:
@@ -583,7 +588,7 @@ def parse_bundle(data: bytes) -> Bundle:
     value = cbor.decode(data)
     _check(not is_contract_evidence(value), "this is an instance's contract evidence, not an evidence bundle: "
            "verify it as contract evidence")
-    m = _map(value, "an evidence bundle", {0, 1, 2, 3}, {4, 5, 6, 7, 8})
+    m = _map(value, "an evidence bundle", {0, 1, 2, 3}, {4, 5, 6, 7, 8, 9})
     _check(m[0] == 1 and _is_int(m[0]), "the bundle is not of format version 1")
     entries = []
     for item in _nonempty_list(m[2], "the bundle's entries"):
@@ -616,9 +621,17 @@ def parse_bundle(data: bytes) -> Bundle:
         _check(len(siblings) <= 256, "a state proof has more than 256 siblings")
         proofs.append(StateProof(kind=leaf[0], id=leaf[1], history=list(leaf[2]), siblings=siblings))
     anchors = [parse_anchor(a) for a in (_nonempty_list(m[8], "the anchors") if 8 in m else [])]
+    # v0.16: 1 to 16 membership proofs, each an encoded evidence bundle,
+    # verified in evidence.py (section 11, step 9).
+    memberships = []
+    if 9 in m:
+        memberships = _nonempty_list(m[9], "the list of membership proofs (key 9)")
+        _check(len(memberships) <= MAX_MEMBERSHIP_PROOFS, "the bundle carries more than 16 membership proofs")
+        _check(all(isinstance(p, bytes) for p in memberships), "a membership proof is not a byte string")
     return Bundle(subject=_id(m[1], "the bundle's subject"), entries=entries,
                   checkpoint=_bstr(m[3], "the checkpoint"), cosignatures=cosignatures,
-                  disclosures=disclosures, openings=openings, proofs=proofs, anchors=anchors)
+                  disclosures=disclosures, openings=openings, proofs=proofs, anchors=anchors,
+                  memberships=list(memberships))
 
 
 def parse_anchor(value) -> Anchor:

@@ -17,6 +17,7 @@
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/memberships.hpp>
 #include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -86,6 +87,9 @@ struct EvidenceBundle {
     std::vector<StateProof> state_proofs;
     /// Time-stamped checkpoints at or before `checkpoint` (v0.11).
     std::vector<Anchor> anchors;
+    /// Membership proofs (v0.16): encoded bundles of memberships, on trust
+    /// nodes' ledgers, that name this bundle's ledger; at most 16.
+    std::vector<Bytes> memberships;
 
     friend bool operator==(const EvidenceBundle&, const EvidenceBundle&) = default;
 };
@@ -155,6 +159,15 @@ private:
     SignatureChecks& checks_;
 };
 
+/// A trust node the verifier believes (v0.16): its ledger, and the name the
+/// verifier gives it, which reports use (never one the evidence gives).
+struct TrustNode {
+    Id ledger;
+    std::string name;
+
+    friend bool operator==(const TrustNode&, const TrustNode&) = default;
+};
+
 struct VerifyOptions {
     /// If set, the bundle must come from this ledger. Verifiers learn the
     /// expected ledger out of band (for example from a QR code or a contract).
@@ -169,6 +182,9 @@ struct VerifyOptions {
     /// Open-network witnesses the verifier trusts, by their verifier keys
     /// (v0.13). Their cosignatures count as its own witnesses' do.
     std::vector<network::VerifierKey> trusted_network_witnesses;
+    /// Trust nodes the verifier believes (v0.16). Memberships from other
+    /// ledgers are reported and relied on for nothing.
+    std::vector<TrustNode> trust_nodes;
     /// Attachment contents to check, by attachment name.
     std::map<std::string, Bytes> attachment_contents;
     /// Signatures checked ahead of time or remembered, asked before each
@@ -422,6 +438,28 @@ struct EvidenceReport {
         friend bool operator==(const ClaimReport&, const ClaimReport&) = default;
     };
     std::optional<ClaimReport> claim;
+    /// A membership proof (v0.16): the trust node, the membership, and where
+    /// it stood when the bundle's record was registered (an instance's
+    /// creating call) and at the proof's checkpoint.
+    struct MembershipReport {
+        /// The trust node's ledger; trusted if on the verifier's list, which
+        /// gives its name.
+        Id trust_node;
+        bool trusted = false;
+        std::string trust_node_name;
+        /// The membership record, and when the trust node registered it.
+        Id record;
+        Timestamp registered_at = 0;
+        Membership membership;
+        Timestamp record_time = 0;
+        Standing at_record = Standing::not_yet;
+        Timestamp checkpoint_time = 0;
+        Standing at_checkpoint = Standing::not_yet;
+
+        friend bool operator==(const MembershipReport&, const MembershipReport&) = default;
+    };
+    /// In the bundle's order.
+    std::vector<MembershipReport> memberships;
     /// If the bundle is about a contract instance.
     std::optional<InstanceReport> instance;
     /// The record's events, or the instance's calls (for a child, its

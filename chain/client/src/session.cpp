@@ -20,6 +20,7 @@
 #include <cexchain/node/cluster.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/replica.hpp>
+#include <cexchain/node/trust.hpp>
 
 namespace cexchain::client {
 
@@ -616,7 +617,13 @@ protocol::SignedCheckpoint Session::checkpoint(const LogKey& log_key) {
 protocol::EvidenceBundle Session::evidence(const LogKey& log_key, const protocol::Id& record) {
     if (!remote_) {
         const auto key = log_key.load();
-        return unwrap(ledger_->export_evidence(*key, record), "exporting evidence");
+        auto bundle = unwrap(ledger_->export_evidence(*key, record), "exporting evidence");
+        // The membership proofs this ledger keeps (spec v0.16); a server
+        // adds its own.
+        const protocol::RecordState* r = state().record(record);
+        node::add_membership_proofs(directory_, r != nullptr ? r->record_type : std::string(),
+                                    bundle);
+        return bundle;
     }
     if (log_key.given) {
         throw UsageError{"with --server the server signs: drop --log-key"};

@@ -25,6 +25,7 @@
 #include <cexchain/core/merkle.hpp>
 #include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/log.hpp>
+#include <cexchain/core/protocol/memberships.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/core/protocol/state_tree.hpp>
@@ -303,7 +304,7 @@ TEST_CASE("v0.9 generic core: replay, and the lifecycles' refusals in place",
 TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
           "[protocol][vectors][v09]") {
     // The removed types are no longer built in; only the mechanism types
-    // are (v0.9's four, and v0.14's claim), and only types under the prefix
+    // are (v0.9's four, v0.14's claim, v0.16's membership), and only types under the prefix
     // that are not one of them are reserved.
     for (const auto& removed : vectors()["removed_types"]) {
         INFO(text(removed));
@@ -312,8 +313,9 @@ TEST_CASE("v0.9 generic core: statement type 20 and the reserved prefix",
     }
     // Each mechanism type with its lifecycle, as the independent encoder
     // states it; none takes endorsements.
-    REQUIRE(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size() + 1);
-    CHECK(protocol::builtin_record_types().back().name == protocol::claim_type);
+    REQUIRE(protocol::builtin_record_types().size() == vectors()["mechanism_types"].size() + 2);
+    CHECK(protocol::builtin_record_types()[4].name == protocol::claim_type);
+    CHECK(protocol::builtin_record_types()[5].name == protocol::membership_type);
     for (const auto& mechanism : vectors()["mechanism_types"]) {
         const std::string name = text(mechanism["type"]);
         INFO(name);

@@ -44,6 +44,7 @@
 #include <cexchain/core/protocol/contracts.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/exchange.hpp>
+#include <cexchain/core/protocol/memberships.hpp>
 #include <cexchain/core/protocol/network.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record.hpp>
@@ -145,9 +146,20 @@ void ledger_seeds(const Seeds& seeds) {
                                           clock.now() + 86'400'000,
                                           Bytes(32, 7),
                                           std::vector<std::string>{"result"},
-                                          std::vector<std::string>{"report.pdf"}};
+                                          std::vector<std::string>{"report.pdf"},
+                                          std::nullopt};
     const auto request_metadata = must(protocol::encode_access_request(request), "request");
     seeds.write("access_parse_fuzz", "request", must(cbor::encode(request_metadata), "encode"));
+    // A request for a condition (spec v0.15): no key, no fields.
+    protocol::AccessRequest question = request;
+    question.recipient = {};
+    question.fields = std::nullopt;
+    question.attachments = std::nullopt;
+    question.condition =
+        std::vector<protocol::ClaimTerm>{{"result", "=", "text", cbor::Value::text("pass")}};
+    seeds.write(
+        "access_parse_fuzz", "question",
+        must(cbor::encode(must(protocol::encode_access_request(question), "question")), "encode"));
     auto access_fields =
         must(protocol::commit_fields(provider, hash, {{"note", salt, cbor::Value::text("x")}}),
              "fields");
@@ -1281,6 +1293,27 @@ void claim_seeds(const Seeds& seeds) {
     seeds.write("claim_fuzz", "every-operator", must(cbor::encode(claim), "encode"));
 }
 
+/// A membership's metadata (spec v0.16): every key, then only those needed.
+void membership_seeds(const Seeds& seeds) {
+    cexchain::protocol::Membership m;
+    m.member = must(cexchain::protocol::to_id(Bytes(32, 5)), "id");
+    m.name = "Kowloon Example School";
+    m.verified = true;
+    m.registration = "12345678";
+    m.jurisdiction = "CN-44";
+    m.until = 1'825'891'200'000;
+    seeds.write(
+        "membership_fuzz", "every-key",
+        must(cbor::encode(must(cexchain::protocol::encode_membership(m), "encode")), "encode"));
+    cexchain::protocol::Membership person;
+    person.member = m.member;
+    person.kind = cexchain::protocol::MemberKind::person;
+    person.name = "Chan";
+    seeds.write("membership_fuzz", "self-declared",
+                must(cbor::encode(must(cexchain::protocol::encode_membership(person), "encode")),
+                     "encode"));
+}
+
 /// A published record's file: one disclosed field, then none and untimed
 /// (a request to publish).
 void published_seeds(const Seeds& seeds) {
@@ -1337,6 +1370,7 @@ int main(int argc, char** argv) {
         record_file_seeds(seeds);
         published_seeds(seeds);
         claim_seeds(seeds);
+        membership_seeds(seeds);
         form_seeds(seeds);
         calls_seeds(seeds);
         exchange_seeds(seeds);

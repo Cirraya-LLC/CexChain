@@ -4774,6 +4774,791 @@ def generate_protocol_v15() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.16: trust nodes (spec sections 6, 11, and 16): memberships, the
+# sixth mechanism type, and membership proofs in evidence bundles (key 9)
+# ---------------------------------------------------------------------------
+
+MEMBERSHIP = "cexchain.membership/1"
+MEMBERSHIP_INITIAL = "active"
+# The transitions in the specification's order (section 6, "Mechanism types").
+MEMBERSHIP_TRANSITIONS = (("active", "suspended"), ("suspended", "active"), ("active", "ended"),
+                          ("suspended", "ended"))
+# The six mechanism types of v0.16, in the specification's table order.
+# MECHANISM_TYPES stays as protocol-v0.14.json lists it.
+MECHANISM_TYPES_V16 = {**MECHANISM_TYPES, MEMBERSHIP: (MEMBERSHIP_INITIAL, set(MEMBERSHIP_TRANSITIONS))}
+MEMBERSHIP_REQUIRED = ("member", "kind", "name", "verified")
+MEMBERSHIP_OPTIONAL = ("registration", "jurisdiction", "until")
+MEMBERSHIP_KINDS = ("organization", "person")
+JURISDICTION = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")
+MAX_MEMBERSHIP_PROOFS = 16
+NOTICE = "example.org.notice/1"
+LISTING = "example.org.listing/1"
+DIPLOMA = "example.org.diploma/1"
+_ABSENT = object()
+
+
+def _text_bytes(v, low: int, high: int) -> bool:
+    return isinstance(v, str) and low <= len(v.encode("utf-8")) <= high
+
+
+def membership_problem(metadata) -> str | None:
+    """Why a membership's metadata (record key 5) is not a `membership` of
+    the CDDL with the prose's limits (section 6), or None. The ledger refuses
+    other keys, a key that is not text among them; a key whose value is not
+    of its type, null included, breaks that key's rule."""
+    if not isinstance(metadata, dict):
+        return "no metadata"
+    if any(not isinstance(k, str) for k in metadata) or set(metadata) - set(MEMBERSHIP_REQUIRED + MEMBERSHIP_OPTIONAL):
+        return "unknown key"
+    if set(MEMBERSHIP_REQUIRED) - set(metadata):
+        return "missing key"
+    m = metadata
+    if not _id32(m["member"]):
+        return "member"
+    if not (isinstance(m["kind"], str) and m["kind"] in MEMBERSHIP_KINDS):
+        return "kind"
+    if not _text_bytes(m["name"], 1, 256):
+        return "name"
+    if not isinstance(m["verified"], bool):
+        return "verified"
+    if "registration" in m and not _text_bytes(m["registration"], 1, 64):
+        return "registration"
+    if "jurisdiction" in m and not (isinstance(m["jurisdiction"], str) and JURISDICTION.fullmatch(m["jurisdiction"])):
+        return "jurisdiction"
+    if "until" in m and not (_cbor_int(m["until"]) and m["until"] > 0):
+        return "until"
+    return None
+
+
+def membership_standing(registered_at: int, until, changes: list, t: int) -> str:
+    """Where a membership stood at time t (section 11, step 9), from its
+    registration time, its until (None if it has none), and its changes in
+    log order, each (registration time, the state it moved to, or "" for the
+    revocation). A proof's history ends at its checkpoint, so for a t after
+    it this is the state as of the checkpoint, with until applied."""
+    if t < registered_at:
+        return "not_yet"
+    if any(to == "" and at <= t for at, to in changes):
+        return "revoked"
+    if until is not None and t > until:
+        return "lapsed"
+    state = MEMBERSHIP_INITIAL
+    for at, to in changes:
+        if to and at <= t:
+            state = to
+    return state
+
+
+def membership_metadata_json(m: dict) -> dict:
+    """A membership's values, its optional keys only when present."""
+    out = {"member": m["member"].hex(), "kind": m["kind"], "name": m["name"], "verified": m["verified"]}
+    for key in MEMBERSHIP_OPTIONAL:
+        if key in m:
+            out[key] = m[key]
+    return out
+
+
+def membership_metadata_cases(t0: int) -> tuple[list, list]:
+    """Membership metadata on its own: (valid, refused)."""
+    year = 365 * 86_400_000
+    # The specification's example (section 6): "ledger 1a2b... is Kowloon
+    # Example School, company 12345678, Hong Kong, checked".
+    member = bytes([0x1A, 0x2B]) + hashlib.sha256(b"Kowloon Example School").digest()[2:]
+    example = {"member": member, "kind": "organization", "name": "Kowloon Example School", "verified": True,
+               "registration": "12345678", "jurisdiction": "HK"}
+    valid, refused = [], []
+
+    def ok(name, metadata):
+        assert membership_problem(metadata) is None, (name, membership_problem(metadata))
+        valid.append({"name": name, "metadata": dcbor(metadata).hex(), "membership": membership_metadata_json(metadata)})
+
+    def bad(name, metadata, why):
+        assert membership_problem(metadata) == why, (name, membership_problem(metadata), why)
+        refused.append({"name": name, "why": why, "metadata": dcbor(metadata).hex()})
+
+    def but(**changes):
+        out = dict(example)
+        for key, value in changes.items():
+            if value is _ABSENT:
+                out.pop(key, None)
+            else:
+                out[key] = value
+        return out
+
+    person = {"member": hashlib.sha256(b"Chan Tai Man's ledger").digest(), "kind": "person", "name": "Chan Tai Man",
+              "verified": False}
+    ok("the specification's example: a verified organization, its company number, Hong Kong", example)
+    ok("the example with until, a year on", but(until=t0 + year))
+    ok("a person, self-declared, no optional key", person)
+    ok("a self-declared organization in a subdivision of digits (CN-44)",
+       but(verified=False, registration=_ABSENT, jurisdiction="CN-44"))
+    ok("a subdivision of three letters (GB-ENG)", but(jurisdiction="GB-ENG"))
+    ok("a subdivision of one letter (ES-M)", but(jurisdiction="ES-M"))
+    ok("a subdivision of letters and digits (FR-75C)", but(jurisdiction="FR-75C"))
+    ok("a name in Chinese", but(name="九龍示範學校"))
+    ok("a name of 1 byte", but(name="K"))
+    ok("a name of 256 bytes", but(name="n" * 256))
+    ok("a name of 256 bytes: 85 three-byte characters and one byte", but(name="學" * 85 + "x"))
+    ok("a registration of 1 byte", but(registration="1"))
+    ok("a registration of 64 bytes", but(registration="R" * 64))
+    ok("until 1, the least", but(until=1))
+    ok("until 2^64 - 1, the largest", but(until=2**64 - 1))
+
+    bad("an unknown key (note)", but(note="seen in person"), "unknown key")
+    bad("a key that is not text (1)", {**example, 1: "x"}, "unknown key")
+    bad("a key that is a byte string (member, as bytes)", {**example, b"member": member}, "unknown key")
+    for key in MEMBERSHIP_REQUIRED:
+        bad(f"without {key}", but(**{key: _ABSENT}), "missing key")
+    bad("an empty map", {}, "missing key")
+    bad("member as null", but(member=None), "member")
+    bad("member as text (its hex)", but(member=member.hex()), "member")
+    bad("member of 31 bytes", but(member=member[:31]), "member")
+    bad("member of 33 bytes", but(member=member + b"\x00"), "member")
+    bad("member as an array of the id", but(member=[member]), "member")
+    bad("kind as null", but(kind=None), "kind")
+    bad("kind as an integer", but(kind=0), "kind")
+    bad("kind company", but(kind="company"), "kind")
+    bad("kind Organization, capitalized", but(kind="Organization"), "kind")
+    bad("kind agent, an actor kind", but(kind="agent"), "kind")
+    bad("name as null", but(name=None), "name")
+    bad("name as bytes", but(name=b"Kowloon Example School"), "name")
+    bad("an empty name", but(name=""), "name")
+    bad("a name of 257 bytes", but(name="n" * 257), "name")
+    bad("a name of 86 three-byte characters (258 bytes)", but(name="學" * 86), "name")
+    bad("verified as null", but(verified=None), "verified")
+    bad("verified as 1", but(verified=1), "verified")
+    bad("verified as the text true", but(verified="true"), "verified")
+    bad("registration as null", but(registration=None), "registration")
+    bad("registration as an integer", but(registration=12345678), "registration")
+    bad("an empty registration", but(registration=""), "registration")
+    bad("a registration of 65 bytes", but(registration="R" * 65), "registration")
+    bad("jurisdiction as null", but(jurisdiction=None), "jurisdiction")
+    bad("jurisdiction as bytes", but(jurisdiction=b"HK"), "jurisdiction")
+    bad("jurisdiction in lower case (hk)", but(jurisdiction="hk"), "jurisdiction")
+    bad("jurisdiction in mixed case (Hk)", but(jurisdiction="Hk"), "jurisdiction")
+    bad("jurisdiction of 1 letter (H)", but(jurisdiction="H"), "jurisdiction")
+    bad("jurisdiction of 3 letters (HKG)", but(jurisdiction="HKG"), "jurisdiction")
+    bad("jurisdiction with a trailing - (HK-)", but(jurisdiction="HK-"), "jurisdiction")
+    bad("jurisdiction with a subdivision of 4 characters (CN-4444)", but(jurisdiction="CN-4444"), "jurisdiction")
+    bad("jurisdiction with _ for - (CN_44)", but(jurisdiction="CN_44"), "jurisdiction")
+    bad("jurisdiction with a lower-case subdivision (CN-ab)", but(jurisdiction="CN-ab"), "jurisdiction")
+    bad("jurisdiction with a trailing newline", but(jurisdiction="HK\n"), "jurisdiction")
+    bad("jurisdiction with a trailing space", but(jurisdiction="HK "), "jurisdiction")
+    bad("an empty jurisdiction", but(jurisdiction=""), "jurisdiction")
+    bad("until as null", but(until=None), "until")
+    bad("until 0", but(until=0), "until")
+    bad("until negative", but(until=-1), "until")
+    bad("until as text", but(until="2027-11-11"), "until")
+    bad("until as true", but(until=True), "until")
+    bad("an array, not a map", [member, "organization", "Kowloon Example School", True], "no metadata")
+    bad("a text, not a map", "Kowloon Example School", "no metadata")
+    bad("null, not a map", None, "no metadata")
+    return valid, refused
+
+
+def membership_standing_cases(t0: int) -> list:
+    """Where memberships stood at given times (section 11, step 9)."""
+    minute, day = 60_000, 86_400_000
+    r = t0 + 10 * minute
+    cases = []
+
+    def case(name, until, changes, expected):
+        for t, want in expected:
+            got = membership_standing(r, until, changes, t)
+            assert got == want, (name, t - r, got, want)
+        cases.append({"name": name, "registered_at": r, "until": until,
+                      "changes": [{"at": at, "to": to} for at, to in changes],
+                      "cases": [{"t": t, "standing": want} for t, want in expected]})
+
+    case("suspended, resumed, and ended", None,
+         [(r + 10 * minute, "suspended"), (r + 20 * minute, "active"), (r + 30 * minute, "ended")],
+         [(r - 1, "not_yet"), (r, "active"), (r + 5 * minute, "active"), (r + 10 * minute - 1, "active"),
+          (r + 10 * minute, "suspended"), (r + 15 * minute, "suspended"), (r + 20 * minute, "active"),
+          (r + 30 * minute - 1, "active"), (r + 30 * minute, "ended"), (r + day, "ended")])
+    case("suspended, then revoked; until between them", r + 15 * minute,
+         [(r + 10 * minute, "suspended"), (r + 20 * minute, "")],
+         [(r, "active"), (r + 10 * minute, "suspended"), (r + 15 * minute, "suspended"),
+          (r + 15 * minute + 1, "lapsed"), (r + 20 * minute - 1, "lapsed"), (r + 20 * minute, "revoked"),
+          (r + day, "revoked")])
+    case("until, and nothing else", r + 60 * minute, [],
+         [(r - 1, "not_yet"), (r, "active"), (r + 60 * minute - 1, "active"), (r + 60 * minute, "active"),
+          (r + 60 * minute + 1, "lapsed"), (r + day, "lapsed")])
+    case("ended, then lapsed", r + 50 * minute, [(r + 10 * minute, "ended")],
+         [(r + 10 * minute - 1, "active"), (r + 10 * minute, "ended"), (r + 50 * minute, "ended"),
+          (r + 50 * minute + 1, "lapsed")])
+    case("revoked while active, no until", None, [(r + 10 * minute, "")],
+         [(r - 1, "not_yet"), (r + 10 * minute - 1, "active"), (r + 10 * minute, "revoked"), (r + day, "revoked")])
+    case("ended, lapsed, then revoked", r + 20 * minute, [(r + 10 * minute, "ended"), (r + 40 * minute, "")],
+         [(r + 15 * minute, "ended"), (r + 20 * minute, "ended"), (r + 30 * minute, "lapsed"),
+          (r + 40 * minute, "revoked")])
+    case("until before the registration: not yet a member, then lapsed", r - 5 * minute, [],
+         [(r - 5 * minute - 1, "not_yet"), (r - 5 * minute, "not_yet"), (r - 1, "not_yet"), (r, "lapsed")])
+    case("a transition at the registration time", None, [(r, "suspended")],
+         [(r - 1, "not_yet"), (r, "suspended"), (r + day, "suspended")])
+    case("two transitions at one time: the later in the log counts", None,
+         [(r + 10 * minute, "suspended"), (r + 10 * minute, "ended")],
+         [(r + 10 * minute - 1, "active"), (r + 10 * minute, "ended")])
+    case("revoked at its registration time", None, [(r, "")], [(r - 1, "not_yet"), (r, "revoked")])
+    case("until 1 ms after the registration", r + 1, [], [(r, "active"), (r + 1, "active"), (r + 2, "lapsed")])
+    return cases
+
+
+def membership_replay(t0: int) -> dict:
+    """A trust node's log, for each hash, replayed under the ledger rules
+    (sections 5 and 6), in the format of protocol-v0.14.json's ledgers."""
+    names = ("org_root", "log", "registrar")
+    seeds = {name: hashlib.sha256(f"CexChain test key: {name}".encode()).hexdigest() for name in names}
+    keys = {name: ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed)) for name, seed in seeds.items()}
+    minute, day = 60_000, 86_400_000
+    school = bytes([0x1A, 0x2B]) + hashlib.sha256(b"Kowloon Example School").digest()[2:]
+    person = hashlib.sha256(b"Chan Tai Man's ledger").digest()
+    kindergarten = hashlib.sha256(b"Example Kindergarten's ledger").digest()
+
+    ledgers = []
+    for hash_id in (-16, -65538):
+        lg = Ledger(hash_id)
+        statements, refused = [], []
+        actors, delegations, records = {}, {}, {}
+        clock = [t0 + 1000]
+
+        def payload(signer_actor, body_type, body, delegation=None):
+            n = len(statements) + len(refused) + 1
+            out = {0: 1, 1: body_type, 5: clock[0] - 500, 6: n.to_bytes(16, "big"), 7: body}
+            if signer_actor is not None:  # absent only in genesis
+                out[2] = ledger_id
+                out[3] = signer_actor
+            if delegation is not None:
+                out[4] = delegation
+            return out
+
+        def rules(p):
+            """Every rule of section 5 that refuses these record statements:
+            the generic lifecycle's, the mechanism types', the version rules
+            of v0.10, and the membership rules of v0.16 (section 6). The
+            signers are always authorized."""
+            body, fails = p[7], []
+            if p[1] == 16:
+                kind = body[1]
+                if kind.startswith(RESERVED_PREFIX) and kind not in MECHANISM_TYPES_V16:
+                    fails.append("reserved type")
+                if 6 in body:
+                    if kind in MECHANISM_TYPES_V16:
+                        fails.append("mechanism")
+                    old = records.get(body[6])
+                    if old is None:
+                        fails.append("no such record")
+                    else:
+                        if old["type"] in MECHANISM_TYPES_V16:
+                            fails.append("mechanism")
+                        if old["superseded_by"] is not None:
+                            fails.append("superseded")
+                if kind == MEMBERSHIP:
+                    problem = membership_problem(body.get(5))
+                    if problem is not None:
+                        fails.append(problem)
+                    elif body[5]["member"] == ledger_id:
+                        fails.append("own ledger")
+                return fails
+            if p[1] not in (17, 18, 19):
+                return fails
+            record = records.get(body[1])
+            if record is None:
+                return ["no such record"]
+            if record["revoked"]:
+                fails.append("revoked")
+            mechanism = MECHANISM_TYPES_V16.get(record["type"])
+            if p[1] == 17:
+                if mechanism is not None:
+                    fails.append("role")
+                if any(actor == p[3] and role == body[2] for actor, role, _ in record["endorsements"]):
+                    fails.append("repeated")
+            elif p[1] == 18:
+                if record["state"] != body[2]:
+                    fails.append("state")
+                if mechanism is None or (body[2], body[3]) not in mechanism[1]:
+                    fails.append("transition")
+            return fails
+
+        def add(name, signer, p):
+            """Registers the statement now, under the rules; the clock then
+            moves a minute on."""
+            assert rules(p) == [], (name, rules(p))
+            if p[1] == 5:  # the CDDL's scope: statement and record types strictly ascending
+                scope = p[7][2]
+                assert scope[1] == sorted(set(scope[1])) and scope.get(2, []) == sorted(set(scope.get(2, [])),
+                                                                                        key=str.encode), scope
+            encoded, statement_id = lg.statement(keys[signer], p)
+            index, now = len(statements), clock[0]
+            statements.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                               "statement_id": statement_id.hex(), "registered_at": now})
+            clock[0] += minute
+            body = p[7]
+            if p[1] in (1, 2):
+                actors[statement_id] = [index]
+            elif p[1] == 5:
+                delegations[statement_id] = [index]
+            elif p[1] == 16:
+                kind = body[1]
+                initial = MECHANISM_TYPES_V16[kind][0] if kind in MECHANISM_TYPES_V16 else "registered"
+                records[statement_id] = {"type": kind, "state": initial, "revoked": False, "endorsements": [],
+                                         "history": [index], "registrant": p[3], "supersedes": body.get(6),
+                                         "superseded_by": None, "registered_at": now, "changes": [],
+                                         "membership": body[5] if kind == MEMBERSHIP else None}
+                if 6 in body:
+                    old = records[body[6]]
+                    old["superseded_by"] = statement_id
+                    old["history"].append(index)
+            elif p[1] in (17, 18, 19):
+                # A membership's transitions and revocation are statements
+                # about the membership only.
+                record = records[body[1]]
+                record["history"].append(index)
+                if p[1] == 17:
+                    record["endorsements"].append((p[3], body[2], index))
+                elif p[1] == 18:
+                    record["state"] = body[3]
+                    record["changes"].append((now, body[3]))
+                else:
+                    record["revoked"] = True
+                    record["changes"].append((now, ""))
+            return statement_id
+
+        def refuse(name, signer, p, why):
+            """The rules refuse it after the statements so far, at `at`, for
+            the one rule `why` names. (Every refused statement here parses:
+            a membership's metadata is checked by the ledger rules.)"""
+            assert rules(p) == [why], (name, rules(p))
+            encoded, _ = lg.statement(keys[signer], p)
+            refused.append({"name": name, "signer": signer, "encoded": encoded.hex(), "payload": dcbor(p).hex(),
+                            "after": len(statements), "at": clock[0], "why": why})
+
+        def fields(*values):
+            leaves = [dcbor([name, bytes([0xD0 + i]) * 16, value])
+                      for i, (name, value) in enumerate(sorted(values, key=lambda f: f[0].encode()))]
+            return lg.merkle().mth(leaves), len(leaves)
+
+        def membership(signer_actor, delegation, metadata, supersedes=None):
+            root, count = fields(("checked", "business registration certificate seen"), ("checked_on", "2026-11-11"))
+            body = {1: MEMBERSHIP, 2: root, 3: count}
+            if metadata is not None:
+                body[5] = metadata
+            if supersedes is not None:
+                body[6] = supersedes
+            return payload(signer_actor, 16, body, delegation)
+
+        def notice(signer_actor, delegation, supersedes=None):
+            root, count = fields(("text", "Members are listed at the registry's office."),)
+            body = {1: NOTICE, 2: root, 3: count, 5: {"topic": "listing"}}
+            if supersedes is not None:
+                body[6] = supersedes
+            return payload(signer_actor, 16, body, delegation)
+
+        def transition(record, frm, to):
+            return payload(registrar, 18, {1: record, 2: frm, 3: to}, registrars)
+
+        ledger_id = None
+        ledger_id = add("genesis", "org_root", payload(None, 1, {
+            1: hash_id, 2: "HK Trust Ltd", 3: ed_public(keys["org_root"]), 4: ed_public(keys["log"])}))
+        org = ledger_id
+        registrar = add("register the registrar", "org_root", payload(org, 2, {
+            1: 1, 2: "Membership Registrar", 3: ed_public(keys["registrar"])}))
+        registrars = add("delegate memberships and notices to the registrar", "org_root", payload(org, 5, {
+            1: registrar, 2: {1: [16, 17, 18, 19], 2: [MEMBERSHIP, NOTICE]}}))
+        checked = {"member": school, "kind": "organization", "name": "Kowloon Example School", "verified": True,
+                   "registration": "12345678", "jurisdiction": "HK", "until": t0 + 365 * day}
+
+        m1 = add("the registrar registers the school's membership, checked", "registrar",
+                 membership(registrar, registrars, checked))
+        # A membership takes no endorsement, and its metadata is the ledger's
+        # to check.
+        refuse("endorse the membership", "registrar", payload(registrar, 17, {1: m1, 2: "reviewer"}, registrars),
+               "role")
+        refuse("a membership naming the trust node's own ledger", "registrar",
+               membership(registrar, registrars, {**checked, "member": ledger_id}), "own ledger")
+        refuse("a membership without metadata", "registrar", membership(registrar, registrars, None), "no metadata")
+        refuse("a membership whose jurisdiction is in lower case", "registrar",
+               membership(registrar, registrars, {**checked, "jurisdiction": "hk"}), "jurisdiction")
+        refuse("a membership whose metadata has an unknown key", "registrar",
+               membership(registrar, registrars, {**checked, "note": "seen in person"}), "unknown key")
+        refuse("a membership without verified", "registrar", membership(registrar, registrars, {
+            k: v for k, v in checked.items() if k != "verified"}), "missing key")
+        refuse("a membership of kind company", "registrar",
+               membership(registrar, registrars, {**checked, "kind": "company"}), "kind")
+        refuse("a membership whose until is 0", "registrar",
+               membership(registrar, registrars, {**checked, "until": 0}), "until")
+        m2 = add("the organization registers a person's membership, self-declared", "org_root", membership(org, None, {
+            "member": person, "kind": "person", "name": "Chan Tai Man", "verified": False}))
+
+        # The lifecycle: suspended, resumed, ended.
+        add("the registrar suspends the school's membership", "registrar", transition(m1, "active", "suspended"))
+        refuse("suspend it again, from active", "registrar", transition(m1, "active", "suspended"), "state")
+        refuse("move it from suspended to suspended", "registrar", transition(m1, "suspended", "suspended"),
+               "transition")
+        refuse("move it to another mechanism type's state (withdrawn)", "registrar",
+               transition(m1, "suspended", "withdrawn"), "transition")
+        add("the registrar resumes it", "registrar", transition(m1, "suspended", "active"))
+        add("the registrar ends it: the school did not renew", "registrar", transition(m1, "active", "ended"))
+        refuse("resume the ended membership", "registrar", transition(m1, "ended", "active"), "transition")
+        refuse("suspend the ended membership", "registrar", transition(m1, "ended", "suspended"), "transition")
+
+        # No versions: a membership neither supersedes nor is superseded.
+        n1 = add("the registrar registers a notice, a record of a generic type", "registrar",
+                 notice(registrar, registrars))
+        refuse("a notice that supersedes the person's membership", "registrar",
+               notice(registrar, registrars, supersedes=m2), "mechanism")
+        refuse("a membership that supersedes the notice", "registrar",
+               membership(registrar, registrars, checked, supersedes=n1), "mechanism")
+
+        # A renewal is a new membership, judged by its own history.
+        m3 = add("a renewal: a new membership of the school", "registrar",
+                 membership(registrar, registrars, {**checked, "until": t0 + 2 * 365 * day}))
+        add("the registrar suspends the renewal", "registrar", transition(m3, "active", "suspended"))
+        add("and ends it while suspended", "registrar", transition(m3, "suspended", "ended"))
+        m4 = add("a kindergarten's membership, until the largest time", "registrar", membership(
+            registrar, registrars, {"member": kindergarten, "kind": "organization", "name": "Example Kindergarten",
+                                    "verified": True, "jurisdiction": "GB-ENG", "until": 2**64 - 1}))
+        m5 = add("the organization registers a membership that lapses two minutes on", "org_root", membership(
+            org, None, {"member": kindergarten, "kind": "organization", "name": "Example Kindergarten",
+                        "verified": False, "until": clock[0] + 2 * minute}))
+        add("the organization revokes the person's membership for cause", "org_root",
+            payload(org, 19, {1: m2, 2: "forged papers"}))
+        refuse("suspend the revoked membership", "registrar", transition(m2, "active", "suspended"), "revoked")
+        refuse("revoke it again", "org_root", payload(org, 19, {1: m2}), "revoked")
+
+        entries = [encode_log_entry(bytes.fromhex(st["statement_id"]), st["registered_at"], bytes.fromhex(st["encoded"]))
+                   for st in statements]
+        leaves = [[1, a, h] for a, h in actors.items()] + [[2, d, h] for d, h in delegations.items()] + \
+                 [[3, r, v["history"]] for r, v in records.items()]
+        sorted_leaves = sorted(leaves, key=lambda leaf: leaf[1])
+        commitment_index = len(entries)
+        commitment_time = clock[0]
+        commitment_id = append_state_commitment(lg, keys["log"], ledger_id, entries, sorted_leaves, commitment_time)
+        checkpoint_time = commitment_time + 1000
+        checkpoint, _ = sign_log_checkpoint(lg, keys["log"], ledger_id, entries, checkpoint_time)
+
+        def membership_json(v):
+            m = v["membership"]
+            return {"member": m["member"].hex(), "kind": m["kind"], "name": m["name"], "verified": m["verified"],
+                    "registration": m.get("registration"), "jurisdiction": m.get("jurisdiction"),
+                    "until": m.get("until"), "registered_at": v["registered_at"],
+                    "at_checkpoint": membership_standing(v["registered_at"], m.get("until"), v["changes"],
+                                                         checkpoint_time)}
+
+        standings = {m: membership_json(records[m])["at_checkpoint"] for m in (m1, m2, m3, m4, m5)}
+        assert list(standings.values()) == ["ended", "revoked", "ended", "active", "lapsed"], standings
+        ledgers.append({
+            "hash": hash_id,
+            "ledger_id": ledger_id.hex(),
+            "statements": statements,
+            "refused": refused,
+            "memberships": [m.hex() for m in (m1, m2, m3, m4, m5)],
+            "records": [{"id": r.hex(), "type": v["type"], "state": v["state"], "revoked": v["revoked"],
+                         "registrant": v["registrant"].hex(), "history": v["history"],
+                         "supersedes": v["supersedes"].hex() if v["supersedes"] else None,
+                         "superseded_by": v["superseded_by"].hex() if v["superseded_by"] else None,
+                         "membership": membership_json(v) if v["membership"] is not None else None}
+                        for r, v in records.items()],
+            "log_entries": [e.hex() for e in entries],
+            "state_leaves": [{"kind": leaf[0], "id": leaf[1].hex(), "history": leaf[2]} for leaf in sorted_leaves],
+            "state_root": smt_root(lg, sorted_leaves).hex(),
+            "state_commitment": {"index": commitment_index, "id": commitment_id.hex()},
+            "checkpoint": checkpoint.hex(),
+            "checkpoint_time": checkpoint_time,
+        })
+    return {"t0": t0, "seeds": seeds, "ledgers": ledgers}
+
+
+def membership_bundle_cases(t0: int) -> tuple[list, list]:
+    """Member ledgers' evidence bundles carrying membership proofs (key 9),
+    each proof a trust node's complete evidence of a membership: (valid,
+    refused). The ledgers are written by hand with evidence_suite's Forge."""
+    import evidence_suite as es
+
+    minute, second, day = 60_000, 1_000, 86_400_000
+
+    def at(forge, offset):
+        forge.time = t0 + offset
+
+    def member_of(forge, by, delegation, metadata, offset):
+        at(forge, offset)
+        return forge.record(by, MEMBERSHIP, delegation=delegation, metadata=metadata,
+                            fields={"checked": "business registration certificate seen"})
+
+    def change(forge, m, frm, to, by, delegation, offset):
+        at(forge, offset)
+        forge.about(18, m, {2: frm, 3: to}, by, delegation)
+
+    def revoke(forge, m, reason, by, delegation, offset):
+        at(forge, offset)
+        forge.about(19, m, {2: reason}, by, delegation)
+
+    def commit(forge, offset):
+        at(forge, offset)
+        forge.commit()
+
+    def proof(forge, m, size=None):
+        """A membership's evidence bundle over the first `size` entries (all
+        by default), and what it shows: the history up to its checkpoint."""
+        size = len(forge.entries) if size is None else size
+        history = [i for i in forge.leaves[m][2] if i < size]
+        changes = []
+        for i in history[1:]:
+            p = forge.info[i]["payload"]
+            changes.append((forge.times[i], p[7][3] if p[1] == 18 else ""))
+        facts = {"forge": forge, "membership": m, "registered_at": forge.times[history[0]],
+                 "metadata": forge.info[history[0]]["payload"][7].get(5), "changes": changes,
+                 "checkpoint_time": forge.times[size - 1] + second}
+        return dcbor(forge.bundle(m, size=size)), facts
+
+    # The member: a school. And a person's own ledger, another member.
+    school = es.Forge("Kowloon Example School", t0=t0)
+    person = es.Forge("Chan Tai Man", t0=t0)
+    # The trust nodes: one with a registrar, an SM3 one, one with many
+    # memberships of the school, and one that registers what the ledger rules
+    # refuse.
+    node = es.Forge("HK Trust Ltd", t0=t0)
+    other = es.Forge("Guangdong Trust Registry", hash_id=-65538, t0=t0)
+    many = es.Forge("Many Memberships Trust", t0=t0)
+    careless = es.Forge("Careless Trust", t0=t0)
+    # A ledger that lists itself, which the ledger rules refuse.
+    selfish = es.Forge("Self-Listed School", t0=t0)
+
+    checked = {"member": school.id, "kind": "organization", "name": "Kowloon Example School", "verified": True,
+               "registration": "12345678", "jurisdiction": "HK"}
+
+    at(node, 1 * minute)
+    registrar = node.actor(es.PERSON, "Membership Registrar", es.Key("HK Trust Ltd registrar"))
+    registrars = node.grant(registrar, {1: [16, 18, 19], 2: [MEMBERSHIP, LISTING]})
+    m1 = member_of(node, registrar, registrars, {**checked, "until": t0 + 365 * day}, 10 * minute)
+    m7 = member_of(node, node.org, None, checked, 11 * minute)
+    m5 = member_of(node, registrar, registrars, {**checked, "until": t0 + 50 * minute}, 12 * minute)
+    m8 = member_of(node, registrar, registrars, {"member": person.id, "kind": "person", "name": "Chan Tai Man",
+                                                 "verified": True, "jurisdiction": "HK"}, 13 * minute)
+    at(node, 14 * minute)
+    listing = node.record(registrar, LISTING, delegation=registrars, metadata=checked,
+                          fields={"listed": "the members' list"})
+    commit(node, 30 * minute)
+    p1, p5a, p8, p_listing = proof(node, m1), proof(node, m5), proof(node, m8), proof(node, listing)
+    change(node, m1, "active", "suspended", registrar, registrars, 40 * minute)
+    p_incomplete = proof(node, m1)  # its checkpoint ends with the suspension, not a state commitment
+    assert len(node.entries) - 1 not in node.snapshots
+    commit(node, 41 * minute)
+    p1b = proof(node, m1)
+    change(node, m1, "suspended", "active", registrar, registrars, 45 * minute)
+    revoke(node, m7, "forged papers", node.org, None, 60 * minute)
+    change(node, m1, "active", "ended", registrar, registrars, 65 * minute)
+    commit(node, 70 * minute)
+    p1c, p5b, p7 = proof(node, m1), proof(node, m5), proof(node, m7)
+
+    m2 = member_of(other, other.org, None, {"member": school.id, "kind": "organization",
+                                            "name": "Kowloon Example School", "verified": False,
+                                            "jurisdiction": "CN-44"}, 15 * minute)
+    commit(other, 16 * minute)
+    p2 = proof(other, m2)
+
+    renewals = [member_of(many, many.org, None, {**checked, "registration": f"{12345600 + k}"}, (1 + k) * minute)
+                for k in range(MAX_MEMBERSHIP_PROOFS + 1)]
+    commit(many, 18 * minute)
+    p_many = [proof(many, m) for m in renewals]
+
+    bad = member_of(careless, careless.org, None, {**checked, "jurisdiction": "hk"}, 8 * minute)
+    commit(careless, 9 * minute)
+    p_bad = proof(careless, bad)
+
+    at(school, 5 * minute)
+    d0 = school.record(school.org, DIPLOMA, fields={"name": "Lee Siu Ming", "awarded": "2026-11-11"})
+    at(school, 20 * minute)
+    d1 = school.record(school.org, DIPLOMA, fields={"name": "Chan Tai Man", "awarded": "2026-11-11"})
+    at(school, 120 * minute)
+    d2 = school.record(school.org, DIPLOMA, fields={"name": "Wong Mei Ling", "awarded": "2026-11-11"})
+    commit(school, 121 * minute)
+
+    at(person, 25 * minute)
+    profile = person.record(person.org, "example.org.profile/1", fields={"display_name": "Chan Tai Man"})
+    commit(person, 26 * minute)
+
+    at(selfish, 20 * minute)
+    selfish_diploma = selfish.record(selfish.org, DIPLOMA, fields={"name": "Ho Ka Yan"})
+    own = member_of(selfish, selfish.org, None, {**checked, "member": selfish.id, "name": "Self-Listed School"},
+                    21 * minute)
+    commit(selfish, 22 * minute)
+    p_own = proof(selfish, own)
+
+    def bundle(forge, record, proofs) -> bytes:
+        b = forge.bundle(record)
+        b[9] = proofs
+        return dcbor(b)
+
+    def report(facts, record_time, trust):
+        forge, meta = facts["forge"], facts["metadata"]
+        names = {f.id: n for f, n in trust}
+
+        def standing(t):
+            return membership_standing(facts["registered_at"], meta.get("until"), facts["changes"], t)
+
+        return {"trust_node": forge.id.hex(), "trusted": forge.id in names, "trust_node_name": names.get(forge.id),
+                "membership": facts["membership"].hex(), "kind": meta["kind"], "name": meta["name"],
+                "verified": meta["verified"], "registration": meta.get("registration"),
+                "jurisdiction": meta.get("jurisdiction"), "until": meta.get("until"),
+                "registered_at": facts["registered_at"], "record_time": record_time,
+                "at_record": standing(record_time), "checkpoint_time": facts["checkpoint_time"],
+                "at_checkpoint": standing(facts["checkpoint_time"])}
+
+    valid, refused = [], []
+
+    def ok(name, forge, record, proofs, trust, expected):
+        """`expected`: (at_record, at_checkpoint) of each proof, as the
+        story says, checked against the computed report."""
+        record_time = forge.times[forge.index[record]]
+        memberships = [report(f, record_time, trust) for _, f in proofs]
+        assert [(m["at_record"], m["at_checkpoint"]) for m in memberships] == expected, (name, memberships)
+        valid.append({"name": name, "bundle": bundle(forge, record, [p for p, _ in proofs]).hex(),
+                      "ledger": forge.id.hex(), "trust_nodes": [{"ledger": f.id.hex(), "name": n} for f, n in trust],
+                      "memberships": memberships})
+
+    def bad(name, why, forge, record, proofs):
+        refused.append({"name": name, "why": why, "bundle": bundle(forge, record, proofs).hex(),
+                        "ledger": forge.id.hex()})
+
+    hk, gd = (node, "HK Trust"), (other, "Guangdong Registry")
+    ok("one proof from a trust node the verifier trusts, named by its list (the node calls itself HK Trust Ltd)",
+       school, d1, [p1], [hk], [("active", "active")])
+    ok("the same bundle with an empty trust list: reported, not trusted, no name", school, d1, [p1], [],
+       [("active", "active")])
+    ok("the same bundle, trusting another trust node only", school, d1, [p1], [gd], [("active", "active")])
+    ok("suspended after the record was registered", school, d1, [p1b], [hk], [("active", "suspended")])
+    ok("a record registered before the membership", school, d0, [p1], [hk], [("not_yet", "active")])
+    ok("two proofs from two trust nodes, one of SM3 and self-declared, both trusted", school, d1, [p1, p2],
+       [hk, gd], [("active", "active"), ("active", "active")])
+    ok("two proofs in the other order, one trust node trusted", school, d1, [p2, p1], [gd],
+       [("active", "active"), ("active", "active")])
+    ok("ended by the proof's checkpoint", school, d1, [p1c], [hk], [("active", "ended")])
+    ok("revoked by the proof's checkpoint", school, d1, [p7], [hk], [("active", "revoked")])
+    ok("lapsed by the proof's checkpoint", school, d1, [p5b], [hk], [("active", "lapsed")])
+    ok("a record registered after the proof's checkpoint: as of the checkpoint (the later suspension unseen)",
+       school, d2, [p1], [hk], [("active", "active")])
+    ok("a record registered after the proof's checkpoint and after until: lapsed then, active at the checkpoint",
+       school, d2, [p5a], [hk], [("lapsed", "active")])
+    ok("a record registered after the membership ended", school, d2, [p1c], [hk], [("ended", "ended")])
+    ok("a person's membership, on the person's own ledger", person, profile, [p8], [hk], [("active", "active")])
+    ok("sixteen proofs, the most, of sixteen memberships", school, d1, p_many[:MAX_MEMBERSHIP_PROOFS],
+       [(many, "Many Memberships")], [("active", "active")] * MAX_MEMBERSHIP_PROOFS)
+
+    nested = cbor2.loads(p1[0])
+    assert dcbor(nested) == p1[0]
+    nested[9] = [p2[0]]
+    damaged = cbor2.loads(p1[0])
+    damaged[3] = damaged[3][:-1] + bytes([damaged[3][-1] ^ 0x01])
+    bad("a proof naming another member (a person's ledger)", "another member", school, d1, [p8[0]])
+    bad("a valid proof, then one naming another member", "another member", school, d1, [p1[0], p8[0]])
+    bad("a proof that carries membership proofs of its own", "nested", school, d1, [dcbor(nested)])
+    bad("two proofs of one membership, at two checkpoints", "twice", school, d1, [p1[0], p1b[0]])
+    bad("one proof twice", "twice", school, d1, [p1[0], p1[0]])
+    bad("a proof that is not complete: its checkpoint ends with a transition", "incomplete", school, d1,
+        [p_incomplete[0]])
+    bad("a proof of a record of another type that carries a membership's metadata", "not a membership", school, d1,
+        [p_listing[0]])
+    bad("a damaged proof: its checkpoint's signature", "does not verify", school, d1, [dcbor(damaged)])
+    bad("a proof whose membership the ledger rules refuse (jurisdiction hk)", "metadata", school, d1, [p_bad[0]])
+    bad("a membership a ledger registered of itself", "own ledger", selfish, selfish_diploma, [p_own[0]])
+    bad("seventeen proofs", "too many", school, d1, [p for p, _ in p_many])
+    bad("an empty list of proofs", "empty", school, d1, [])
+    bad("a proof that is a map, not a byte string", "not bytes", school, d1, [cbor2.loads(p1[0])])
+    return valid, refused
+
+
+def generate_protocol_v16() -> None:
+    t0 = 1_794_355_200_000  # 2026-11-11T00:00:00Z
+    valid_metadata, refused_metadata = membership_metadata_cases(t0)
+    standings = membership_standing_cases(t0)
+    replay = membership_replay(t0)
+    valid_bundles, refused_bundles = membership_bundle_cases(t0)
+
+    def lifecycle(kind):
+        initial, transitions = MECHANISM_TYPES_V16[kind]
+        ordered = MEMBERSHIP_TRANSITIONS if kind == MEMBERSHIP else sorted(transitions)
+        return {"type": kind, "initial": initial, "transitions": [list(t) for t in ordered]}
+
+    document = {
+        "description": "CexChain protocol objects of specification revision v0.16 (trust nodes), built by an "
+                       "independent Python encoder from spec/README.md (sections 6 and 11) and spec/cexchain.cddl. "
+                       "Times are milliseconds since the epoch. `mechanism_types` lists the six mechanism types "
+                       "in the specification's table order, each with its initial state and transitions (the "
+                       "membership's in the table's order, the others' sorted). `membership_metadata` holds "
+                       "membership metadata (record key 5 of a cexchain.membership/1 record) on its own: `valid` "
+                       "cases, each its deterministic CBOR (`metadata`) and its values (`membership`: the member's "
+                       "ledger id in hex, and the optional keys only when present), the specification's example "
+                       "first; `refused` cases, each breaking one rule of the `membership` CDDL or its limits in "
+                       "section 6, which `why` names: \"no metadata\" (not a map), \"unknown key\" (a text key "
+                       "the CDDL does not name, or a key that is not text), \"missing key\", and the key whose "
+                       "rule is broken: \"member\" (not a 32-byte id), \"kind\" (not organization or person), "
+                       "\"name\" (not 1 to 256 bytes of text), \"verified\" (not a boolean), \"registration\" "
+                       "(not 1 to 64 bytes of text), \"jurisdiction\" (not two upper-case letters, optionally "
+                       "followed by - and 1 to 3 upper-case letters or digits, the whole text), \"until\" (not an "
+                       "unsigned integer above 0). A key whose value is not of its type, null included, breaks "
+                       "that key's rule. `standings` holds where a membership stood at given times (section 11, "
+                       "step 9): each its registration time, its until (null if none), and its changes in log "
+                       "order, each its registration time and the state it moved to (\"suspended\", "
+                       "\"active\", \"ended\", or \"\" for the revocation), then cases of a time `t` and the "
+                       "standing there: \"not_yet\" (t before the registration), else \"revoked\" (revoked at or "
+                       "before t), else \"lapsed\" (t after until), else the state the last change at or before t "
+                       "left (of two at one time, the later in the log), or \"active\". `replay` holds a trust "
+                       "node's log for each hash, in the format of protocol-v0.14.json's ledgers: the "
+                       "organization (HK Trust Ltd) delegates memberships and notices (example.org.notice/1) to "
+                       "a registrar; each statement registers at its `registered_at`; `refused` statements are "
+                       "validated against the state after the first `after` statements, at `at`, and break "
+                       "exactly one rule, which `why` names: \"role\" (a membership takes no endorsement), "
+                       "\"own ledger\" (a member that is the trust node's own ledger id), \"no metadata\", the "
+                       "metadata rules above (\"jurisdiction\", \"unknown key\", \"missing key\", \"kind\", "
+                       "\"until\"), \"state\" (a transition not from the current state), \"transition\" (one the "
+                       "type does not allow: ended takes none, and states of other types are none of a "
+                       "membership's), \"mechanism\" (a membership neither supersedes nor is superseded), "
+                       "\"revoked\" (a revoked membership takes nothing more); every refused statement parses. A "
+                       "membership's registration and transitions are statements about the membership only. "
+                       "`memberships` lists the accepted memberships; `records` gives each record's type, state, "
+                       "revocation, registrant, history, and versions, and, for a membership, its values (null "
+                       "for an absent optional key), its registration time, and its standing at "
+                       "`checkpoint_time` (`at_checkpoint`). `log_entries` holds the whole log, ending with the "
+                       "state commitment over `state_leaves`; `checkpoint` (signed at `checkpoint_time`) covers "
+                       "it; keys are seed = SHA-256(\"CexChain test key: <name>\"), `seeds`. `bundles` holds "
+                       "member ledgers' evidence bundles carrying membership proofs (key 9), written by hand "
+                       "(tools/testvectors/evidence_suite.py's Forge; keys are seed = SHA-256(\"CexChain test "
+                       "key: evidence <ledger name> root\"), \"... log\", and \"CexChain test key: evidence HK "
+                       "Trust Ltd registrar\"). Each `valid` case is a bundle (`bundle`, hex) of the member "
+                       "ledger `ledger`, the verifier's trust list (`trust_nodes`, each a ledger id and the name "
+                       "the verifier gives it), and what the report states of each proof, in the bundle's order "
+                       "(`memberships`): the trust node's ledger id, whether it is trusted, the name the list "
+                       "gives it (null when untrusted: never the trust node's own name), the membership's id, "
+                       "kind, name, verified, registration, jurisdiction, and until (null when absent), its "
+                       "registration time (`registered_at`), the registration time of the bundle's record "
+                       "(`record_time`) and the standing then (`at_record`), and the proof's checkpoint's time "
+                       "(`checkpoint_time`) and the standing then (`at_checkpoint`). Every valid bundle is "
+                       "complete, and so is every proof in it. Each `refused` case is a bundle that fails for the "
+                       "one rule of step 9 or of key 9 that `why` names: \"another member\" (a proof's "
+                       "membership names another ledger), \"nested\" (a proof carries key 9), \"twice\" (two "
+                       "proofs of one membership: the same ledger and record), \"incomplete\" (a proof whose "
+                       "checkpoint does not end with a state commitment), \"not a membership\" (a proof of a "
+                       "record of another type, with a membership's metadata), \"does not verify\" (a damaged "
+                       "proof), \"metadata\" and \"own ledger\" (a proof whose log the ledger rules refuse: a "
+                       "membership's metadata of the wrong shape, a membership of the trust node's own ledger), "
+                       "\"too many\" (17 proofs), \"empty\" (key 9 an empty list), \"not bytes\" (a proof that "
+                       "is not a byte string). A refused bundle fails whatever the trust list.",
+        "mechanism_types": [lifecycle(kind) for kind in MECHANISM_TYPES_V16],
+        "membership_metadata": {"valid": valid_metadata, "refused": refused_metadata},
+        "standings": standings,
+        "replay": replay,
+        "bundles": {"valid": valid_bundles, "refused": refused_bundles},
+    }
+    (OUT / "protocol-v0.16.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")
+    first = replay["ledgers"][0]
+    reasons = sorted({r["why"] for r in first["refused"]})
+    print(f"wrote protocol vectors to testvectors/protocol-v0.16.json: {len(valid_metadata)} membership metadata, "
+          f"{len(refused_metadata)} refused; {len(standings)} standings; {len(replay['ledgers'])} ledgers of "
+          f"{len(first['statements'])} statements, {len(first['refused'])} refused ({', '.join(reasons)}); "
+          f"{len(valid_bundles)} bundles, {len(refused_bundles)} refused")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -5236,6 +6021,7 @@ def main() -> None:
     generate_protocol_v13()
     generate_protocol_v14()
     generate_protocol_v15()
+    generate_protocol_v16()
     generate_vm_v1()
     import evidence_suite
     evidence_suite.generate(args.openssl)

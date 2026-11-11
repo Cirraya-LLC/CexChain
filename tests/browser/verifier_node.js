@@ -185,6 +185,25 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
                  "requests: flipped byte at " + offset);
   }
 
+  // Trust nodes (spec v0.16): the independent vectors' members' evidence,
+  // with the trust nodes the page is told to believe, and without.
+  const v16 = JSON.parse(fs.readFileSync(path.join(__dirname, "../../testvectors/protocol-v0.16.json"), "utf8"));
+  const hexBytes = (h) => new Uint8Array(Buffer.from(h, "hex"));
+  for (const c of v16.bundles.valid) {
+    const got = verifier.verify(hexBytes(c.bundle), { ledgerId: c.ledger, trustNodes: c.trust_nodes });
+    assert.equal(got.verified, true, c.name + ": " + got.error);
+    assert.equal(got.memberships.length, c.memberships.length, c.name);
+    got.memberships.forEach((m, i) => {
+      const want = c.memberships[i];
+      for (const key of ["trust_node", "trusted", "trust_node_name", "membership", "kind", "name", "verified", "at_record", "at_checkpoint"]) {
+        assert.equal(m[key], want[key], c.name + ": " + key);
+      }
+    });
+  }
+  for (const c of v16.bundles.refused) {
+    assert.equal(verifier.verify(hexBytes(c.bundle), { ledgerId: c.ledger }).verified, false, c.name);
+  }
+  assert.equal(verifier.verify(new Uint8Array(1), { trustNodes: [{ ledger: "xyz", name: "A" }] }).verified, false);
   console.log("wasm verifier (node): ok, version " + verifier.version);
 })().catch((e) => {
   console.error(e);

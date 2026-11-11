@@ -55,7 +55,8 @@ bool id_in(std::string_view path, std::string_view prefix) {
 
 bool backup_path_allowed(std::string_view path) {
     if (path == node::tokens_file || path == "vault/vault.pub" || path == "vault/vault.key" ||
-        path == node::peers_file || path == "witnesses.json" || path == "relay.json") {
+        path == node::peers_file || path == "witnesses.json" || path == "relay.json" ||
+        path == "trust/nodes.json" || id_in(path, "trust/proofs/")) {
         return true;
     }
     constexpr std::string_view pending = "contracts/pending/";
@@ -131,6 +132,9 @@ std::vector<ledger::BackupFile> backup_files(const std::filesystem::path& dir, b
     add(std::string(node::tokens_file));
     add_directory("contracts/consents/");
     add_directory("contracts/pending/");
+    // The trust nodes this ledger belongs to, and their proofs (spec v0.16).
+    add("trust/nodes.json");
+    add_directory("trust/proofs/");
     if (vault) {
         add("vault/vault.pub");
         add("vault/vault.key");

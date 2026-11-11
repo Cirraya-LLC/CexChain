@@ -8,10 +8,13 @@ Run from verifiers/python: python3 -m unittest discover -s tests -v
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -19,7 +22,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 from cexchain_verify import cbor, claims, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
-from cexchain_verify import access, timestamps, evidence, report  # noqa: E402
+from cexchain_verify import access, cli, memberships, timestamps, evidence, report  # noqa: E402
 from cexchain_verify.errors import VerifyError  # noqa: E402
 
 import vector_bundles  # noqa: E402
@@ -393,6 +396,199 @@ class AskingAboutACondition(unittest.TestCase):
                 with self.assertRaises(access.AccessError) as caught:
                     access.claim_answers(claim, ledger, request_id, request)
                 self.assertEqual(caught.exception.why, case["why"])
+
+
+class TrustNodes(unittest.TestCase):
+    """v0.16: the mechanism types; membership metadata, valid with its values
+    and refused for its rule; where memberships stood at given times; a trust
+    node's log replayed, every refused statement refused; and member ledgers'
+    bundles with membership proofs, verified with their reports under the
+    trust list, or refused whatever the list."""
+
+    METADATA_RULES = {"no metadata", "unknown key", "missing key", "member", "kind", "name", "verified",
+                      "registration", "jurisdiction", "until"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.d = load("protocol-v0.16.json")
+
+    def test_mechanism_types(self):
+        types = self.d["mechanism_types"]
+        self.assertEqual([t["type"] for t in types], list(rules.MECHANISM_TYPES))
+        for t in types:
+            initial, transitions = rules.MECHANISM_TYPES[t["type"]]
+            self.assertEqual(initial, t["initial"])
+            self.assertEqual(transitions, {tuple(x) for x in t["transitions"]})
+            self.assertEqual(len(transitions), len(t["transitions"]))
+        self.assertEqual(types[-1]["type"], memberships.MEMBERSHIP_TYPE)
+
+    def test_metadata(self):
+        d = self.d["membership_metadata"]
+        for case in d["valid"]:
+            with self.subTest(case["name"]):
+                data = hx(case["metadata"])
+                m = memberships.parse(data)
+                want = case["membership"]
+                self.assertEqual((m.member.hex(), m.kind, m.name, m.verified),
+                                 (want["member"], want["kind"], want["name"], want["verified"]))
+                self.assertEqual((m.registration, m.jurisdiction, m.until),
+                                 (want.get("registration"), want.get("jurisdiction"), want.get("until")))
+                self.assertEqual(cbor.encode(cbor.decode(data)).hex(), case["metadata"])
+                # The decoded map, as a record's key 5 holds it, reads the same.
+                self.assertEqual(memberships.parse(cbor.decode(data)), m)
+        self.assertEqual({c["why"] for c in d["refused"]}, self.METADATA_RULES)
+        for case in d["refused"]:
+            with self.subTest(case["name"]):
+                with self.assertRaises(memberships.MembershipError) as caught:
+                    memberships.parse(hx(case["metadata"]))
+                self.assertEqual(caught.exception.why, case["why"])
+
+    def test_standings(self):
+        seen = set()
+        for case in self.d["standings"]:
+            changes = [(c["at"], c["to"] or None) for c in case["changes"]]
+            for t in case["cases"]:
+                with self.subTest(case["name"], t=t["t"] - case["registered_at"]):
+                    self.assertEqual(memberships.standing(case["registered_at"], case["until"], changes, t["t"]),
+                                     t["standing"])
+                    seen.add(t["standing"])
+        self.assertEqual(seen, {"not_yet", "active", "suspended", "ended", "revoked", "lapsed"})
+
+    def test_replay(self):
+        for lg in self.d["replay"]["ledgers"]:
+            ledger = replay(lg)
+            h = ledger.h
+            leaves = sorted([ledger.leaf(i) for i in list(ledger.actors) + list(ledger.delegations)
+                             + list(ledger.records)], key=lambda leaf: leaf[1])
+            self.assertEqual(leaves, [[x["kind"], hx(x["id"]), x["history"]] for x in lg["state_leaves"]])
+            self.assertEqual(statetree.root_of(h, leaves).hex(), lg["state_root"])
+            self.assertEqual(ledger.commitments[lg["state_commitment"]["index"]].root.hex(), lg["state_root"])
+            checkpoint = protocol.parse_tree_head(hx(lg["checkpoint"]), cose.CHECKPOINT_TYPE, "a checkpoint")
+            self.assertEqual(checkpoint.timestamp, lg["checkpoint_time"])
+            for r in lg["records"]:
+                record = ledger.records[hx(r["id"])]
+                self.assertEqual((record.type, record.state, record.revoked, record.history, record.registrant.hex()),
+                                 (r["type"], r["state"], r["revoked"], r["history"], r["registrant"]))
+                if r["membership"] is None:
+                    self.assertIsNone(record.membership)
+                    continue
+                m, want = record.membership, r["membership"]
+                self.assertEqual((m.member.hex(), m.kind, m.name, m.verified, m.registration, m.jurisdiction,
+                                  m.until),
+                                 (want["member"], want["kind"], want["name"], want["verified"], want["registration"],
+                                  want["jurisdiction"], want["until"]))
+                registered_at, changes = memberships.history(ledger, record)
+                self.assertEqual(registered_at, want["registered_at"])
+                self.assertEqual(memberships.standing(registered_at, m.until, changes, lg["checkpoint_time"]),
+                                 want["at_checkpoint"])
+            self.assertEqual(sorted(r["id"] for r in lg["records"] if r["membership"]), sorted(lg["memberships"]))
+            for refused in lg["refused"]:
+                with self.subTest(refused["name"]):
+                    state = replay(lg, refused["after"])
+                    signed = hx(refused["encoded"])
+                    s = protocol.parse_statement(signed)
+                    entry = protocol.LogEntry(encoded=b"", id=h(s.sign1.to_be_signed()), registered_at=refused["at"],
+                                              statement=signed, commitment=None)
+                    with self.assertRaises(VerifyError) as caught:
+                        state.apply(entry, refused["after"])
+                    if refused["why"] in self.METADATA_RULES:
+                        self.assertIsInstance(caught.exception, memberships.MembershipError)
+                        self.assertEqual(caught.exception.why, refused["why"])
+
+    @staticmethod
+    def _expected(m) -> dict:
+        v = m.values
+        return {"trust_node": m.trust_node.hex(), "trusted": m.trusted, "trust_node_name": m.trust_node_name,
+                "membership": m.membership.hex(), "kind": v.kind, "name": v.name, "verified": v.verified,
+                "registration": v.registration, "jurisdiction": v.jurisdiction, "until": v.until,
+                "registered_at": m.registered_at, "record_time": m.record_time, "at_record": m.at_record,
+                "checkpoint_time": m.checkpoint_time, "at_checkpoint": m.at_checkpoint}
+
+    def test_bundles(self):
+        everyone = {}
+        for case in self.d["bundles"]["valid"]:
+            with self.subTest(case["name"]):
+                nodes = {hx(t["ledger"]): t["name"] for t in case["trust_nodes"]}
+                everyone.update(nodes)
+                data = hx(case["bundle"])
+                result = evidence.verify_bundle(data, ledger_id=hx(case["ledger"]), trust_nodes=nodes)
+                self.assertTrue(result.complete)
+                self.assertEqual([self._expected(m) for m in result.memberships], case["memberships"])
+                for m in result.memberships:
+                    self.assertTrue(m.report.complete)
+                    # Never a name from the evidence: the trust node's own
+                    # organization name is not the list's.
+                    self.assertNotEqual(m.trust_node_name, m.report.ledger.name)
+                # The report's JSON gives the same facts, its times in ISO 8601.
+                j = report.to_json(result)["memberships"]
+                self.assertEqual([list(x) for x in j], [list(x) for x in case["memberships"]])
+                for x, want in zip(j, case["memberships"]):
+                    for key in ("registered_at", "record_time", "checkpoint_time", "until"):
+                        self.assertEqual(x[key], report.iso_time(want[key]))
+                    self.assertEqual({k: x[k] for k in ("trusted", "trust_node_name", "at_record", "at_checkpoint")},
+                                     {k: want[k] for k in ("trusted", "trust_node_name", "at_record", "at_checkpoint")})
+                self.assertIn("Member ", report.to_text(result))
+                # The trust list decides trust and names only.
+                untrusted = evidence.verify_bundle(data, ledger_id=hx(case["ledger"]))
+                self.assertTrue(all(not m.trusted and m.trust_node_name is None for m in untrusted.memberships))
+                self.assertEqual([(m.at_record, m.at_checkpoint) for m in untrusted.memberships],
+                                 [(m["at_record"], m["at_checkpoint"]) for m in case["memberships"]])
+        reasons = set()
+        for case in self.d["bundles"]["refused"]:
+            reasons.add(case["why"])
+            with self.subTest(case["name"]):
+                for nodes in ({}, everyone):
+                    with self.assertRaises(VerifyError):
+                        evidence.verify_bundle(hx(case["bundle"]), ledger_id=hx(case["ledger"]), trust_nodes=nodes)
+        self.assertEqual(reasons, {"another member", "nested", "twice", "incomplete", "not a membership",
+                                   "does not verify", "metadata", "own ledger", "too many", "empty", "not bytes"})
+
+    def test_bundles_without_proofs(self):
+        """A bundle without key 9 reports no memberships, whatever the list."""
+        case = self.d["bundles"]["valid"][0]
+        bundle = cbor.decode(hx(case["bundle"]))
+        del bundle[9]
+        result = evidence.verify_bundle(cbor.encode(bundle), ledger_id=hx(case["ledger"]),
+                                        trust_nodes={hx(t["ledger"]): t["name"] for t in case["trust_nodes"]})
+        self.assertEqual(result.memberships, [])
+        self.assertEqual(report.to_json(result)["memberships"], [])
+
+    def _cli(self, argv) -> tuple:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = cli.main(argv)
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue()
+
+    def test_command_line(self):
+        case = self.d["bundles"]["valid"][0]
+        node = case["trust_nodes"][0]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "bundle.cbor"
+            path.write_bytes(hx(case["bundle"]))
+            code, out = self._cli([str(path), "--ledger-id", case["ledger"], "--trust-node",
+                                   f"{node['ledger']}={node['name']}", "--json"])
+            self.assertEqual(code, cli.EXIT_VERIFIED)
+            m = json.loads(out)["memberships"][0]
+            self.assertEqual((m["trusted"], m["trust_node_name"], m["name"], m["at_record"]),
+                             (True, node["name"], case["memberships"][0]["name"], "active"))
+            code, out = self._cli([str(path), "--trust-node", f"{node['ledger']}={node['name']}"])
+            self.assertEqual(code, cli.EXIT_VERIFIED)
+            self.assertIn(f"Member       per {node['name']} (trust node {node['ledger'][:12]}), which you trust", out)
+            code, out = self._cli([str(path), "--json"])
+            self.assertEqual(code, cli.EXIT_VERIFIED)
+            m = json.loads(out)["memberships"][0]
+            self.assertEqual((m["trusted"], m["trust_node_name"]), (False, None))
+            for bad in (node["ledger"], f"{node['ledger'][:12]}=HK Trust", f"{node['ledger']}=", "xyz=HK Trust"):
+                with self.subTest(bad):
+                    self.assertEqual(self._cli([str(path), "--trust-node", bad])[0], cli.EXIT_USAGE)
+            twice = ["--trust-node", f"{node['ledger']}=A", "--trust-node", f"{node['ledger']}=B"]
+            self.assertEqual(self._cli([str(path)] + twice)[0], cli.EXIT_USAGE)
+            refused = self.d["bundles"]["refused"][0]
+            path.write_bytes(hx(refused["bundle"]))
+            self.assertEqual(self._cli([str(path), "--json"])[0], cli.EXIT_NOT_VERIFIED)
 
 
 class TimeStampTokens(unittest.TestCase):

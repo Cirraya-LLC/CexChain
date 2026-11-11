@@ -213,6 +213,45 @@ def claim_json(report: Report, claim: claims.Claim) -> dict:
             "for": [x.hex() for x in claim.for_] if claim.for_ is not None else None}
 
 
+def membership_json(m) -> dict:
+    """What a report states of a membership proof (section 11, v0.16): the
+    trust node's ledger id, whether it is trusted, and the name the
+    verifier's list gives it (None when untrusted: never a name from the
+    evidence); the membership's id and values; and where it stood when the
+    record was registered and at the proof's checkpoint, with both times.
+    Times are ISO 8601, as everywhere in the report."""
+    v = m.values
+    return {"trust_node": m.trust_node.hex(), "trusted": m.trusted, "trust_node_name": m.trust_node_name,
+            "membership": m.membership.hex(), "kind": v.kind, "name": v.name, "verified": v.verified,
+            "registration": v.registration, "jurisdiction": v.jurisdiction, "until": iso_time(v.until),
+            "registered_at": iso_time(m.registered_at), "record_time": iso_time(m.record_time),
+            "at_record": m.at_record, "checkpoint_time": iso_time(m.checkpoint_time),
+            "at_checkpoint": m.at_checkpoint}
+
+
+_STANDING_WORDS = {"not_yet": "NOT YET a member", "active": "active", "suspended": "SUSPENDED", "ended": "ENDED",
+                   "revoked": "REVOKED", "lapsed": "LAPSED"}
+
+
+def membership_text(m, subject: str) -> list:
+    v = m.values
+    if m.trusted:
+        lines = [f"  Member       per {m.trust_node_name} (trust node {m.trust_node.hex()[:12]}), which you trust"]
+    else:
+        lines = [f"  Member       per trust node {m.trust_node.hex()[:12]}, which you have not chosen: not relied on"]
+    who = f"{v.name} ({v.kind}, {'verified' if v.verified else 'self-declared'})"
+    if v.registration is not None:
+        who += f", registration {v.registration}"
+    if v.jurisdiction is not None:
+        who += f", {v.jurisdiction}"
+    lines.append(f"               {who}")
+    if v.until is not None:
+        lines.append(f"               until {human_time(v.until)}")
+    lines.append(f"               {_STANDING_WORDS[m.at_record]} when the {subject} was registered; "
+                 f"{_STANDING_WORDS[m.at_checkpoint]} at the proof's checkpoint ({human_time(m.checkpoint_time)})")
+    return lines
+
+
 def _subject_json(report: Report) -> dict:
     """The record; an instance is shown as a record without a type, its
     status as its state."""
@@ -272,6 +311,7 @@ def to_json(report: Report) -> dict:
         "events": [_event_json(report, applied) for applied in report.events],
         "disclosed_fields": {name: json_value(value) for name, value in report.disclosed},
         "attachments": [{"name": n, "media_type": m, "size": s, "status": st} for n, m, s, st in report.attachments],
+        "memberships": [membership_json(m) for m in report.memberships],
         "complete": report.complete,
         "state_commitment": None if report.commitment is None else {
             "index": report.commitment_index, "state_root": report.commitment.root.hex(),
@@ -340,6 +380,8 @@ def to_text(report: Report) -> str:
                          "(verify it to see whether it is the latest)")
         if record.claim is not None:
             lines += _claim_text(report, record.claim)
+    for m in report.memberships:
+        lines += membership_text(m, "record" if record is not None else "instance")
     lines += ["", "  History"]
     for applied in report.events:
         summary, _, _ = _event_text(ledger, record, applied)
@@ -373,5 +415,6 @@ def to_text(report: Report) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["actor_json", "authority_json", "by_whom", "claim_json", "human_time", "iso_time", "presence_json",
-           "provenance_json", "source_status", "to_json", "to_text", "witnesses_json", "witnesses_text"]
+__all__ = ["actor_json", "authority_json", "by_whom", "claim_json", "human_time", "iso_time", "membership_json",
+           "membership_text", "presence_json", "provenance_json", "source_status", "to_json", "to_text",
+           "witnesses_json", "witnesses_text"]

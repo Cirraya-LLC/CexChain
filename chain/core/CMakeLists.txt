@@ -25,6 +25,7 @@ add_library(cexchain_core
     src/protocol/id_map.cpp
     src/protocol/keys.cpp
     src/protocol/log.cpp
+    src/protocol/memberships.cpp
     src/protocol/network.cpp
     src/protocol/presence.cpp
     src/protocol/reader.cpp

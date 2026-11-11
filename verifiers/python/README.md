@@ -12,7 +12,7 @@ It verifies an evidence bundle (spec section 11), a record's or an instance's, e
 - deterministic CBOR and COSE_Sign1;
 - the log, its receipts and checkpoints, under the log key in effect at each size;
 - a replay of the ledger rules: actors, delegations, key rotations, revocations, versions,
-  claims, and contracts (below);
+  claims, memberships, and contracts (below);
 - proof of presence, by passkey or hardware key;
 - disclosed fields and attachments;
 - completeness against the state commitment, a claim's source included;
@@ -22,7 +22,12 @@ It verifies an evidence bundle (spec section 11), a record's or an instance's, e
 - RFC 3161 time-stamp tokens and the clock rule;
 - open witness networks (C2SP): their witnesses' cosignatures of a SHA-256 ledger's checkpoint
   notes, Ed25519 (`cosignature/v1`) and ML-DSA-44 (a `CosignedSubtree`), trusted by their
-  verifier keys and counted with the ledger's own witnesses.
+  verifier keys and counted with the ledger's own witnesses;
+- trust nodes: the membership proofs a bundle carries (key 9), each a trust node's complete
+  evidence of a `cexchain.membership/1` record naming the bundle's ledger, verified as a bundle of
+  its own, and where the membership stood when the record was registered and at the proof's
+  checkpoint (`cexchain_verify/memberships.py`). A trust node is trusted, and named, only by the
+  verifier's list (`--trust-node`), never by anything the evidence says.
 
 And it verifies an instance's contract evidence (sections 14 and 15):
 
@@ -66,8 +71,8 @@ JSON fields:
 
 | This verifier | Mirrors | Options besides `--json` |
 |---|---|---|
-| `python3 -m cexchain_verify BUNDLE` | `cexchain verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--attachment NAME=FILE` |
-| `python3 -m cexchain_verify contract FILE` | `cexchain contract verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--require-presence`, `--require-answered`, `--deploy-out FILE` |
+| `python3 -m cexchain_verify BUNDLE` | `cexchain verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--trust-node LEDGER=NAME`, `--attachment NAME=FILE` |
+| `python3 -m cexchain_verify contract FILE` | `cexchain contract verify` | `--ledger-id`, `--witness`, `--witness-vkey`, `--min-witnesses`, `--tsa-root`, `--min-timestamps`, `--trust-node LEDGER=NAME`, `--require-presence`, `--require-answered`, `--deploy-out FILE` |
 
 Exit codes: 0 verified, 1 a usage error, 2 an input file that cannot be read (or a
 `--deploy-out` file that cannot be written), 3 not verified.
@@ -82,6 +87,11 @@ Nothing cryptographic is implemented here:
 - Ed25519, ECDSA P-256, and ML-DSA come from the `cryptography` package;
 - SHA-256 and SM3 come from `hashlib`;
 - SM2 and the CMS signatures of time-stamp tokens come from the `openssl` command line.
+
+`--trust-node` takes a trust node the verifier believes: its ledger id (64 hex digits) and the
+name the report gives it, repeatable; a ledger named twice is a usage error. The JSON report's
+`memberships` lists every proof, trusted or not, in the bundle's order, with the field names of
+`cexchain verify --json` and its times in ISO 8601 like every other time in the report.
 
 `--witness-vkey` takes an open network's witness by its verifier key,
 `<name>+<key ID>+<base64(type || key)>` (c2sp.org/signed-note), of signature type 0x04 (Ed25519)
@@ -147,7 +157,11 @@ and claims (`protocol-v0.14.json`: claim metadata with its words, and refused, a
 claims, every refused statement, and what a report states of each claim) and for asking about a
 condition (`protocol-v0.15.json`, with `cexchain_verify/access.py`: access requests of both forms,
 decoded to their values, and refused, each for its rule; claims checked as answers to requests,
-accepted or refused for the acceptance check they fail), `tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
+accepted or refused for the acceptance check they fail) and for trust nodes (`protocol-v0.16.json`:
+the six mechanism types, membership metadata with its values, and refused, each for its rule; where
+memberships stood at given times; a trust node's log, every refused statement; and member ledgers'
+bundles with membership proofs, each proof's report under the trust list, or refused whatever the
+list, and `--trust-node`), `tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
 the note key's signed note, verifier keys, every cosignature's verdict and time, the anchor, in
 bundles too, and signed-note's own example), and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and
 answers (`protocol-v0.6.json` to `protocol-v0.8.json`: every statement, every refused one, every

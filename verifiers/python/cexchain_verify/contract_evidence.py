@@ -82,16 +82,18 @@ class ContractReport:
 
 
 def verify_contract_evidence(data: bytes, *, ledger_id: bytes | None = None, witnesses: list | None = None,
-                             tsa_roots_pem: bytes = b"", network_witnesses: list | None = None) -> ContractReport:
+                             tsa_roots_pem: bytes = b"", network_witnesses: list | None = None,
+                             trust_nodes=None) -> ContractReport:
     """Verifies contract evidence. Raises VerifyError if it does not verify;
-    returns the report otherwise. The witnesses, open-network witnesses, and
-    time-stamp authorities it trusts are trusted on every ledger: the home's
-    and each consenting party's."""
+    returns the report otherwise. The witnesses, open-network witnesses,
+    time-stamp authorities, and trust nodes (v0.16) it trusts are trusted on
+    every ledger: the home's and each consenting party's."""
     instance_bundle, consent_bundles = protocol.parse_contract_evidence(data)
 
     # Steps 1 and 2: the instance's bundle, replayed.
     bundle = evidence.verify_bundle(instance_bundle, ledger_id=ledger_id, witnesses=witnesses,
-                                    tsa_roots_pem=tsa_roots_pem, network_witnesses=network_witnesses)
+                                    tsa_roots_pem=tsa_roots_pem, network_witnesses=network_witnesses,
+                                    trust_nodes=trust_nodes)
     if bundle.instance is None:
         fail("the evidence's bundle is about a record, not an instance")
     if not bundle.complete:
@@ -116,7 +118,8 @@ def verify_contract_evidence(data: bytes, *, ledger_id: bytes | None = None, wit
             if encoded is None:
                 fail(f"the call at {applied.index} cites a consent whose bundle the evidence does not hold")
             pinned.add(ref.bundle)
-            consent = _check_consent(ledger, applied, ref, encoded, witnesses, tsa_roots_pem, network_witnesses)
+            consent = _check_consent(ledger, applied, ref, encoded, witnesses, tsa_roots_pem, network_witnesses,
+                                     trust_nodes)
             names[ref.ledger] = consent.report.ledger.name
             checked.append(consent)
         consents[applied.index] = checked
@@ -127,12 +130,13 @@ def verify_contract_evidence(data: bytes, *, ledger_id: bytes | None = None, wit
 
 
 def _check_consent(home: rules.Ledger, applied: rules.Applied, ref: protocol.ConsentRef, encoded: bytes,
-                   witnesses, tsa_roots_pem: bytes, network_witnesses) -> Consent:
+                   witnesses, tsa_roots_pem: bytes, network_witnesses, trust_nodes=None) -> Consent:
     """Section 15, step 3, for one citation."""
     what = f"the consent of {ref.ledger.hex()[:12]} to the call at {applied.index}"
     try:
         report = evidence.verify_bundle(encoded, ledger_id=ref.ledger, witnesses=witnesses,
-                                        tsa_roots_pem=tsa_roots_pem, network_witnesses=network_witnesses)
+                                        tsa_roots_pem=tsa_roots_pem, network_witnesses=network_witnesses,
+                                        trust_nodes=trust_nodes)
     except VerifyError as e:
         fail(f"{what} does not verify: {e}")
     if not report.complete:

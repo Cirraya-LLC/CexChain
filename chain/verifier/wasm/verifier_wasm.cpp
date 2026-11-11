@@ -129,6 +129,20 @@ EMSCRIPTEN_KEEPALIVE int cexchain_add_timestamp_root(const std::uint8_t* data, s
     return 0;
 }
 
+/// Believes a trust node's memberships (spec v0.16), naming it `name` (the
+/// page's list gives it, never the evidence). Returns 0, or -1 if `hex` is
+/// not a ledger id or the name is empty.
+EMSCRIPTEN_KEEPALIVE int cexchain_add_trust_node(const char* hex, const char* name) {
+    const auto bytes = from_hex(hex);
+    const auto id =
+        bytes ? protocol::to_id(*bytes) : Result<protocol::Id>(std::unexpected(bytes.error()));
+    if (!id || *name == '\0') {
+        return -1;
+    }
+    options.trust_nodes.push_back({*id, name});
+    return 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void cexchain_add_attachment(const char* name, const std::uint8_t* data,
                                                   std::size_t size) {
     options.attachment_contents[name] = Bytes(data, data + size);

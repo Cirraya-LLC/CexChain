@@ -113,8 +113,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             constexpr protocol::Timestamp now = 1'791'244'800'000;
             static_cast<void>(protocol::check_access_request(provider, input, *ledger, other, now));
             protocol::AccessRequest asked{
-                *ledger,      other,       "fuzz", now + 1, cexchain::Bytes(32, 7),
-                std::nullopt, std::nullopt};
+                *ledger,      other,        "fuzz",      now + 1, cexchain::Bytes(32, 7),
+                std::nullopt, std::nullopt, std::nullopt};
             if (const auto grant = protocol::check_access_grant(provider, input, *ledger, other,
                                                                 other, asked, now)) {
                 static_cast<void>(protocol::check_delivered_record(
@@ -122,10 +122,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
                     protocol::DeliveryContents{cexchain::Bytes(input.begin(), input.end()), {}},
                     *ledger, *grant));
             }
-            static_cast<void>(protocol::check_access_receipt(
-                provider, input, *ledger, other, other,
-                protocol::AccessGrant{*ledger, other, other, {}, {}, now, {}},
-                cexchain::Bytes(32)));
+            static_cast<void>(protocol::check_access_receipt(provider, input, *ledger, other, other,
+                                                             other, cexchain::Bytes(32)));
+            // A claim answering a question (spec v0.15), as the asker checks it.
+            protocol::AccessRequest question = asked;
+            question.recipient = {};
+            question.condition = std::vector<protocol::ClaimTerm>{
+                {"result", "=", "text", cexchain::cbor::Value::text("pass")}};
+            static_cast<void>(protocol::check_claim_answer(provider, input, *ledger, other, other,
+                                                           question, now));
         }
     }
     if (const auto request = protocol::decode_cosign_request(input)) {

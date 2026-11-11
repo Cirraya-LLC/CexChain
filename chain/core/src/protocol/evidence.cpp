@@ -260,6 +260,16 @@ Result<Bytes> encode_bundle(const EvidenceBundle& bundle) {
         }
         map.push_back(entry(8, cbor::Value::array(std::move(anchors))));
     }
+    if (!bundle.memberships.empty()) {
+        if (bundle.memberships.size() > max_membership_proofs) {
+            return fail(Errc::invalid_argument, "a bundle carries at most 16 membership proofs");
+        }
+        cbor::Array proofs;
+        for (const Bytes& proof : bundle.memberships) {
+            proofs.push_back(cbor::Value::bytes(proof));
+        }
+        map.push_back(entry(9, cbor::Value::array(std::move(proofs))));
+    }
     return cbor::encode(cbor::Value::map(std::move(map)));
 }
 
@@ -446,6 +456,16 @@ Result<EvidenceBundle> decode_bundle(ByteView encoded) {
             bundle.anchors.push_back(std::move(a));
         }
     }
+    if (const cbor::Value* list_value = reader.get(9)) {
+        CEXCHAIN_TRY(const cbor::Array* list, non_empty_list(*list_value));
+        if (list->size() > max_membership_proofs) {
+            return fail(Errc::malformed, "a bundle carries at most 16 membership proofs");
+        }
+        for (const cbor::Value& item : *list) {
+            CEXCHAIN_TRY(Bytes proof, detail::as_bytes_value(item));
+            bundle.memberships.push_back(std::move(proof));
+        }
+    }
     CEXCHAIN_CHECK(reader.finish());
     return bundle;
 }
@@ -625,7 +645,98 @@ Result<EvidenceReport> check_anchors(const crypto::Provider& provider, const Led
     return report;
 }
 
-/// The last steps of a verification: witnesses, then anchors.
+/// Step 9 (v0.16): each membership proof is a complete bundle of its own
+/// ledger, about a membership that names this bundle's ledger; it says where
+/// the membership stood when the record was registered (an instance's
+/// creating call) and at the proof's checkpoint.
+Result<EvidenceReport> check_memberships(const crypto::Provider& provider,
+                                         const EvidenceBundle& bundle, const VerifyOptions& options,
+                                         EvidenceReport report) {
+    if (bundle.memberships.empty()) {
+        return report;
+    }
+    const RecordEvent* registered = nullptr;
+    if (report.instance) {
+        const auto it =
+            std::ranges::find(report.events, report.instance->created_by, &RecordEvent::index);
+        registered = it == report.events.end() ? nullptr : &*it;
+    } else if (!report.events.empty()) {
+        registered = &report.events.front();
+    }
+    if (registered == nullptr) {
+        return verification_failure("the bundle does not show when its record was registered");
+    }
+    // The proofs are other ledgers' evidence: none is expected, and the
+    // verifier's trust in witnesses and authorities applies to them too.
+    VerifyOptions inner;
+    inner.trusted_witnesses = options.trusted_witnesses;
+    inner.trusted_timestamp_roots = options.trusted_timestamp_roots;
+    inner.trusted_network_witnesses = options.trusted_network_witnesses;
+    inner.modules = options.modules;
+    std::vector<std::pair<Id, Id>> seen;
+    for (const Bytes& proof : bundle.memberships) {
+        auto decoded = decode_bundle(proof);
+        if (!decoded) {
+            return verification_failure("a membership proof is malformed");
+        }
+        if (!decoded->memberships.empty()) {
+            return verification_failure("a membership proof carries membership proofs");
+        }
+        auto checked = detail::verify_bundle_as_given(provider, proof, inner);
+        if (!checked) {
+            return verification_failure("a membership proof does not verify");
+        }
+        if (!checked->complete) {
+            return verification_failure("a membership proof is not complete");
+        }
+        if (checked->record_type != membership_type || !checked->metadata ||
+            checked->events.empty()) {
+            return verification_failure("a membership proof is not of a membership");
+        }
+        auto membership = decode_membership(*checked->metadata);
+        if (!membership) {
+            return verification_failure("a membership proof's metadata is not a membership");
+        }
+        if (membership->member != report.ledger_id) {
+            return verification_failure("a membership proof names another ledger as its member");
+        }
+        std::pair key{checked->ledger_id, checked->record};
+        if (std::ranges::contains(seen, key)) {
+            return verification_failure("a membership is proven twice");
+        }
+        seen.push_back(std::move(key));
+        // Its history after its registration: transitions ("from -> to")
+        // and a revocation.
+        std::vector<MembershipChange> changes;
+        for (const RecordEvent& e : checked->events) {
+            if (e.type == StatementType::record_transition) {
+                const std::size_t arrow = e.detail.find(" -> ");
+                changes.push_back({e.registered_at,
+                                   arrow == std::string::npos ? "" : e.detail.substr(arrow + 4)});
+            } else if (e.type == StatementType::record_revoke) {
+                changes.push_back({e.registered_at, ""});
+            }
+        }
+        EvidenceReport::MembershipReport m;
+        m.trust_node = checked->ledger_id;
+        const auto node = std::ranges::find(options.trust_nodes, m.trust_node, &TrustNode::ledger);
+        m.trusted = node != options.trust_nodes.end();
+        if (m.trusted) {
+            m.trust_node_name = node->name;
+        }
+        m.record = checked->record;
+        m.registered_at = checked->events.front().registered_at;
+        m.membership = std::move(*membership);
+        m.record_time = registered->registered_at;
+        m.at_record = standing_at(m.membership, m.registered_at, changes, m.record_time);
+        m.checkpoint_time = checked->checkpoint.timestamp;
+        m.at_checkpoint = standing_at(m.membership, m.registered_at, changes, m.checkpoint_time);
+        report.memberships.push_back(std::move(m));
+    }
+    return report;
+}
+
+/// The last steps of a verification: witnesses, anchors, then memberships.
 Result<EvidenceReport> finish_report(const crypto::Provider& provider, const LedgerState& state,
                                      const SignedCheckpoint& checkpoint,
                                      const EvidenceBundle& bundle,
@@ -633,7 +744,9 @@ Result<EvidenceReport> finish_report(const crypto::Provider& provider, const Led
                                      const VerifyOptions& options, EvidenceReport report) {
     CEXCHAIN_TRY(report,
                  count_witnesses(provider, state, checkpoint, bundle, options, std::move(report)));
-    return check_anchors(provider, state, checkpoint, bundle, included, options, std::move(report));
+    CEXCHAIN_TRY(report, check_anchors(provider, state, checkpoint, bundle, included, options,
+                                       std::move(report)));
+    return check_memberships(provider, bundle, options, std::move(report));
 }
 
 } // namespace

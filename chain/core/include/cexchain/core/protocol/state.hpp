@@ -36,7 +36,7 @@ inline constexpr std::size_t max_delegation_depth = 16;
 /// The version of the rules a state is built by: raised whenever validation
 /// or application changes what a log replays to, so that a state written by
 /// earlier rules (a snapshot) is not taken for today's.
-inline constexpr std::uint32_t state_rules_version = 2;
+inline constexpr std::uint32_t state_rules_version = 3;
 
 // Ids in state objects are CompactIds: millions of objects.
 struct ActorState {

@@ -238,6 +238,7 @@ The `cexchain` tool controls every part of a ledger:
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types`, `record publish`, `record published`, `record unpublish` |
 | Claims | `claim issue`, `claim list`, `claim show`, `claim revoke` |
+| Trust nodes | `trust member add\|list\|show\|suspend\|resume\|end\|revoke` (a trust node's), `trust node add\|list\|remove\|fetch` (a member's) |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `checkpoint note`, `checkpoint network-cosign`, `checkpoint network-cosignatures`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses, and open networks' with `--vkey`); `witness network-entry` |
 | Evidence | `export`, `verify`, `inspect`, `qr` |
@@ -518,6 +519,33 @@ cexchain record publish <claim-id> --url https://ledger.example.com   # a QR cod
 Conditions compare numbers, money (`HKD 30000.00`), dates, and text with `>`, `>=`, `<`, `<=`,
 `=`, `!=`, `between`, `in`, and `exists`; several `--if` must all hold. A condition that does not
 hold gets no claim unless `--allow-no`, so that asking reveals nothing more than silence.
+
+## Trust nodes
+
+A ledger's id says which ledger issued a record, not who runs it: the organization name in its
+genesis is its own word. A trust node is any ledger that checks who runs other ledgers and says
+so in a `cexchain.membership/1` record: "ledger 1a2b... is Kowloon Example School, company
+12345678, Hong Kong, checked". The member fetches its proof and its evidence carries it from then
+on. A verifier believes the trust nodes it chose, named by its own list and never by the
+evidence, and sees whether the membership was active when the record was issued:
+
+```sh
+# The trust node:
+cexchain trust member add <school-ledger-id> --name "Kowloon Example School" --verified \
+    --registration 12345678 --jurisdiction HK --as checker.key
+cexchain serve --log-key log.key ...          # serves the proof at /m/<school-ledger-id>
+# The school, once:
+cexchain trust node add hktrust --ledger-id <trust-node-ledger-id> --url https://trust.example.org
+cexchain trust node fetch                      # again from time to time
+# Anyone:
+cexchain verify diploma.cbor --trust-node "<trust-node-ledger-id>=HK Trust"
+#   Member       per HK Trust (trust node 3f9a...), which you trust
+#                Kowloon Example School: an organization, checked by the trust node, ...
+```
+
+A membership is suspended, resumed, ended, or revoked by the trust node (`trust member
+suspend|resume|end|revoke`). A proof shows the membership as of its checkpoint; fetch a fresh one
+from `/m/<ledger-id>` to see it now.
 
 ## An independent verifier
 

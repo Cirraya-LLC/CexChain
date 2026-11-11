@@ -323,6 +323,60 @@ std::string timestamps_text(const protocol::EvidenceReport& r) {
 
 namespace {
 
+/// A standing for JSON (v0.16): one word.
+std::string_view standing_key(protocol::Standing s) {
+    return s == protocol::Standing::not_yet ? "not_yet" : protocol::standing_name(s);
+}
+
+Json memberships_json(const protocol::EvidenceReport& r) {
+    Json out = Json::array();
+    for (const auto& m : r.memberships) {
+        const protocol::Membership& p = m.membership;
+        out.push_back({{"trust_node", hex_id(m.trust_node)},
+                       {"trusted", m.trusted},
+                       {"trust_node_name", m.trusted ? Json(m.trust_node_name) : Json(nullptr)},
+                       {"membership", hex_id(m.record)},
+                       {"registered_at", iso_time(m.registered_at)},
+                       {"kind", protocol::member_kind_name(p.kind)},
+                       {"name", p.name},
+                       {"verified", p.verified},
+                       {"registration", optional_text(p.registration)},
+                       {"jurisdiction", optional_text(p.jurisdiction)},
+                       {"until", p.until ? Json(iso_time(*p.until)) : Json(nullptr)},
+                       {"record_time", iso_time(m.record_time)},
+                       {"at_record", standing_key(m.at_record)},
+                       {"checkpoint_time", iso_time(m.checkpoint_time)},
+                       {"at_checkpoint", standing_key(m.at_checkpoint)}});
+    }
+    return out;
+}
+
+/// Each membership proof (v0.16): the trust node, named only from the
+/// verifier's list; whom it names; where it stood then and at its checkpoint.
+std::string memberships_text(const protocol::EvidenceReport& r) {
+    std::string out;
+    for (const auto& m : r.memberships) {
+        const protocol::Membership& p = m.membership;
+        out += m.trusted ? std::format("  Member       per {} (trust node {}), which you trust\n",
+                                       m.trust_node_name, short_id(m.trust_node))
+                         : std::format("  Member       per trust node {}, which you have not "
+                                       "chosen: not relied on\n",
+                                       short_id(m.trust_node));
+        out += std::format("               {}: {}, {}{}{}{}\n", p.name,
+                           p.kind == protocol::MemberKind::person ? "a person" : "an organization",
+                           p.verified ? "checked by the trust node" : "self-declared",
+                           p.registration ? ", registration " + *p.registration : std::string(),
+                           p.jurisdiction ? ", " + *p.jurisdiction : std::string(),
+                           p.until ? ", until " + format_time(*p.until) : std::string());
+        out +=
+            std::format("               {} when this record was registered; {} at {} (the "
+                        "proof's checkpoint)\n",
+                        protocol::standing_name(m.at_record),
+                        protocol::standing_name(m.at_checkpoint), format_time(m.checkpoint_time));
+    }
+    return out;
+}
+
 Json claim_json(const protocol::EvidenceReport::ClaimReport& c) {
     Json condition = Json::array();
     for (const protocol::ClaimTerm& t : c.claim.condition) {
@@ -401,6 +455,7 @@ Json report_json(const protocol::EvidenceReport& r, bool ledger_checked) {
           {"root_key_rotations", r.root_key_rotations}}},
         {"witnesses", witnesses_json(r)},
         {"timestamps", timestamps_json(r)},
+        {"memberships", memberships_json(r)},
         {"record",
          {{"id", hex_id(r.record)},
           {"type", r.record_type},
@@ -445,6 +500,7 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
     }
     out += witnesses_text(r);
     out += timestamps_text(r);
+    out += memberships_text(r);
     line(std::format("  Record       {} (id {})", r.record_type, short_id(r.record)));
     line(std::format("  State        {}{}", r.state, r.revoked ? " - REVOKED" : ""));
     if (r.superseded_by) {
@@ -952,6 +1008,7 @@ std::string contract_report_text(const protocol::ContractReport& r, bool ledger_
                      e.checkpoint.tree_size, format_time(e.checkpoint.timestamp)));
     out += witnesses_text(e);
     out += timestamps_text(e);
+    out += memberships_text(e);
     auto call_lines = [&](const protocol::ContractStep& step) {
         const protocol::RecordEvent& event = e.events[step.event];
         const protocol::ContractCallBody& call = *event.contract_call;

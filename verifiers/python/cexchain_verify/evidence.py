@@ -13,14 +13,19 @@ verify_bundle follows the verifier's steps of section 11 in order:
 6. witness cosignatures, counted with the open-network witnesses' of step 8;
 7. completeness against the state commitment the checkpoint ends with;
 8. anchors: time-stamp tokens over checkpoints, and the clock rule; and
-   open-network witnesses' cosignatures of checkpoint notes (section 10.2).
+   open-network witnesses' cosignatures of checkpoint notes (section 10.2);
+9. membership proofs (v0.16): each a trust node's complete evidence of a
+   membership naming this bundle's ledger, verified as a bundle of its own,
+   and where the membership stood when the record was registered and at the
+   proof's checkpoint. A trust node is trusted, and named, only by the
+   verifier's own list.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import contracts, cose, crypto, merkle, network, protocol, rules, statetree, timestamps
+from . import contracts, cose, crypto, memberships, merkle, network, protocol, rules, statetree, timestamps
 from .errors import VerifyError
 from .protocol import AGENT
 
@@ -40,6 +45,26 @@ class NetworkCosignature:
     size: int
     time: int  # POSIX seconds, the witness's own clock
     trusted: bool
+
+
+@dataclass
+class MembershipProof:
+    """A membership proof (section 11, step 9) as a report states it: the
+    trust node's ledger, whether the verifier trusts it and the name its list
+    gives it (never one the evidence gives), the membership and its values,
+    and where it stood when the bundle's record was registered and at the
+    proof's checkpoint. Times are ms."""
+    trust_node: bytes
+    trusted: bool
+    trust_node_name: str | None
+    membership: bytes  # the membership record's id on the trust node's ledger
+    values: memberships.Membership
+    registered_at: int
+    record_time: int
+    at_record: str
+    checkpoint_time: int
+    at_checkpoint: str
+    report: "Report"  # the proof's own verification
 
 
 @dataclass
@@ -64,6 +89,7 @@ class Report:
     entries: int = 0
     notes: list = field(default_factory=list)
     network: list = field(default_factory=list)  # [NetworkCosignature], in the bundle's order
+    memberships: list = field(default_factory=list)  # [MembershipProof], in the bundle's order (v0.16)
 
 
 def fail(message: str):
@@ -72,7 +98,7 @@ def fail(message: str):
 
 def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: list | None = None,
                   tsa_roots_pem: bytes = b"", attachments: dict | None = None,
-                  network_witnesses: list | None = None) -> Report:
+                  network_witnesses: list | None = None, trust_nodes=None) -> Report:
     """Verifies an evidence bundle. Raises VerifyError if it does not
     verify; returns the report otherwise.
 
@@ -80,9 +106,25 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
     tsa_roots_pem: trusted time-stamp authority roots, PEM;
     attachments: attachment contents by name;
     network_witnesses: trusted open-network witnesses' verifier keys
-    (network.VerifierKey).
+    (network.VerifierKey);
+    trust_nodes: the trust nodes it believes (v0.16), as {ledger id: name}
+    or [(ledger id, name)]: the name is the verifier's, and the only one a
+    report gives a trust node.
     """
+    names = dict(trust_nodes or {})
+    return _verify(data, ledger_id=ledger_id, witnesses=witnesses or [], tsa_roots_pem=tsa_roots_pem,
+                   attachments=attachments or {}, network_witnesses=network_witnesses or [], trust_nodes=names,
+                   as_proof=False)
+
+
+def _verify(data: bytes, *, ledger_id, witnesses: list, tsa_roots_pem: bytes, attachments: dict,
+            network_witnesses: list, trust_nodes: dict, as_proof: bool) -> Report:
+    """Steps 1 to 9; for a membership proof (as_proof), steps 1 to 8 only,
+    and a proof that carries membership proofs of its own is refused before
+    anything else."""
     bundle = protocol.parse_bundle(data)
+    if as_proof and bundle.memberships:
+        fail("a membership proof carries membership proofs of its own (key 9)")
     checkpoint = protocol.parse_tree_head(bundle.checkpoint, cose.CHECKPOINT_TYPE, "the checkpoint")
     size = checkpoint.tree_size
 
@@ -151,12 +193,12 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
     if instance is not None and (bundle.disclosures or bundle.openings):
         fail("an instance's bundle discloses no fields and opens no attachments")
     disclosed = _check_disclosures(h, record, bundle.disclosures) if record is not None else []
-    attachment_report = (_check_attachments(h, record, bundle.openings, attachments or {})
+    attachment_report = (_check_attachments(h, record, bundle.openings, attachments)
                          if record is not None else [])
 
     # Step 6: cosignatures, by witnesses it trusts, each witness once (the
     # open-network witnesses' are counted with them after step 8).
-    trusted, untrusted = _count_cosignatures(h, checkpoint, bundle.cosignatures, witnesses or [])
+    trusted, untrusted = _count_cosignatures(h, checkpoint, bundle.cosignatures, witnesses)
 
     # Step 7: completeness.
     included = {index: entry for index, entry, _ in entries}
@@ -165,9 +207,14 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
 
     # Step 8: anchors.
     tokens, authorities, existed_by, cosigned = _check_anchors(ledger, checkpoint, included, bundle.anchors,
-                                                               tsa_roots_pem, network_witnesses or [])
+                                                               tsa_roots_pem, network_witnesses)
     trusted |= {("network",) + w for w, n in cosigned if n.trusted}
     untrusted |= {("network",) + w for w, n in cosigned if not n.trusted}
+
+    # Step 9: membership proofs.
+    proofs = _check_memberships(ledger, subject, bundle.memberships, witnesses=witnesses,
+                                tsa_roots_pem=tsa_roots_pem, network_witnesses=network_witnesses,
+                                trust_nodes=trust_nodes)
 
     events = [ledger.applied[i] for i in event_indices(ledger, subject)]
     return Report(
@@ -176,7 +223,60 @@ def verify_bundle(data: bytes, *, ledger_id: bytes | None = None, witnesses: lis
         witnesses_trusted=len(trusted), witnesses_untrusted=len(untrusted), tokens=tokens,
         trusted_authorities=authorities, existed_by=existed_by, complete=complete,
         commitment=commitment, commitment_index=size - 1 if commitment is not None else None,
-        entries=len(entries), network=[n for _, n in cosigned])
+        entries=len(entries), network=[n for _, n in cosigned], memberships=proofs)
+
+
+def registration_time(ledger: rules.Ledger, subject) -> int:
+    """When the bundle's subject came to be: a record's registration, or
+    the registration of the call that created an instance."""
+    if isinstance(subject, rules.Record):
+        return ledger.applied[subject.history[0]].registered_at
+    return ledger.applied[subject.created_by].registered_at
+
+
+def _check_memberships(ledger: rules.Ledger, subject, proofs: list, *, witnesses: list, tsa_roots_pem: bytes,
+                       network_witnesses: list, trust_nodes: dict) -> list:
+    """Section 11, step 9 (v0.16). Each proof is verified as an evidence
+    bundle under steps 1 to 8, for the ledger its own genesis names, with no
+    attachment contents, and by the same witnesses, open-network witnesses,
+    and time-stamp authorities this bundle is: it must verify, be complete,
+    be about a cexchain.membership/1 record (whose metadata the replay
+    checked) naming this bundle's ledger as its member, and carry no proofs
+    of its own. Two proofs of one membership (the same ledger and record)
+    fail. A proof that fails any of this fails the evidence."""
+    out, seen = [], set()
+    record_time = registration_time(ledger, subject) if proofs else None
+    for n, encoded in enumerate(proofs, start=1):
+        what = f"membership proof {n}"
+        try:
+            proof = _verify(encoded, ledger_id=None, witnesses=witnesses, tsa_roots_pem=tsa_roots_pem,
+                            attachments={}, network_witnesses=network_witnesses, trust_nodes={}, as_proof=True)
+        except VerifyError as e:
+            fail(f"{what} does not verify: {e}")
+        if not proof.complete:
+            fail(f"{what} is not complete: its checkpoint does not end with a state commitment")
+        record = proof.record
+        if record is None or record.type != memberships.MEMBERSHIP_TYPE or record.membership is None:
+            fail(f"{what} is not about a {memberships.MEMBERSHIP_TYPE} record")
+        values = record.membership
+        if values.member != ledger.id:
+            fail(f"{what} is a membership of another ledger ({values.member.hex()[:12]}), not of this bundle's")
+        key = (proof.ledger.id, record.id)
+        if key in seen:
+            fail(f"{what} is a second proof of one membership ({record.id.hex()[:12]} on {proof.ledger.id.hex()[:12]})")
+        seen.add(key)
+        registered_at, changes = memberships.history(proof.ledger, record)
+        checkpoint_time = proof.checkpoint.timestamp
+        trusted = proof.ledger.id in trust_nodes
+        out.append(MembershipProof(
+            trust_node=proof.ledger.id, trusted=trusted,
+            trust_node_name=trust_nodes[proof.ledger.id] if trusted else None, membership=record.id,
+            values=values, registered_at=registered_at, record_time=record_time,
+            at_record=memberships.standing(registered_at, values.until, changes, record_time),
+            checkpoint_time=checkpoint_time,
+            at_checkpoint=memberships.standing(registered_at, values.until, changes, checkpoint_time),
+            report=proof))
+    return out
 
 
 def _check_disclosures(h, record: rules.Record, disclosures: list) -> list:
@@ -391,4 +491,5 @@ def _check_network(ledger: rules.Ledger, head: protocol.TreeHead, cosignatures: 
     return out
 
 
-__all__ = ["NetworkCosignature", "Report", "VerifyError", "event_indices", "involved_objects", "verify_bundle"]
+__all__ = ["MembershipProof", "NetworkCosignature", "Report", "VerifyError", "event_indices", "involved_objects",
+           "registration_time", "verify_bundle"]

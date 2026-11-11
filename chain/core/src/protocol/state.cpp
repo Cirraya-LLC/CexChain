@@ -7,6 +7,7 @@
 #include <variant>
 
 #include <cexchain/core/protocol/claims.hpp>
+#include <cexchain/core/protocol/memberships.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -821,6 +822,21 @@ Status LedgerState::check_rules(const crypto::Provider& provider, const Statemen
                     if (claim->as_of > now) {
                         return fail(Errc::rejected,
                                     "a claim is evaluated no later than its registration");
+                    }
+                }
+                // Memberships (v0.16): the metadata's shape, and a member
+                // that is another ledger.
+                if (b.record_type == membership_type) {
+                    if (!b.metadata) {
+                        return fail(Errc::malformed, "a membership names its member");
+                    }
+                    auto membership = decode_membership(*b.metadata);
+                    if (!membership) {
+                        return std::unexpected(membership.error());
+                    }
+                    if (membership->member == ledger_id_) {
+                        return fail(Errc::rejected,
+                                    "a membership's member is another ledger than this one");
                     }
                 }
                 if (!b.supersedes) {
