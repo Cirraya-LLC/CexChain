@@ -5,8 +5,10 @@ that, in another record of the same ledger (its source), a condition on the
 source's fields holds, or does not, as of a time, without disclosing them.
 
 The ledger checks a claim's metadata (record key 5, `claim` in the CDDL) and
-refuses other keys; parse() does that here. words() states the condition as
-one line of English, as every verifier's report gives it.
+refuses other keys; parse() does that here, and parse_condition() checks a
+condition alone, as an access request about one carries it (v0.15, section
+12). words() states the condition as one line of English, as every
+verifier's report gives it.
 """
 
 from __future__ import annotations
@@ -105,8 +107,8 @@ def _key(kind: str, v):
     return v
 
 
-def _parse_term(raw, n: int) -> Term:
-    what = f"a claim's term {n}"
+def _parse_term(raw, n: int, owner: str) -> Term:
+    what = f"{owner}'s term {n}"
     if not (isinstance(raw, list) and len(raw) == 4):
         fail(f"{what} is not [field, op, type, value]")
     field, op, kind, value = raw
@@ -153,6 +155,15 @@ def _parse_term(raw, n: int) -> Term:
     return Term(field, op, kind, value)
 
 
+def parse_condition(condition, owner: str = "a claim") -> tuple:
+    """A condition, 1 to 16 terms that must all hold, checked as a claim's is
+    (section 6): a claim's, or (v0.15) an access request's, which asks about
+    one. Returns its terms."""
+    if not (isinstance(condition, list) and 1 <= len(condition) <= MAX_TERMS):
+        fail(f"{owner}'s condition is not 1 to 16 terms")
+    return tuple(_parse_term(t, n, owner) for n, t in enumerate(condition))
+
+
 def parse(metadata) -> Claim:
     """A claim's metadata, checked as the ledger checks it (section 6)."""
     if not isinstance(metadata, dict):
@@ -167,10 +178,7 @@ def parse(metadata) -> Claim:
     m = metadata
     if not (isinstance(m["source"], bytes) and len(m["source"]) == 32):
         fail("a claim's source is not a 32-byte id")
-    condition = m["condition"]
-    if not (isinstance(condition, list) and 1 <= len(condition) <= MAX_TERMS):
-        fail("a claim's condition is not 1 to 16 terms")
-    terms = tuple(_parse_term(t, n) for n, t in enumerate(condition))
+    terms = parse_condition(m["condition"])
     if not isinstance(m["holds"], bool):
         fail("a claim's holds is not a boolean")
     if not (_int(m["as_of"]) and m["as_of"] >= 0):
@@ -228,4 +236,4 @@ def words(condition) -> str:
     return " and ".join(term_words(t) for t in condition)
 
 
-__all__ = ["CLAIM_TYPE", "Claim", "Term", "parse", "value_words", "words"]
+__all__ = ["CLAIM_TYPE", "Claim", "Term", "parse", "parse_condition", "value_words", "words"]

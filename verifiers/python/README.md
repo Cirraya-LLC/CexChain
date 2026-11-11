@@ -144,8 +144,10 @@ failure names the section and step that decide it), and facts its JSON report mu
 
 The verifier's own unit tests run against `testvectors/`: `tests/test_vectors.py` for records
 and claims (`protocol-v0.14.json`: claim metadata with its words, and refused, and a log with
-claims, every refused statement, and what a report states of each claim),
-`tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
+claims, every refused statement, and what a report states of each claim) and for asking about a
+condition (`protocol-v0.15.json`, with `cexchain_verify/access.py`: access requests of both forms,
+decoded to their values, and refused, each for its rule; claims checked as answers to requests,
+accepted or refused for the acceptance check they fail), `tests/test_network.py` for open witness networks (`protocol-v0.13.json`: the origin, the note,
 the note key's signed note, verifier keys, every cosignature's verdict and time, the anchor, in
 bundles too, and signed-note's own example), and `tests/test_contracts.py` for the profile (`vm-v1.json`), contracts, parts, requests and
 answers (`protocol-v0.6.json` to `protocol-v0.8.json`: every statement, every refused one, every

@@ -5,14 +5,16 @@
 // across ledgers. A requester asks (a request record on its ledger), the
 // granter grants (a grant record on its ledger) and delivers the record's
 // private data sealed to a key made for that request, and the requester
-// acknowledges (a receipt record on its ledger). Each side checks the
-// other's step with the offline evidence verifier, pinned to the peer's
-// ledger id.
+// acknowledges (a receipt record on its ledger). A request may ask instead
+// whether a condition holds in the record (spec v0.15): a claim answers it,
+// and the receipt acknowledges the claim. Each side checks the other's step
+// with the offline evidence verifier, pinned to the peer's ledger id.
 
 #include <algorithm>
 #include <print>
 
 #include <cexchain/client/access.hpp>
+#include <cexchain/client/claims.hpp>
 #include <cexchain/client/peers.hpp>
 #include <cexchain/client/relay_client.hpp>
 #include <cexchain/core/protocol/access.hpp>
@@ -106,12 +108,6 @@ protocol::Id issue_access_record(Session& session, const Args& args, std::string
     const protocol::Id id = issue_record(session, *load_signer(args.need("as"), args), request);
     unwrap(session.ledger().checkpoint(log_key), "checkpointing");
     return id;
-}
-
-/// The access metadata of one of this ledger's records.
-cbor::Value own_metadata(Session& session, const protocol::Id& record) {
-    return unwrap(node::record_metadata(session.provider(), session.ledger(), record),
-                  "reading the record's metadata");
 }
 
 std::string joined(const std::vector<std::string>& names) {
@@ -317,24 +313,42 @@ int cmd_access_request(const Args& args) {
     request.record = unwrap(protocol::to_id(*record_bytes), "record id");
     request.purpose = args.need("purpose");
     request.until = now + parse_number(args.get("days").value_or("30"), "days") * day_ms;
-    if (args.has("fields")) {
-        request.fields = names_from(args, "fields");
+    // A condition (a claim answers it), or data (sealed to a key made for it).
+    std::optional<crypto::openssl::HpkeKey> key;
+    if (args.has("if")) {
+        if (args.has("fields") || args.has("attachments")) {
+            throw UsageError{"--if asks whether a condition holds: it takes no --fields or "
+                             "--attachments"};
+        }
+        request.condition.emplace();
+        for (const std::string& condition : args.all("if")) {
+            request.condition->push_back(client::parse_claim_term(condition));
+        }
+    } else {
+        if (args.has("fields")) {
+            request.fields = names_from(args, "fields");
+        }
+        if (args.has("attachments")) {
+            request.attachments = names_from(args, "attachments");
+        }
+        // A fresh key for this request: deliveries are sealed to it, and it
+        // is kept sealed to this ledger's vault key.
+        key = unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key");
+        request.recipient = Bytes(key->public_key().begin(), key->public_key().end());
     }
-    if (args.has("attachments")) {
-        request.attachments = names_from(args, "attachments");
+    const auto encoded = protocol::encode_access_request(request);
+    if (!encoded) {
+        throw UsageError{std::string(encoded.error().detail)};
     }
-    // A fresh key for this request: deliveries are sealed to it, and it is
-    // kept sealed to this ledger's vault key.
-    auto key = unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key");
-    request.recipient = Bytes(key.public_key().begin(), key.public_key().end());
-    const cbor::Value metadata =
-        unwrap(protocol::encode_access_request(request), "the request's metadata");
-    const Bytes vault_public = vault_public_key(session);
+    const std::optional<Bytes> vault_public =
+        key ? std::optional(vault_public_key(session)) : std::nullopt;
 
     const protocol::Id id = issue_access_record(session, args, protocol::access_request_type,
-                                                metadata, request.purpose, *log_key);
-    store(client::request_key_path(session.directory(), id),
-          client::seal_request_key(vault_public, id, key));
+                                                *encoded, request.purpose, *log_key);
+    if (key) {
+        store(client::request_key_path(session.directory(), id),
+              client::seal_request_key(*vault_public, id, *key));
+    }
     const Bytes bundle = evidence_of(session, *log_key, id, {}, {}, args);
     store(node::access_path(session.directory(), node::AccessBox::requests, id), bundle);
     if (const auto out = args.get("out")) {
@@ -345,17 +359,26 @@ int cmd_access_request(const Args& args) {
         sent = post_to(peer, "/v1/access/requests", bundle, "application/cbor");
     }
     if (args.json()) {
-        print_json({{"request", id_json(id)},
-                    {"peer", peer.name},
-                    {"record", id_json(request.record)},
-                    {"until", format_time(request.until)},
-                    {"file", args.get("out") ? Json(*args.get("out")) : Json(nullptr)},
-                    {"sent", !sent.is_null()}});
+        print_json(
+            {{"request", id_json(id)},
+             {"peer", peer.name},
+             {"record", id_json(request.record)},
+             {"condition", request.condition ? Json(protocol::condition_text(*request.condition))
+                                             : Json(nullptr)},
+             {"until", format_time(request.until)},
+             {"file", args.get("out") ? Json(*args.get("out")) : Json(nullptr)},
+             {"sent", !sent.is_null()}});
     } else {
-        std::println("requested access to {} from {}: request {}", short_id(request.record),
-                     peer.name, hex_id(id));
+        if (request.condition) {
+            std::println("asked {} whether, in {}, {}: request {}", peer.name,
+                         short_id(request.record), protocol::condition_text(*request.condition),
+                         hex_id(id));
+        } else {
+            std::println("requested access to {} from {}: request {}", short_id(request.record),
+                         peer.name, hex_id(id));
+        }
         if (args.has("send")) {
-            std::println("sent to {}; once granted: cexchain access fetch --peer {} --request {}",
+            std::println("sent to {}; once answered: cexchain access fetch --peer {} --request {}",
                          peer.name, peer.name, short_id(id));
         } else if (args.has("out")) {
             std::println("send {} to {}", *args.get("out"), peer.name);
@@ -372,12 +395,12 @@ int cmd_access_fetch(const Args& args) {
     const auto response =
         client::peer_request(peer, "GET", "/v1/access/deliveries/" + hex_id(request));
     if (response.status == 404) {
-        throw CommandError{"peer " + peer.name + " has not granted request " + short_id(request) +
+        throw CommandError{"peer " + peer.name + " has not answered request " + short_id(request) +
                            " (yet)"};
     }
     if (response.status == 410) {
-        throw CommandError{"peer " + peer.name + " withdrew its grant for request " +
-                           short_id(request) + " (revoked or expired)"};
+        throw CommandError{"peer " + peer.name + " withdrew its answer to request " +
+                           short_id(request) + " (revoked, expired, or lapsed)"};
     }
     if (response.status != 200) {
         throw CommandError{"peer " + peer.name + " answered with status " +
@@ -388,17 +411,88 @@ int cmd_access_fetch(const Args& args) {
     if (args.json()) {
         print_json({{"file", out.string()}, {"bytes", response.body.size()}});
     } else {
-        std::println("fetched the delivery for request {} to {}; next: cexchain access accept {}",
+        std::println("fetched the answer to request {} to {}; next: cexchain access accept {}",
                      short_id(request), out.string(), out.string());
     }
     return exit_ok;
 }
+
+namespace {
+
+/// Records the receipt on this ledger, and hands it back if asked.
+protocol::Id acknowledge(Session& session, const Args& args, const node::Peer& peer,
+                         const protocol::AccessReceipt& receipt) {
+    const auto log_key = load_signer(args.need("log-key"), args);
+    const protocol::Id receipt_id = issue_access_record(
+        session, args, protocol::access_receipt_type,
+        unwrap(protocol::encode_access_receipt(receipt), "the receipt's metadata"), "received",
+        *log_key);
+    const Bytes receipt_bundle = evidence_of(session, *log_key, receipt_id, {}, {}, args);
+    if (const auto out = args.get("out")) {
+        write_file(*out, receipt_bundle, false);
+    }
+    if (args.has("send")) {
+        post_to(peer, "/v1/access/receipts", receipt_bundle, "application/cbor");
+    }
+    return receipt_id;
+}
+
+/// `access accept` for the answer to a condition: a claim's bundle.
+int accept_claim(Session& session, const Args& args, const Bytes& bundle) {
+    std::optional<client::AnsweredClaim> answered;
+    try {
+        answered =
+            client::open_claim_answer(session.ledger(), session.directory(), shared_provider(),
+                                      bundle, ledger::SystemClock{}.now());
+    } catch (const client::NotAccepted& refused) {
+        std::println("NOT ACCEPTED: {}", refused.message);
+        return refused.unverified ? exit_not_verified : exit_failure;
+    }
+    const protocol::Claim& claim = answered->claim.value;
+    const protocol::Id claim_id = answered->claim.report.record;
+    store(node::access_path(session.directory(), node::AccessBox::deliveries, claim_id), bundle);
+    const protocol::Id receipt_id = acknowledge(
+        session, args, answered->peer, client::receipt_for(shared_provider(), *answered, bundle));
+    if (args.json()) {
+        print_json({{"accepted", true},
+                    {"request", id_json(answered->request)},
+                    {"claim", id_json(claim_id)},
+                    {"record", id_json(claim.source)},
+                    {"source_type", answered->claim.report.claim->source_type},
+                    {"text", protocol::claim_text(claim)},
+                    {"holds", claim.holds},
+                    {"subject", claim.subject ? Json(*claim.subject) : Json(nullptr)},
+                    {"as_of", format_time(claim.as_of)},
+                    {"until", claim.until ? Json(format_time(*claim.until)) : Json(nullptr)},
+                    {"from", report_parties(answered->claim.report)},
+                    {"receipt", id_json(receipt_id)}});
+        return exit_ok;
+    }
+    std::println("ACCEPTED: {} {} that, in its {} {}, {}{} (claim {}, as of {}{})",
+                 answered->claim.report.organization, claim.holds ? "confirms" : "says",
+                 answered->claim.report.claim->source_type, short_id(claim.source),
+                 claim.holds ? "" : "it does NOT hold that ", protocol::claim_text(claim),
+                 short_id(claim_id), format_time(claim.as_of),
+                 claim.until ? ", until " + format_time(*claim.until) : "");
+    std::println("by {} (request {})", acted_by(answered->claim.report),
+                 short_id(answered->request));
+    std::println("receipt {} recorded{}", short_id(receipt_id),
+                 args.has("send")  ? " and sent"
+                 : args.has("out") ? ", written to " + *args.get("out")
+                                   : "");
+    return exit_ok;
+}
+
+} // namespace
 
 int cmd_access_accept(const Args& args) {
     Session session(args);
     const RelayReach reach(args, session);
     session.require_primary();
     const Bytes delivery_bytes = read_file(args.positional().front());
+    if (client::is_claim_answer(delivery_bytes)) {
+        return accept_claim(session, args, delivery_bytes);
+    }
     std::optional<client::OpenedDelivery> opened;
     try {
         opened = client::open_delivery(
@@ -427,20 +521,8 @@ int cmd_access_accept(const Args& args) {
     }
 
     // Acknowledge on this ledger, and hand the receipt back.
-    const protocol::AccessReceipt receipt =
-        client::receipt_for(shared_provider(), *opened, delivery_bytes);
-    const auto log_key = load_signer(args.need("log-key"), args);
-    const protocol::Id receipt_id = issue_access_record(
-        session, args, protocol::access_receipt_type,
-        unwrap(protocol::encode_access_receipt(receipt), "the receipt's metadata"), "received",
-        *log_key);
-    const Bytes receipt_bundle = evidence_of(session, *log_key, receipt_id, {}, {}, args);
-    if (const auto out = args.get("out")) {
-        write_file(*out, receipt_bundle, false);
-    }
-    if (args.has("send")) {
-        post_to(peer, "/v1/access/receipts", receipt_bundle, "application/cbor");
-    }
+    const protocol::Id receipt_id = acknowledge(
+        session, args, peer, client::receipt_for(shared_provider(), *opened, delivery_bytes));
 
     Json fields = Json::object();
     for (const auto& f : record.disclosed_fields) {
@@ -521,6 +603,9 @@ int cmd_access_inbox(const Args& args) {
             item["peer"] = r.peer->name;
             item["from"] = acted_by(r.checked->report);
             item["record"] = id_json(r.checked->value.record);
+            item["condition"] = r.checked->value.condition
+                                    ? Json(protocol::condition_text(*r.checked->value.condition))
+                                    : Json(nullptr);
             item["purpose"] = r.checked->value.purpose;
             item["until"] = format_time(r.checked->value.until);
             item["granted"] = r.granted;
@@ -540,11 +625,16 @@ int cmd_access_inbox(const Args& args) {
                          item["error"].get<std::string>());
             continue;
         }
-        std::println(
-            "{}  {} asks for {}: \"{}\" until {}{}",
-            item["request"].get<std::string>().substr(0, 12), item["from"].get<std::string>(),
-            item["record"].get<std::string>().substr(0, 12), item["purpose"].get<std::string>(),
-            item["until"].get<std::string>(), item["granted"].get<bool>() ? "  [granted]" : "");
+        const bool condition = !item["condition"].is_null();
+        std::println("{}  {} asks {} {}{}: \"{}\" until {}{}",
+                     item["request"].get<std::string>().substr(0, 12),
+                     item["from"].get<std::string>(), condition ? "whether, in" : "for",
+                     item["record"].get<std::string>().substr(0, 12),
+                     condition ? ", " + item["condition"].get<std::string>() : "",
+                     item["purpose"].get<std::string>(), item["until"].get<std::string>(),
+                     !item["granted"].get<bool>() ? ""
+                     : condition                  ? "  [answered]"
+                                                  : "  [granted]");
     }
     return exit_ok;
 }
@@ -593,6 +683,12 @@ int cmd_access_grant(const Args& args) {
     }
     const protocol::AccessRequest& request = checked->value;
     const protocol::Id request_id = checked->report.record;
+    if (request.condition) {
+        throw CommandError{"request " + short_id(request_id) +
+                           " asks whether a condition holds, not for data: cexchain access "
+                           "answer " +
+                           short_id(request_id)};
+    }
     const protocol::RecordState* record = session.state().record(request.record);
     if (record == nullptr || record->revoked) {
         throw CommandError{"the requested record " + short_id(request.record) +
@@ -700,6 +796,95 @@ int cmd_access_grant(const Args& args) {
     return exit_ok;
 }
 
+int cmd_access_answer(const Args& args) {
+    Session session(args);
+    session.require_primary();
+    const Bytes request_bundle = request_bundle_for(session, args.positional().front());
+    const node::Peer peer = peer_for_bundle(session.directory(), request_bundle);
+    const protocol::Timestamp now = ledger::SystemClock{}.now();
+    const auto checked = protocol::check_access_request(shared_provider(), request_bundle,
+                                                        peer.ledger_id, session.ledger().id(), now);
+    if (!checked) {
+        std::println("NOT ANSWERED: {}", checked.error().detail);
+        return checked.error().code == Errc::verification_failed ? exit_not_verified : exit_failure;
+    }
+    const protocol::AccessRequest& request = checked->value;
+    const protocol::Id request_id = checked->report.record;
+    if (!request.condition) {
+        throw CommandError{"request " + short_id(request_id) +
+                           " asks for data, not whether a condition holds: cexchain access grant " +
+                           short_id(request_id)};
+    }
+    const protocol::RecordState* record = session.state().record(request.record);
+    if (record == nullptr || record->revoked) {
+        throw CommandError{"the record asked about, " + short_id(request.record) +
+                           ", does not exist or was revoked"};
+    }
+
+    // The condition asked, checked in the record's private data.
+    protocol::Claim claim;
+    claim.source = request.record;
+    claim.condition = *request.condition;
+    claim.subject = args.get("subject");
+    claim.as_of = now;
+    if (const auto until = args.get("until")) {
+        claim.until = parse_time(*until);
+    }
+    claim.answers = std::pair{peer.ledger_id, request_id};
+    if (const auto shaped = protocol::encode_claim(claim); !shaped) {
+        throw UsageError{std::string(shaped.error().detail)};
+    }
+    const Vault vault = read_vault(session, request.record, args);
+    const client::ClaimCheck check = client::check_claim(claim, vault.fields);
+    claim.holds = check.holds;
+    if (!claim.holds && !args.has("allow-no")) {
+        throw CommandError{"the condition does not hold: nothing is answered (--allow-no answers "
+                           "that it does not; cexchain access dismiss takes the request away)"};
+    }
+    IssueRequest issue;
+    issue.record_type = std::string(protocol::claim_type);
+    issue.metadata_value = unwrap(protocol::encode_claim(claim), "the claim's metadata");
+    issue.fields = check.basis;
+    issue.delegation = args.get("delegation");
+    issue.provenance = session.provenance(args);
+    issue.presence = presence_request(args);
+    const protocol::Id claim_id = issue_record(session, *load_signer(args.need("as"), args), issue);
+    const auto log_key = load_signer(args.need("log-key"), args);
+    unwrap(session.ledger().checkpoint(*log_key), "checkpointing");
+
+    // The answer: the claim's evidence, checked as the asker will check it,
+    // kept for the asker to fetch.
+    const Bytes bundle = evidence_of(session, *log_key, claim_id, {}, {}, args);
+    if (const auto self =
+            protocol::check_claim_answer(shared_provider(), bundle, session.ledger().id(),
+                                         peer.ledger_id, request_id, request, now);
+        !self) {
+        throw CommandError{"the answer does not check out: " + std::string(self.error().detail)};
+    }
+    store(node::access_path(session.directory(), node::AccessBox::outbox, request_id), bundle);
+    if (const auto out = args.get("out")) {
+        write_file(*out, bundle, false);
+    }
+    if (args.json()) {
+        print_json({{"claim", id_json(claim_id)},
+                    {"request", id_json(request_id)},
+                    {"peer", peer.name},
+                    {"record", id_json(claim.source)},
+                    {"text", protocol::claim_text(claim)},
+                    {"holds", claim.holds},
+                    {"file", args.get("out") ? Json(*args.get("out")) : Json(nullptr)}});
+    } else {
+        std::println("answered {}: {} {}: claim {}", peer.name,
+                     claim.holds ? "holds:" : "does NOT hold:", protocol::claim_text(claim),
+                     hex_id(claim_id));
+        std::println("{} can fetch it from this ledger's API{}; withdraw it with: cexchain "
+                     "record revoke {}",
+                     peer.name, args.has("out") ? ", or use " + *args.get("out") : "",
+                     short_id(claim_id));
+    }
+    return exit_ok;
+}
+
 int cmd_access_receipt(const Args& args) {
     Session session(args);
     const RelayReach reach(args, session);
@@ -713,16 +898,16 @@ int cmd_access_receipt(const Args& args) {
         throw CommandError{"not an access receipt"};
     }
     const auto claimed = unwrap(protocol::decode_access_receipt(*report.metadata), "the receipt");
-    const auto grant =
-        unwrap(protocol::decode_access_grant(own_metadata(session, claimed.grant)), "the grant");
-    const auto delivery =
-        unwrap(node::delivery_for_grant(session.directory(), grant.request, claimed.grant),
-               "the delivery");
+    const auto answered =
+        unwrap(node::answered_request(shared_provider(), session.ledger(), claimed.grant),
+               "what the receipt acknowledges");
+    const auto delivery = unwrap(
+        node::kept_answer(session.directory(), answered.request, claimed.grant), "the answer");
     const auto digest =
         unwrap(shared_provider().digest(crypto::HashAlg::sha256, delivery), "hashing");
-    const auto checked =
-        protocol::check_access_receipt(shared_provider(), bundle, peer.ledger_id,
-                                       session.ledger().id(), claimed.grant, grant, digest.bytes());
+    const auto checked = protocol::check_access_receipt(shared_provider(), bundle, peer.ledger_id,
+                                                        session.ledger().id(), claimed.grant,
+                                                        answered.ledger, digest.bytes());
     if (!checked) {
         std::println("NOT ACCEPTED: {}", checked.error().detail);
         return checked.error().code == Errc::verification_failed ? exit_not_verified : exit_failure;
@@ -730,12 +915,14 @@ int cmd_access_receipt(const Args& args) {
     unwrap(node::store_receipt(session.directory(), claimed.grant, bundle), "storing the receipt");
     if (args.json()) {
         print_json({{"grant", id_json(claimed.grant)},
+                    {"kind", answered.claim ? "claim" : "grant"},
                     {"peer", peer.name},
                     {"by", acted_by(checked->report)},
                     {"received_at", format_time(checked->report.events.front().registered_at)}});
     } else {
-        std::println("receipt for grant {}: {} acknowledged the delivery at {}",
-                     short_id(claimed.grant), acted_by(checked->report),
+        std::println("receipt for {} {}: {} acknowledged it at {}",
+                     answered.claim ? "claim" : "grant", short_id(claimed.grant),
+                     acted_by(checked->report),
                      format_time(checked->report.events.front().registered_at));
     }
     return exit_ok;
@@ -757,7 +944,8 @@ int cmd_access_list(const Args& args) {
         const bool is_request = record.record_type == protocol::access_request_type;
         const bool is_grant = record.record_type == protocol::access_grant_type;
         const bool is_receipt = record.record_type == protocol::access_receipt_type;
-        if (!is_request && !is_grant && !is_receipt) {
+        const bool is_claim = record.record_type == protocol::claim_type;
+        if (!is_request && !is_grant && !is_receipt && !is_claim) {
             continue;
         }
         const auto metadata =
@@ -777,6 +965,8 @@ int cmd_access_list(const Args& args) {
             item["record"] = id_json(r->record);
             item["until"] = format_time(r->until);
             item["purpose"] = r->purpose;
+            item["condition"] =
+                r->condition ? Json(protocol::condition_text(*r->condition)) : Json(nullptr);
         } else if (is_grant) {
             const auto g = protocol::decode_access_grant(*metadata);
             if (!g) {
@@ -789,6 +979,20 @@ int cmd_access_list(const Args& args) {
             item["until"] = format_time(g->until);
             item["fields"] = g->fields;
             item["attachments"] = g->attachments;
+            item["acknowledged"] = std::filesystem::exists(
+                node::access_path(session.directory(), node::AccessBox::receipts, record.id));
+        } else if (is_claim) {
+            // A claim answering a request; the others are claim list's.
+            const auto c = protocol::decode_claim(*metadata);
+            if (!c || !c->answers) {
+                continue;
+            }
+            item["kind"] = "answer";
+            item["peer"] = peer_name(c->answers->first);
+            item["request"] = id_json(c->answers->second);
+            item["record"] = id_json(c->source);
+            item["text"] = protocol::claim_text(*c);
+            item["holds"] = c->holds;
             item["acknowledged"] = std::filesystem::exists(
                 node::access_path(session.directory(), node::AccessBox::receipts, record.id));
         } else {
@@ -807,16 +1011,25 @@ int cmd_access_list(const Args& args) {
         return exit_ok;
     }
     if (list.empty()) {
-        std::println("no access requests, grants, or receipts on this ledger");
+        std::println("no access requests, grants, answers, or receipts on this ledger");
     }
     for (const auto& item : list) {
         const std::string kind = item["kind"];
         std::string detail;
         if (kind == "receipt") {
-            detail = "for grant " + item["grant"].get<std::string>().substr(0, 12);
+            detail = "for " + item["grant"].get<std::string>().substr(0, 12);
+        } else if (kind == "answer") {
+            detail = "record " + item["record"].get<std::string>().substr(0, 12) + ": " +
+                     (item["holds"].get<bool>() ? "" : "NOT: ") + item["text"].get<std::string>();
+            if (item["acknowledged"].get<bool>()) {
+                detail += ", acknowledged";
+            }
         } else {
             detail = "record " + item["record"].get<std::string>().substr(0, 12) + " until " +
                      item["until"].get<std::string>();
+            if (kind == "request" && !item["condition"].is_null()) {
+                detail += ", whether " + item["condition"].get<std::string>();
+            }
             if (kind == "grant" && item["acknowledged"].get<bool>()) {
                 detail += ", acknowledged";
             }

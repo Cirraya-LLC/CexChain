@@ -25,7 +25,7 @@
 ///    "fields": [{"name": "place", "label": "Place", "type": "text",
 ///                "private": true, "required": true}, ...],
 ///    "files": "optional" | "required" | "none", "keep_files": true,
-///    "printed": ["place", ...]}
+///    "printed": ["place", ...], "answers": ["taken", ...]}
 namespace cexchain::console {
 
 enum class FieldType : std::uint8_t { text, number, date, yes_no };
@@ -57,6 +57,11 @@ struct Kind {
     /// (certificates.hpp): whoever scans its QR code sees these, and only
     /// these. None for a kind that is no certificate.
     std::vector<std::string> printed;
+    /// The fields whose conditions the console's machine may answer by
+    /// itself when a party asks (spec v0.15), once an owner lets it: an
+    /// answer only when the condition holds, signed by the machine. None:
+    /// people answer every question.
+    std::vector<std::string> answers;
 };
 
 /// Reads a kind sheet; throws std::invalid_argument saying what is wrong.

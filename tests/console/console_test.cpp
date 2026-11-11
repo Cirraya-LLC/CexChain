@@ -2470,6 +2470,175 @@ TEST_CASE("documents between two consoles: asked, granted, delivered, and accept
     CHECK(fa.w.post_as("/console/api/access/dismiss", {{"request", again}}, a).status == 404);
 }
 
+TEST_CASE("a question between two consoles: asked, answered with a claim, read, acknowledged",
+          "[console][access][claims]") {
+    FirstRunWorld fa;
+    Served alice(fa);
+    FirstRunWorld fb;
+    Served bob(fb);
+    const std::string a = fa.made["session"].get<std::string>();
+    const std::string b = fb.made["session"].get<std::string>();
+    const std::filesystem::path alice_dir = fa.w.dir.path;
+    const std::string code =
+        answer_of(fa.w.post_as("/console/api/parties", {{"invite", "bob"}}, a))["code"];
+    const auto accepted =
+        answer_of(fb.w.post_as("/console/api/parties", {{"accept", code}, {"name", "alice"}}, b));
+    REQUIRE(
+        fa.w.post_as("/console/api/parties", {{"accept", accepted["reply"]}, {"name", "bob"}}, a)
+            .status == 200);
+    const std::string record = cexchain::to_hex(register_photo(fa, a, "the photo").bytes());
+
+    // Bob asks whether the photo was taken before 2027, not for its fields:
+    // no key is made, nothing will be sealed to him.
+    auto condition = [](std::string field, std::string op, std::string value) {
+        return nlohmann::json::array(
+            {nlohmann::json{{"field", std::move(field)}, {"op", std::move(op)}, {"value", value}}});
+    };
+    auto ask = [&](nlohmann::json more) {
+        nlohmann::json intent{{"action", "access.request"},
+                              {"peer", "alice"},
+                              {"record", record},
+                              {"purpose", "insurance check"},
+                              {"conditions", condition("taken", "<", "2027-01-01")}};
+        intent.update(more);
+        return fb.w.post_as("/console/api/prepare", intent, b);
+    };
+    CHECK(ask({{"fields", {"place"}}}).status == 400);
+    CHECK(ask({{"conditions", nlohmann::json::array()}}).status == 400);
+    CHECK(ask({{"conditions", condition("taken", "~", "x")}}).status == 400);
+    const auto asked = ask(nlohmann::json::object());
+    REQUIRE(asked.status == 200);
+    const auto terms = answer_of(asked)["summary"]["access"];
+    CHECK(terms["condition"] == "taken is below 2027-01-01");
+    CHECK(terms["recipient"] == "");
+    const std::string request = approved_id(fb.w, b, asked, fb.alice);
+    CHECK_FALSE(std::filesystem::exists(fb.w.dir.path / "vault" / "access" / (request + ".cbor")));
+    CHECK(answer_of(fb.w.get("/console/api/access", b))["asked_by_us"][0]["condition"] ==
+          "taken is below 2027-01-01");
+
+    // It reaches Alice: she sees the question, and that it holds as it stands.
+    put(alice_dir / "access" / "inbox" / (request + ".cbor"), evidence_of(fb, bob, request));
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["asked_of_us"][0]["condition"] ==
+          "taken is below 2027-01-01");
+    const auto view = answer_of(fa.w.get("/console/api/access/requests/" + request, a));
+    CHECK(view["condition"] == "taken is below 2027-01-01");
+    CHECK(view["holds"] == true);
+    CHECK(view["may_answer"] == true);
+    CHECK(view["may_grant"] == false);
+    // A question is answered, not granted.
+    CHECK(fa.w.post_as("/console/api/prepare",
+                       {{"action", "access.grant"}, {"request", request}, {"fields", {"taken"}}}, a)
+              .status == 409);
+    const std::string viewer = fa.w.session_for("Vera", console::Role::viewer);
+    CHECK(fa.w.post_as("/console/api/prepare", {{"action", "access.answer"}, {"request", request}},
+                       viewer)
+              .status == 403);
+
+    // Alice answers with a tap: a claim naming the request, then kept for Bob.
+    const auto answering = fa.w.post_as(
+        "/console/api/prepare",
+        {{"action", "access.answer"}, {"request", request}, {"subject", "the harbour photo"}}, a);
+    REQUIRE(answering.status == 200);
+    const auto summary = answer_of(answering)["summary"]["claim"];
+    CHECK(summary["text"] == "taken is below 2027-01-01");
+    CHECK(summary["holds"] == true);
+    CHECK(summary["answers"] == request);
+    const std::string claim = approved_id(fa.w, a, answering, fa.alice);
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["answered"][0]["status"] ==
+          "not_delivered");
+    CHECK(post_waiting(fa.w, "/console/api/access/deliver", viewer, {{"claim", claim}}).status ==
+          403);
+    REQUIRE(post_waiting(fa.w, "/console/api/access/deliver", a, {{"claim", claim}}).status == 200);
+    const auto outbox = alice_dir / "access" / "outbox" / (request + ".cbor");
+    REQUIRE(std::filesystem::exists(outbox));
+    auto alices = answer_of(fa.w.get("/console/api/access", a));
+    CHECK(alices["answered"][0]["status"] == "delivered");
+    CHECK(alices["answered"][0]["peer"] == "bob");
+    CHECK(alices["asked_of_us"][0]["granted"] == true);
+
+    // Bob's console fetches it, and reads the answer verified: no fields.
+    put(fb.w.state / "access" / (request + ".cbor"), cexchain::client::read_file(outbox));
+    const auto opened = answer_of(fb.w.get("/console/api/access/deliveries/" + request, b));
+    CHECK(opened["kind"] == "claim");
+    CHECK(opened["organization"] == "Alice");
+    CHECK(opened["text"] == "taken is below 2027-01-01");
+    CHECK(opened["holds"] == true);
+    CHECK(opened["subject"] == "the harbour photo");
+    CHECK(opened["record"] == record);
+    CHECK(opened["accepted"] == false);
+    CHECK_FALSE(opened.dump().contains("2026-10-16"));
+
+    // Bob acknowledges with a tap; the receipt names the claim.
+    const auto receipting = fb.w.post_as("/console/api/prepare",
+                                         {{"action", "access.receipt"}, {"request", request}}, b);
+    REQUIRE(receipting.status == 200);
+    CHECK(answer_of(receipting)["summary"]["access"]["grant"] == claim);
+    const std::string receipt = approved_id(fb.w, b, receipting, fb.alice);
+    const auto bobs = answer_of(fb.w.get("/console/api/access", b));
+    CHECK(bobs["asked_by_us"][0]["status"] == "accepted");
+    CHECK(bobs["asked_by_us"][0]["receipt"] == receipt);
+    REQUIRE(cexchain::node::store_receipt(alice_dir,
+                                          *cexchain::protocol::to_id(*cexchain::from_hex(claim)),
+                                          evidence_of(fb, bob, receipt)));
+    CHECK(answer_of(fa.w.get("/console/api/access", a))["answered"][0]["status"] == "acknowledged");
+
+    // A condition that does not hold is answered only on purpose.
+    const std::string later = approved_id(
+        fb.w, b, ask({{"purpose", "later"}, {"conditions", condition("taken", ">", "2027-01-01")}}),
+        fb.alice);
+    put(alice_dir / "access" / "inbox" / (later + ".cbor"), evidence_of(fb, bob, later));
+    CHECK(answer_of(fa.w.get("/console/api/access/requests/" + later, a))["holds"] == false);
+    CHECK(fa.w.post_as("/console/api/prepare", {{"action", "access.answer"}, {"request", later}}, a)
+              .status == 422);
+    const auto no =
+        fa.w.post_as("/console/api/prepare",
+                     {{"action", "access.answer"}, {"request", later}, {"allow_no", true}}, a);
+    REQUIRE(no.status == 200);
+    CHECK(answer_of(no)["summary"]["claim"]["holds"] == false);
+
+    // The console answers by itself where the kind lets it, once an owner
+    // lets its machine; only what holds, and nothing else.
+    auto answering_kind = photo_kind;
+    answering_kind["answers"] = {"taken"};
+    REQUIRE(fa.w.post_as("/console/api/kinds", answering_kind, a).status == 200);
+    auto asking = [&](const std::string& purpose, nlohmann::json conditions) {
+        const std::string id = approved_id(
+            fb.w, b, ask({{"purpose", purpose}, {"conditions", std::move(conditions)}}), fb.alice);
+        put(alice_dir / "access" / "inbox" / (id + ".cbor"), evidence_of(fb, bob, id));
+        return id;
+    };
+    auto answered = [&](const std::string& id) {
+        return std::filesystem::exists(alice_dir / "access" / "outbox" / (id + ".cbor"));
+    };
+    const std::string early = asking("early", condition("taken", "<", "2026-12-31"));
+    fa.w.web.answer_questions();
+    CHECK_FALSE(answered(early)); // not yet let
+    auto listed = answer_of(fa.w.get("/console/api/access", a));
+    CHECK(listed["answers_by_console"] == false);
+    CHECK(listed["may_allow_answers"] == true);
+    CHECK(fa.w.post_as("/console/api/prepare", {{"action", "machine.answer"}}, viewer).status ==
+          403);
+    static_cast<void>(approved_id(
+        fa.w, a, fa.w.post_as("/console/api/prepare", {{"action", "machine.answer"}}, a),
+        fa.alice));
+    listed = answer_of(fa.w.get("/console/api/access", a));
+    CHECK(listed["answers_by_console"] == true);
+    CHECK(listed["may_allow_answers"] == false);
+    const std::string where = asking("where", condition("place", "exists", ""));
+    fa.w.web.answer_questions();
+    CHECK(answered(early));
+    CHECK_FALSE(answered(where)); // a field the kind does not let it answer about
+    CHECK_FALSE(answered(later)); // it does not hold: a person decides
+    // The machine's answer, read by Bob: no passkey, the console's device.
+    put(fb.w.state / "access" / (early + ".cbor"),
+        cexchain::client::read_file(alice_dir / "access" / "outbox" / (early + ".cbor")));
+    const auto automatic = answer_of(fb.w.get("/console/api/access/deliveries/" + early, b));
+    CHECK(automatic["kind"] == "claim");
+    CHECK(automatic["holds"] == true);
+    CHECK_FALSE(automatic["answered_by"].get<std::string>().contains("present"));
+    CHECK(body(fa.w.get("/console/api/activity", a)).contains("access.answered"));
+}
+
 TEST_CASE("a public witness follows a ledger only once it cosigns, within quotas",
           "[witness][public]") {
     FirstRunWorld fa;

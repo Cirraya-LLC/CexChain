@@ -306,6 +306,37 @@ std::string term_text(const ClaimTerm& t) {
 
 } // namespace
 
+Result<std::vector<ClaimTerm>> decode_claim_condition(const cbor::Value& value) {
+    const cbor::Array* terms = value.as_array();
+    if (terms == nullptr || terms->empty() || terms->size() > max_claim_terms) {
+        return fail(Errc::malformed, "a condition has 1 to 16 terms");
+    }
+    std::vector<ClaimTerm> out;
+    for (const cbor::Value& item : *terms) {
+        const cbor::Array* parts = item.as_array();
+        if (parts == nullptr || parts->size() != 4 || (*parts)[0].as_text() == nullptr ||
+            (*parts)[1].as_text() == nullptr || (*parts)[2].as_text() == nullptr) {
+            return fail(Errc::malformed, "a condition's term is [field, op, type, value]");
+        }
+        ClaimTerm t{*(*parts)[0].as_text(), *(*parts)[1].as_text(), *(*parts)[2].as_text(),
+                    (*parts)[3]};
+        if (auto s = check_term(t); !s) {
+            return std::unexpected(s.error());
+        }
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+cbor::Value encode_claim_condition(const std::vector<ClaimTerm>& condition) {
+    cbor::Array terms;
+    for (const ClaimTerm& t : condition) {
+        terms.push_back(cbor::Value::array({cbor::Value::text(t.field), cbor::Value::text(t.op),
+                                            cbor::Value::text(t.type), t.value}));
+    }
+    return cbor::Value::array(std::move(terms));
+}
+
 Result<Claim> decode_claim(const cbor::Value& metadata) {
     const cbor::Map* map = metadata.as_map();
     if (map == nullptr) {
@@ -329,23 +360,10 @@ Result<Claim> decode_claim(const cbor::Value& metadata) {
     }
     CEXCHAIN_TRY(c.source, to_id(*source->as_bytes()));
     const cbor::Value* condition = get("condition");
-    const cbor::Array* terms = condition != nullptr ? condition->as_array() : nullptr;
-    if (terms == nullptr || terms->empty() || terms->size() > max_claim_terms) {
+    if (condition == nullptr) {
         return fail(Errc::malformed, "a claim's condition has 1 to 16 terms");
     }
-    for (const cbor::Value& item : *terms) {
-        const cbor::Array* parts = item.as_array();
-        if (parts == nullptr || parts->size() != 4 || (*parts)[0].as_text() == nullptr ||
-            (*parts)[1].as_text() == nullptr || (*parts)[2].as_text() == nullptr) {
-            return fail(Errc::malformed, "a claim's term is [field, op, type, value]");
-        }
-        ClaimTerm t{*(*parts)[0].as_text(), *(*parts)[1].as_text(), *(*parts)[2].as_text(),
-                    (*parts)[3]};
-        if (auto s = check_term(t); !s) {
-            return std::unexpected(s.error());
-        }
-        c.condition.push_back(std::move(t));
-    }
+    CEXCHAIN_TRY(c.condition, decode_claim_condition(*condition));
     const cbor::Value* holds = get("holds");
     const cbor::Value* as_of = get("as_of");
     if (holds == nullptr || !holds->as_bool() || as_of == nullptr || !as_of->as_uint64()) {
@@ -382,14 +400,9 @@ Result<Claim> decode_claim(const cbor::Value& metadata) {
 }
 
 Result<cbor::Value> encode_claim(const Claim& claim) {
-    cbor::Array terms;
-    for (const ClaimTerm& t : claim.condition) {
-        terms.push_back(cbor::Value::array({cbor::Value::text(t.field), cbor::Value::text(t.op),
-                                            cbor::Value::text(t.type), t.value}));
-    }
     cbor::Map map{
         {cbor::Value::text("source"), cbor::Value::bytes(claim.source.bytes())},
-        {cbor::Value::text("condition"), cbor::Value::array(std::move(terms))},
+        {cbor::Value::text("condition"), encode_claim_condition(claim.condition)},
         {cbor::Value::text("holds"), cbor::Value::boolean(claim.holds)},
         {cbor::Value::text("as_of"), cbor::Value::unsigned_integer(claim.as_of)},
     };
@@ -411,12 +424,16 @@ Result<cbor::Value> encode_claim(const Claim& claim) {
     return value;
 }
 
-std::string claim_text(const Claim& claim) {
+std::string condition_text(const std::vector<ClaimTerm>& condition) {
     std::string out;
-    for (const ClaimTerm& t : claim.condition) {
+    for (const ClaimTerm& t : condition) {
         out += (out.empty() ? "" : " and ") + term_text(t);
     }
     return out;
+}
+
+std::string claim_text(const Claim& claim) {
+    return condition_text(claim.condition);
 }
 
 std::optional<Id> claim_source(std::span<const Statement> events) {

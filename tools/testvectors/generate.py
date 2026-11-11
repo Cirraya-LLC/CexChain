@@ -4361,6 +4361,419 @@ def generate_protocol_v14() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol v0.15: asking about a condition (spec section 12): an access
+# request may ask whether a condition holds in a record instead of asking for
+# its data, and the granter answers with a claim whose "for" names it
+# ---------------------------------------------------------------------------
+
+ACCESS_REQUEST_COMMON = ("ledger", "record", "purpose", "until")
+# The data form's keys; the other form (v0.15) has "condition" instead.
+ACCESS_REQUEST_DATA = ("recipient", "fields", "attachments")
+ACCESS_REQUEST_KEYS = ACCESS_REQUEST_COMMON + ACCESS_REQUEST_DATA + ("condition",)
+
+
+def _id32(v) -> bool:
+    return isinstance(v, bytes) and len(v) == 32
+
+
+def access_names_ok(v) -> bool:
+    """`access-names` (v0.15): at most 256 names, each a non-empty text, none
+    twice in the list."""
+    return (isinstance(v, list) and len(v) <= 256 and all(isinstance(x, str) and x for x in v)
+            and len(set(v)) == len(v))
+
+
+def access_request_problem(metadata) -> str | None:
+    """Why an access request's metadata (record key 5) is not an
+    `access-request` of the CDDL with the prose's limits (sections 12 and 6),
+    or None. Parties refuse other keys, a key that is not text among them; a
+    key whose value is not of its type, null included, breaks that key's
+    rule."""
+    if not isinstance(metadata, dict):
+        return "no metadata"
+    keys = set(metadata)
+    if keys - set(ACCESS_REQUEST_KEYS):
+        return "unknown key"
+    if set(ACCESS_REQUEST_COMMON) - keys:
+        return "missing key"
+    # A reader refuses a request that has a condition and any of the data
+    # form's keys, or has neither a condition nor a recipient. A key counts
+    # by its presence: an empty list of fields is still a list of fields.
+    if "condition" in keys and keys & set(ACCESS_REQUEST_DATA):
+        return "both forms"
+    if "condition" not in keys and "recipient" not in keys:
+        return "neither form"
+    m = metadata
+    for key in ("ledger", "record"):
+        if not _id32(m[key]):
+            return key
+    if not (isinstance(m["purpose"], str) and m["purpose"]):
+        return "purpose"
+    if not (_cbor_int(m["until"]) and m["until"] > 0):
+        return "until"
+    if "condition" in m:
+        # 1 to 16 terms of a claim's condition, checked as a claim's are.
+        condition = m["condition"]
+        if not (isinstance(condition, list) and 1 <= len(condition) <= 16):
+            return "condition"
+        if any(claim_term_problem(t) is not None for t in condition):
+            return "condition"
+        return None
+    if not _id32(m["recipient"]):
+        return "recipient"
+    for key in ("fields", "attachments"):
+        if key in m and not access_names_ok(m[key]):
+            return "names"
+    return None
+
+
+def claim_answer_problem(claim: dict, requester_ledger: bytes, request_id: bytes, request: dict) -> str | None:
+    """Why a claim does not answer an access request under items 3 and 4 of
+    the acceptance in section 12 ("Asking about a condition"), or None. Both
+    metadata are valid; the other items need the claim's evidence."""
+    if "condition" not in request:
+        return "data request"
+    if "for" not in claim:
+        return "no for"
+    ledger, record = claim["for"]
+    if ledger != requester_ledger:
+        return "for ledger"
+    if record != request_id:
+        return "for request"
+    if claim["source"] != request["record"]:
+        return "source"
+    # Term for term and in the same deterministic encoding (item 4): one
+    # value written another way (2 and "2.0", HKD 100 at scale 0 and at scale
+    # 2), or the values of "in" in another order, is another condition,
+    # though a claim's "in" counts such values as one.
+    if [dcbor(t) for t in claim["condition"]] != [dcbor(t) for t in request["condition"]]:
+        return "condition"
+    return None
+
+
+def access_request_cases(t0: int, recipient: bytes) -> tuple[list, list]:
+    """Access request metadata on its own, of both forms: (valid, refused)."""
+    granter = bytes([0x22]) * 32
+    record = bytes([0x33]) * 32
+    day = 86_400_000
+
+    def common(**extra):
+        out = {"ledger": granter, "record": record, "purpose": "tenancy application", "until": t0 + 30 * day}
+        out.update(extra)
+        return out
+
+    def data(**extra):
+        return common(**{"recipient": recipient, **extra})
+
+    def asking(condition, **extra):
+        return common(condition=condition, **extra)
+
+    valid, refused = [], []
+
+    def ok(name, metadata):
+        assert access_request_problem(metadata) is None, (name, access_request_problem(metadata))
+        m = metadata
+        condition = m.get("condition")
+        valid.append({"name": name, "metadata": dcbor(m).hex(), "ledger": m["ledger"].hex(),
+                      "record": m["record"].hex(), "purpose": m["purpose"], "until": m["until"],
+                      "recipient": m["recipient"].hex() if "recipient" in m else None,
+                      "fields": m.get("fields"), "attachments": m.get("attachments"),
+                      "condition": dcbor(condition).hex() if condition is not None else None,
+                      "text": claim_words(condition) if condition is not None else None})
+
+    def bad(name, metadata, why):
+        assert access_request_problem(metadata) == why, (name, access_request_problem(metadata), why)
+        refused.append({"name": name, "metadata": dcbor(metadata).hex(), "why": why})
+
+    salary = [["monthly_salary", ">", "money", [3000000, "HKD", 2]]]
+    sixteen = [[f"field_{i:02d}", ">", "number", i] for i in range(16)]
+
+    ok("data: everything (no fields or attachments named)", data())
+    ok("data: some fields and an attachment", data(fields=["product", "result"], attachments=["report.pdf"]))
+    ok("data: fields only", data(fields=["monthly_salary"]))
+    ok("data: attachments only", data(attachments=["contract.pdf", "payslip-2026-10.pdf"]))
+    ok("data: empty lists, so no field and no attachment", data(fields=[], attachments=[]))
+    many = [f"name_{i:03d}" for i in range(257)]
+    ok("data: 256 fields and 256 attachments, the most a list holds",
+       data(fields=many[:256], attachments=[f"{n}.pdf" for n in many[:256]]))
+    ok("data: names in any script, a purpose in Chinese, and the largest until",
+       data(fields=["名字", "地址"], attachments=["身份證明.pdf"], purpose="租務申請", until=2**64 - 1))
+    ok("data: until 1 ms", data(until=1))
+    ok("condition: the specification's question, one term", asking(salary))
+    ok("condition: the specification's claim example, money and in", asking(SPEC_CLAIM_EXAMPLE))
+    ok("condition: each order operator on numbers, integers and decimal texts",
+       asking([["age", ">=", "number", 18], ["score", "<", "number", "99.5"], ["balance", "<=", "number", -250],
+               ["rate", ">", "number", "-0.75"]]))
+    ok("condition: equality on every type",
+       asking([["grade", "=", "text", "A"], ["band", "!=", "number", 3], ["deposit", "=", "money", [0, "USD", 2]],
+               ["joined", "!=", "date", "2024-02-29"]]))
+    ok("condition: between, of numbers, dates, and money",
+       asking([["floor", "between", "number", [5, 5]], ["height", "between", "number", [1, "1.5"]],
+               ["start", "between", "date", ["2000-02-29", "2026-12-31"]],
+               ["salary", "between", "money", [[2000000, "HKD", 2], [4000000, "HKD", 2]]]]))
+    ok("condition: in, of every type",
+       asking([["status", "in", "text", ["staff"]], ["level", "in", "number", [1, 2, "3.5"]],
+               ["fee", "in", "money", [[100, "EUR", 0], [250, "EUR", 0]]],
+               ["review", "in", "date", ["2026-03-31", "2026-09-30"]]]))
+    ok("condition: exists", asking([["licence_number", "exists", "text", None]]))
+    ok("condition: money with signs and scales 0 to 4",
+       asking([["a", ">", "money", [123456789012, "JPY", 0]], ["b", "<", "money", [-5, "USD", 2]],
+               ["c", ">=", "money", [5, "CHF", 4]], ["d", "<=", "money", [-100000, "GBP", 0]],
+               ["e", "=", "money", [1000, "HKD", 3]]]))
+    ok("condition: dates under each order operator",
+       asking([["start_date", "<=", "date", "2025-11-01"], ["birth_date", "<", "date", "2008-02-29"],
+               ["review", ">", "date", "2026-12-31"], ["joined", ">=", "date", "2000-01-01"]]))
+    ok("condition: text as it is, in any script",
+       asking([["名字", "=", "text", "陳大文"], ["district", "!=", "text", 'Kowloon "City"']]))
+    ok("condition: sixteen terms", asking(sixteen))
+    ok("condition: sizes at their limits: a 64-byte field, a 256-byte text, a 40-character decimal, 64 values in",
+       asking([["f" * 64, "=", "text", "t" * 256], ["d", "=", "number", "-" + "9" * 19 + "." + "9" * 19],
+               ["v", "in", "number", list(range(64))]]))
+    ok("condition: the largest and smallest integers, and the largest until",
+       asking([["n", "<=", "number", 2**64 - 1], ["m", ">=", "number", -2**64],
+               ["big", "<", "money", [2**64 - 1, "HKD", 2]]], until=2**64 - 1))
+
+    def without(metadata, key):
+        out = dict(metadata)
+        del out[key]
+        return out
+
+    bad("both forms: a condition and a recipient", asking(salary, recipient=recipient), "both forms")
+    bad("both forms: a condition and fields", asking(salary, fields=["monthly_salary"]), "both forms")
+    bad("both forms: a condition and attachments", asking(salary, attachments=["payslip.pdf"]), "both forms")
+    bad("both forms: a condition and an empty list of fields", asking(salary, fields=[]), "both forms")
+    bad("neither form: no condition and no recipient", common(), "neither form")
+    bad("neither form: fields and attachments without a recipient",
+        common(fields=["monthly_salary"], attachments=["payslip.pdf"]), "neither form")
+    bad("condition: no terms", asking([]), "condition")
+    bad("condition: seventeen terms", asking(sixteen + [["x", "=", "number", 1]]), "condition")
+    bad("condition: one term, not a list of terms", asking(salary[0]), "condition")
+    bad("condition: a map, not a list of terms", asking({"monthly_salary": [3000000, "HKD", 2]}), "condition")
+    bad("condition: a term of three elements", asking([["x", "=", "number"]]), "condition")
+    bad("condition: an empty field name", asking([["", "=", "number", 1]]), "condition")
+    bad("condition: the operator '=='", asking([["x", "==", "number", 1]]), "condition")
+    bad("condition: the type 'integer'", asking([["x", "=", "integer", 1]]), "condition")
+    bad("condition: > on text", asking([["x", ">", "text", "b"]]), "condition")
+    bad("condition: exists with a value", asking([["x", "exists", "text", "yes"]]), "condition")
+    bad("condition: between, low above high", asking([["x", "between", "number", [10, 5]]]), "condition")
+    bad("condition: between amounts of two currencies",
+        asking([["x", "between", "money", [[100, "HKD", 2], [200, "USD", 2]]]]), "condition")
+    bad("condition: in with one value twice, as values (1 and \"1.0\")",
+        asking([["x", "in", "number", [1, "1.0"]]]), "condition")
+    bad("condition: a date that does not exist", asking([["x", "=", "date", "2026-02-30"]]), "condition")
+    bad("condition: a decimal text of 41 characters",
+        asking([["x", "=", "number", "1" * 20 + "." + "1" * 20]]), "condition")
+    bad("condition: money in a lower-case currency", asking([["x", "=", "money", [100, "hkd", 2]]]), "condition")
+    bad("condition: a valid term after an invalid one",
+        asking([salary[0], ["x", "<", "text", "b"]]), "condition")
+    bad("an unknown key in a request for data", data(note="hello"), "unknown key")
+    bad("an integer key", {**data(), 1: "hello"}, "unknown key")
+    bad("a key as bytes, in a request about a condition", {**asking(salary), b"note": "hello"}, "unknown key")
+    bad("a misspelt key in a request for data", data(field=["monthly_salary"]), "unknown key")
+    bad("a claim's key in a request about a condition", asking(salary, holds=True), "unknown key")
+    for key in ACCESS_REQUEST_COMMON:
+        bad(f"no {key}, in a request for data", without(data(), key), "missing key")
+        bad(f"no {key}, in a request about a condition", without(asking(salary), key), "missing key")
+    bad("a recipient of 31 bytes", data(recipient=recipient[:31]), "recipient")
+    bad("a recipient of 33 bytes", data(recipient=recipient + b"\x00"), "recipient")
+    bad("an empty recipient", data(recipient=b""), "recipient")
+    bad("a recipient as text", data(recipient=recipient.hex()), "recipient")
+    # A key whose value is not of its type, null included, is refused.
+    bad("a null recipient", data(recipient=None), "recipient")
+    bad("a null condition", asking(None), "condition")
+    bad("null fields", data(fields=None), "names")
+    bad("null attachments", data(attachments=None), "names")
+    bad("a null ledger", data(ledger=None), "ledger")
+    bad("a null record, in a request about a condition", asking(salary, record=None), "record")
+    bad("a null purpose", data(purpose=None), "purpose")
+    bad("a null until", data(until=None), "until")
+    bad("a ledger of 31 bytes", data(ledger=granter[:31]), "ledger")
+    bad("a ledger of 33 bytes, in a request about a condition", asking(salary, ledger=granter + b"\x00"), "ledger")
+    bad("a ledger as text", data(ledger=granter.hex()), "ledger")
+    bad("a record of 31 bytes", data(record=record[:31]), "record")
+    bad("an empty record, in a request about a condition", asking(salary, record=b""), "record")
+    bad("a record as text", data(record=record.hex()), "record")
+    bad("an empty purpose", data(purpose=""), "purpose")
+    bad("an empty purpose, in a request about a condition", asking(salary, purpose=""), "purpose")
+    bad("a purpose as bytes", data(purpose=b"tenancy application"), "purpose")
+    bad("a purpose as an integer", data(purpose=1), "purpose")
+    bad("until 0", data(until=0), "until")
+    bad("until 0, in a request about a condition", asking(salary, until=0), "until")
+    bad("a negative until", data(until=-1), "until")
+    bad("until as text", data(until="2026-12-10"), "until")
+    bad("until that is true", data(until=True), "until")
+    bad("fields as text, not a list", data(fields="monthly_salary"), "names")
+    bad("fields with a name as bytes", data(fields=["product", b"result"]), "names")
+    bad("fields with a name as an integer", data(fields=[1]), "names")
+    bad("fields with a list in them", data(fields=[["product"]]), "names")
+    bad("fields with a name twice", data(fields=["product", "result", "product"]), "names")
+    bad("attachments as text, not a list", data(attachments="report.pdf"), "names")
+    bad("attachments with a name as bytes", data(attachments=[b"report.pdf"]), "names")
+    bad("attachments as a map", data(attachments={"report.pdf": True}), "names")
+    bad("fields with an empty name", data(fields=["product", ""]), "names")
+    bad("attachments with an empty name", data(attachments=[""]), "names")
+    bad("attachments with a name twice", data(attachments=["report.pdf", "photo.jpg", "report.pdf"]), "names")
+    bad("257 fields", data(fields=many), "names")
+    bad("257 attachments", data(attachments=[f"{n}.pdf" for n in many]), "names")
+    return valid, refused
+
+
+def claim_answer_cases(t0: int, recipient: bytes) -> list:
+    """Claims checked as answers to access requests (section 12, acceptance
+    items 3 and 4)."""
+    requester = bytes([0x11]) * 32
+    granter = bytes([0x22]) * 32
+    record = bytes([0x33]) * 32
+    request_id = bytes([0x44]) * 32
+    hour, day = 3_600_000, 86_400_000
+    asked = [["monthly_salary", ">", "money", [3000000, "HKD", 2]],
+             ["status", "in", "text", ["staff", "contractor"]],
+             ["start_date", "<=", "date", "2025-11-01"],
+             ["years_employed", ">=", "number", 2],
+             ["review_date", "=", "date", "2026-03-31"]]
+
+    def request(condition=None, **extra):
+        """A request about `condition` (by default `asked`), or, given a
+        recipient, a request for data."""
+        out = {"ledger": granter, "record": record, "purpose": "tenancy application", "until": t0 + 30 * day}
+        if "recipient" not in extra:
+            out["condition"] = condition if condition is not None else asked
+        out.update(extra)
+        return out
+
+    def claim(condition=None, **changes):
+        out = {"source": record, "condition": condition if condition is not None else asked, "holds": True,
+               "as_of": t0 + hour, "for": [requester, request_id]}
+        for k, v in changes.items():
+            if v is None:
+                del out[k]
+            else:
+                out[k] = v
+        return out
+
+    cases = []
+
+    def case(name, c, r, why):
+        assert claim_problem(c) is None, (name, claim_problem(c))
+        assert access_request_problem(r) is None, (name, access_request_problem(r))
+        assert claim_answer_problem(c, requester, request_id, r) == why, (
+            name, claim_answer_problem(c, requester, request_id, r), why)
+        cases.append({"name": name, "requester_ledger": requester.hex(), "request_id": request_id.hex(),
+                      "request": dcbor(r).hex(), "claim": dcbor(c).hex(), "accepted": why is None, "why": why})
+
+    def swapped(i, j):
+        out = list(asked)
+        out[i], out[j] = out[j], out[i]
+        return out
+
+    def replaced(i, term):
+        out = list(asked)
+        out[i] = term
+        return out
+
+    exists = [["licence_number", "exists", "text", None]]
+    sixteen = [[f"field_{i:02d}", ">", "number", i] for i in range(16)]
+    case("it holds", claim(), request(), None)
+    case("it does not hold", claim(holds=False), request(), None)
+    case("with a subject and an until before the request's",
+         claim(subject="Chan Tai Man", until=t0 + 7 * day), request(), None)
+    # The claim's until is the granter's choice, before or after the
+    # request's; its as_of is the granter's word, which the requester does not
+    # check.
+    case("with an until after the request's", claim(until=t0 + 90 * day), request(), None)
+    case("as of a year before the request's until", claim(as_of=t0 - 335 * day), request(), None)
+    case("a request of one term, exists", claim(exists), request(exists), None)
+    case("a request of sixteen terms", claim(sixteen), request(sixteen), None)
+    case("the request asks for data: everything", claim(), request(recipient=recipient), "data request")
+    case("the request asks for data: the fields the claim is about",
+         claim(asked[:1]), request(recipient=recipient, fields=["monthly_salary"]), "data request")
+    case("no for", claim(**{"for": None}), request(), "no for")
+    case("for names the granter's ledger", claim(**{"for": [granter, request_id]}), request(), "for ledger")
+    case("for names a third ledger", claim(**{"for": [bytes([0x55]) * 32, request_id]}), request(), "for ledger")
+    case("for names another request", claim(**{"for": [requester, bytes([0x45]) * 32]}), request(),
+         "for request")
+    case("for names the record asked about as the request", claim(**{"for": [requester, record]}), request(),
+         "for request")
+    case("another source", claim(source=bytes([0x34]) * 32), request(), "source")
+    case("the request's id as the source", claim(source=request_id), request(), "source")
+    case("fewer terms", claim(asked[:4]), request(), "condition")
+    case("one term more", claim(asked + [["grade", "=", "text", "A"]]), request(), "condition")
+    case("the terms in another order", claim(swapped(0, 1)), request(), "condition")
+    case("another value", claim(replaced(0, ["monthly_salary", ">", "money", [2000000, "HKD", 2]])), request(),
+         "condition")
+    case("another operator", claim(replaced(0, ["monthly_salary", ">=", "money", [3000000, "HKD", 2]])),
+         request(), "condition")
+    case("another field", claim(replaced(0, ["monthly_income", ">", "money", [3000000, "HKD", 2]])), request(),
+         "condition")
+    case("another type, the same text", claim(replaced(4, ["review_date", "=", "text", "2026-03-31"])),
+         request(), "condition")
+    case("the in values in another order",
+         claim(replaced(1, ["status", "in", "text", ["contractor", "staff"]])), request(), "condition")
+    case("the same amount at another scale (HKD 30,000 at scale 0, asked at scale 2)",
+         claim(replaced(0, ["monthly_salary", ">", "money", [30000, "HKD", 0]])), request(), "condition")
+    case("the same amount at another scale, the specification's pair ([100, \"HKD\", 0] and [10000, \"HKD\", 2])",
+         claim([["deposit", "=", "money", [100, "HKD", 0]]]), request([["deposit", "=", "money", [10000, "HKD", 2]]]),
+         "condition")
+    case("the same number written another way (\"2.0\" for 2)",
+         claim(replaced(3, ["years_employed", ">=", "number", "2.0"])), request(), "condition")
+    return cases
+
+
+def generate_protocol_v15() -> None:
+    from cryptography.hazmat.primitives.asymmetric import x25519
+
+    t0 = 1_794_268_800_000  # 2026-11-10T00:00:00Z
+    # The recipient key of a request for data: the X25519 key of protocol-v0.3.json.
+    key = x25519.X25519PrivateKey.from_private_bytes(hashlib.sha256(b"CexChain test key: recipient").digest())
+    recipient = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    valid, refused = access_request_cases(t0, recipient)
+    answers = claim_answer_cases(t0, recipient)
+    document = {
+        "description": "CexChain protocol objects of specification revision v0.15 (asking about a condition), "
+                       "built by an independent Python encoder from spec/README.md (sections 6 and 12) and "
+                       "spec/cexchain.cddl. `access_requests` holds the metadata (record key 5) of "
+                       "cexchain.access-request/1 records on its own. `valid` cases are of both forms, a request "
+                       "for data (a recipient key, and optional fields and attachments) and a request about a "
+                       "condition (1 to 16 terms of a claim's condition): each its deterministic CBOR "
+                       "(`metadata`) and its values, `recipient` (hex), `fields`, and `attachments` null when "
+                       "absent, `condition` the deterministic CBOR of the condition array alone (hex) and `text` "
+                       "the condition in words (section 11, \"A claim in words\"), both null in a request for "
+                       "data. `refused` cases each break one rule, which `why` names: \"both forms\" (a "
+                       "condition with a recipient, fields, or attachments; a key counts by its presence, so an "
+                       "empty list too), \"neither form\" (no condition and no recipient), \"condition\" (not 1 to "
+                       "16 terms, or a term the claim rules of section 6 refuse), \"unknown key\" (a text key "
+                       "the CDDL does not name, or a key that is not text), \"missing key\" (ledger, record, "
+                       "purpose, or until, in either form), \"recipient\", \"ledger\", \"record\" (not 32 "
+                       "bytes), \"purpose\" (empty, or not text), \"until\" (0, or not an unsigned integer), "
+                       "\"names\" (fields or attachments not `access-names`: a list of at most 256 non-empty "
+                       "texts, none twice). A key whose value is not of its type, null included, breaks that "
+                       "key's rule. `answers` holds claims checked as answers to access requests, under items 3 and "
+                       "4 of the acceptance in section 12: each the requester's ledger, the request's id, the "
+                       "request's metadata and the claim's (both valid, the claim's as section 6 checks it), and "
+                       "whether the claim answers the request (`accepted`); when not, `why` names the one rule "
+                       "broken: \"data request\" (the request asks for data, and no claim answers it), \"no "
+                       "for\", \"for ledger\" (for names another ledger than the requester's), \"for request\" "
+                       "(another request), \"source\" (another record than the one asked about), \"condition\" "
+                       "(not the request's, term for term in the same deterministic encoding: fewer or more "
+                       "terms, in another order, another field, operator, type, or value, and equal values "
+                       "encoded otherwise, such as money at another scale or a number written another way). "
+                       "Accepted answers include a claim whose until is after the request's and one as of long "
+                       "before it: neither is checked. "
+                       "Items 1, 2, and 5 (the claim's evidence, its being live and not lapsed, and its "
+                       "source's) need evidence bundles, which these cases leave out. Ids are fixed: the "
+                       "requester's ledger 11..11, the ledger asked 22..22, the record 33..33, the request 44..44 "
+                       "(hex); the recipient key is the X25519 key of seed SHA-256(\"CexChain test key: "
+                       "recipient\"), that of protocol-v0.3.json.",
+        "access_requests": {"valid": valid, "refused": refused},
+        "answers": answers,
+    }
+    (OUT / "protocol-v0.15.json").write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n")
+    accepted = sum(1 for a in answers if a["accepted"])
+    print(f"wrote protocol vectors to testvectors/protocol-v0.15.json: {len(valid)} access requests, "
+          f"{len(refused)} refused; {len(answers)} answers, {accepted} accepted")
+
+
+# ---------------------------------------------------------------------------
 # Contract execution (spec section 14): the deterministic WebAssembly profile,
 # from the independent reference interpreter in wasm_ref.py
 # ---------------------------------------------------------------------------
@@ -4822,6 +5235,7 @@ def main() -> None:
     generate_protocol_v11(args.openssl)
     generate_protocol_v13()
     generate_protocol_v14()
+    generate_protocol_v15()
     generate_vm_v1()
     import evidence_suite
     evidence_suite.generate(args.openssl)

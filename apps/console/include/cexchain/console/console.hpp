@@ -294,6 +294,11 @@ public:
     void start_polling(std::chrono::seconds every = std::chrono::seconds(60));
     void poll_now() const;
     void poll_peers() const;
+    /// Parties' questions the console's machine answers by itself, on the
+    /// polling thread (it waits on the ledger): those about the fields a kind
+    /// lets it, once an owner let it (machine.answer), and only when the
+    /// condition holds (claiming.cpp).
+    void answer_questions() const;
 
     /// An instance's contract evidence from the node
     /// (node::LedgerApi::instance_evidence). Until it is set, proofs of
@@ -419,6 +424,9 @@ private:
     [[nodiscard]] http::Response access_route(const http::Request& request) const;
     void access_send_route(const http::Request& request, Respond respond) const;
     void access_deliver_route(const http::Request& request, Respond respond) const;
+    /// The claim `body` names, answering a request for a condition, kept
+    /// for the asker to fetch (v0.15).
+    void deliver_answer(const Signed& signer, const nlohmann::json& body, Respond respond) const;
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     access_draft(const Signed& who, const nlohmann::json& intent) const;
     void poll_deliveries() const;
@@ -557,6 +565,8 @@ private:
     /// claim's facts for its page.
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     claim_draft(const Signed& who, const nlohmann::json& intent) const;
+    /// Whether an owner let the console's machine answer by itself.
+    [[nodiscard]] bool answers_by_itself(const protocol::LedgerState& state) const;
     [[nodiscard]] nlohmann::json claim_view(const protocol::LedgerState& state,
                                             const protocol::RecordState& record,
                                             const protocol::RecordRegisterBody& body) const;

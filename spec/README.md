@@ -1,6 +1,6 @@
 # The CexChain protocol
 
-Revision v0.14 (draft). Wire protocol version 1.
+Revision v0.15 (draft). Wire protocol version 1.
 
 This document explains the protocol in prose. The normative definitions are:
 
@@ -12,6 +12,8 @@ Where this text and the CDDL disagree, the CDDL wins. The C++ code in this repos
 The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
+
+**Changes in v0.15.** Asking about a condition: an access request may ask whether a condition holds in a record instead of asking for its data, and the granter answers with a claim that names the request (sections 6, 12, and 16). The requester checks that the claim answers its request, about that record and with that condition, and acknowledges it with a receipt as it acknowledges a delivery. The names in access metadata are written down as readers already checked them: non-empty, unique within their list, at most 256 to a list (section 12, `access-names`). The ledger rules do not change; the wire protocol stays version 1, and a log replays as before.
 
 **Changes in v0.14.** Claims: a record of the new mechanism type `cexchain.claim/1` says that, in another record of the same ledger (its source), a condition on fields holds or does not, without disclosing them (section 6). A claim's evidence carries its source as an involved object, so that a verifier sees whether the source was revoked or replaced since, and the report states the condition in words (section 11). Nothing else changes; the wire protocol stays version 1, and a log without claims replays as before.
 
@@ -243,7 +245,7 @@ Record-transition (type 18) stays for the mechanism types: it is how a party wit
 - `holds`: whether the condition holds. Implementations SHOULD register a claim that does not hold only when its issuer chose to: by default, a condition that does not hold gets no claim, so that asking reveals nothing more than silence.
 - `as_of` (ms): when the issuer evaluated it, no later than the claim's registration; `until` (ms, optional, after `as_of`, possibly before the registration): after it the claim has lapsed.
 - `subject` (optional, 1 to 256 bytes): whom or what the source is about, as the issuer names it.
-- `for` (optional): `[ledger, record]`, an access request the claim answers (reserved for asking; nothing checks it yet).
+- `for` (optional): `[ledger, record]`, the access request on that ledger that the claim answers (v0.15, section 12). The ledger checks its shape only: the request is on another ledger, and the requester checks the rest.
 
 The ledger checks the metadata's shape and refuses other keys. It cannot check the answer: the values are sealed. A claim's own fields (at least one, as every record's) are the issuer's: the reference implementation commits the values it checked, sealed like any record's, so that the issuer can show later what it relied on. A claim is the issuer's statement, attributed to its signer as any registration is; what a verifier learns is the condition, the answer, the subject, and the source's type and status, nothing of the source's fields.
 
@@ -429,12 +431,12 @@ Two organizations, each with its own ledger, share a record in four steps: the *
 
 | Step | Record type | On whose ledger | Metadata (key 5) |
 |---|---|---|---|
-| Request | `cexchain.access-request/1` | the requester's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments` |
+| Request | `cexchain.access-request/1` | the requester's | `ledger` (asked), `record`, `purpose`, `until`, `recipient` (X25519 key), optional `fields`, `attachments`; or, for a condition (v0.15), `condition` instead of the last three |
 | Grant | `cexchain.access-grant/1` | the granter's | `ledger` (requester), `request`, `record`, `fields`, `attachments`, `until`, `recipient` |
 | Delivery | not a record: a `delivery` object | sent to the requester | grant evidence, and contents sealed with HPKE |
 | Receipt | `cexchain.access-receipt/1` | the requester's | `ledger` (granter), `grant`, `delivery` (SHA-256 of the delivery) |
 
-Each side learns the other's **ledger id** out of band and pins every bundle it receives to it. Because the steps are records, delegations decide who may request, grant, or acknowledge, and proof of presence shows when a person approved.
+Each side learns the other's **ledger id** out of band and pins every bundle it receives to it. Field and attachment names in requests and grants are non-empty, unique within their list (compared as their UTF-8 bytes, with no normalization), and at most 256 to a list. A key present with a value not of its type, null included, makes the metadata refused, whatever the key: an absent `fields` means all fields, a null one is refused. Because the steps are records, delegations decide who may request, grant, or acknowledge, and proof of presence shows when a person approved.
 
 - **Request.** The requester makes a fresh X25519 key for the request and records the request. It sends the request's evidence bundle. The granter checks the following:
   - the bundle verifies for the requester's ledger and is complete;
@@ -454,9 +456,24 @@ Each side learns the other's **ledger id** out of band and pins every bundle it 
   7. the record bundle discloses exactly the granted fields, each once;
   8. the delivery holds exactly the granted attachments, each opened and matching its commitment.
 - **Receipt.** The requester records the receipt and sends its evidence. The granter checks that the receipt comes from the ledger the grant was made to, names the granter's grant, and gives the hash of the delivery made under that grant. A stored receipt is never replaced by a different one.
-- **Serving deliveries** (informative). A server hands out a delivery only to the peer it was granted to, and only while the grant is live and unexpired.
+- **Serving deliveries** (informative). A server hands out a delivery only to the peer it was granted to, and only while the grant is live and unexpired. The same route serves the answer to a condition (below).
 
 Revoking a grant stops future deliveries. It cannot make a recipient forget, but the receipt makes access accountable.
+
+**Asking about a condition** (v0.15). A request may ask whether a condition holds in the record instead of asking for its data: "is Chan Tai Man's monthly salary above HKD 30,000.00?" without the salary. Its metadata then has `condition`, 1 to 16 terms of a claim's condition (section 6), checked as a claim's are, and no `recipient`, `fields`, or `attachments`: nothing is sealed to the requester. A reader refuses a request that has `condition` and any of those three, or has neither `condition` nor `recipient`. `record` is the record asked about, and the request is open until `until`. The steps are those above, with a claim for the grant and the delivery:
+- **Answer.** The granter registers a claim (section 6) whose `source` is the request's `record`, whose `condition` is the request's, term for term (the same deterministic encoding), and whose `for` is `[requester's ledger, request id]`. It says whether the condition holds; implementations SHOULD answer that it does not only when the granter chose to, and a granter that does not answer records nothing, so that a refusal looks like silence.
+- **Serving it** (informative). The granter's server hands out the claim's complete evidence bundle, as made when it answered, at the route that serves deliveries, to the peer whose ledger the claim's `for` names, while the claim is live and has not lapsed. A bundle has key 0 and a delivery has not, so neither is taken for the other; the requester knows which to expect from its own request.
+- **Acceptance.** The requester MUST check all of the following, and only then acknowledge:
+  1. the claim's bundle verifies for the ledger the request asked, and is complete;
+  2. it is a claim, live (confirmed, not revoked), and its `until`, if any, has not passed;
+  3. its `for` names the requester's ledger and the request;
+  4. its `source` is the request's `record`, and its `condition` the request's, term for term and in the same deterministic encoding: values that are equal as numbers or amounts but encoded otherwise (`2` and `"2.0"`, `[100, "HKD", 0]` and `[10000, "HKD", 2]`), or the same values of `in` in another order, are another condition;
+  5. its source is live in the bundle: neither revoked nor replaced (section 11).
+
+  The claim may say that the condition holds or that it does not; the report says which. Its `until` is the granter's choice and may end before or after the request's; its `as_of` is the granter's word, and a claim can name the request only once the request exists, since `for` holds the request's id.
+- **Receipt.** The requester records an access receipt whose `grant` is the claim's id and whose `delivery` is the SHA-256 of the claim's bundle as served. The granter checks it as it checks a receipt for a grant: it comes from the ledger the claim's `for` names, names the granter's claim, and gives the hash of the bundle the granter served.
+
+Revoking the claim withdraws the answer: the server stops serving it, and every later verifier of its evidence sees it withdrawn.
 
 ## 13. Relying on an instance's state
 
@@ -796,7 +813,7 @@ This section is informative. The reference implementation serves a ledger over H
 | read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/timestamps` (v0.11), `/v1/network-cosignatures` (v0.13), `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`; on a server with the search index, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
 | submit | `POST /v1/statements`, `POST /v1/contracts/calls`, `PUT /v1/vault/files/{record}/{index}` |
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `POST /v1/timestamps` (v0.11), `POST /v1/network-cosignatures` (v0.13), `DELETE /v1/vault/files/{record}/{index}`, `GET`, `POST /v1/published`, `DELETE /v1/published/{token}` |
-| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}`, `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents`, `GET /v1/genesis` (the genesis entry, which the ledger id authenticates: a peer that witnesses the ledger follows its root and log keys from it) |
+| peer | `POST /v1/access/requests`, `GET /v1/access/deliveries/{request}` (a delivery, or, v0.15, the bundle of the claim that answers a request for a condition), `POST /v1/access/receipts`, `POST /v1/witness/cosign`, `POST /v1/contracts/calls` and `GET /v1/contracts/instances/{instance}` (the instance's current parties), `GET /v1/contracts/calls`, `/v1/contracts/calls/{call}` (the calls that concern the peer), `POST /v1/contracts/consents`, `GET /v1/genesis` (the genesis entry, which the ledger id authenticates: a peer that witnesses the ledger follows its root and log keys from it) |
 | executor | `GET /v1/requests`, `GET /v1/contracts/instances/{instance}`, and `POST /v1/statements` for answers only (v0.8) |
 | none, on a public witness | `GET /v1/witness`, `POST /v1/witness/register`, `POST /v1/witness/cosign` (below) |
 | none, on a relay (signed) | `POST`, `GET /v1/relay/messages`, `DELETE /v1/relay/messages/{id}` (below) |
@@ -954,6 +971,7 @@ A server holds the log key to sign checkpoints, receipts, and evidence. Across a
 | `protocol-v0.11.json` | time-stamp tokens (v0.11): RFC 3161 tokens by OpenSSL's responder over the checkpoints of `protocol-v0.10.json`, one per hash, each with its imprint, time, accuracy, and authority, under a root and authority certificate made by Python's `cryptography` |
 | `protocol-v0.13.json` | open witness networks (v0.13, section 10.2): the SHA-256 checkpoint of `protocol-v0.10.json` as a checkpoint note under its origin, signed with a note key, an add-checkpoint body, network witnesses' cosignatures of the Ed25519 and ML-DSA-44 kinds (valid, and over another size or time), an anchor carrying them, and signed-note's own example, all from c2sp.org's texts with Python's `cryptography` |
 | `protocol-v0.14.json` | claims (v0.14, sections 6 and 11): claim metadata, valid with its encoding and its condition in words (the specification's example among them), and refused, each for the one rule it breaks; an employer's ledger whose clerk and organization claim conditions on employment records: claims accepted on live records of a generic type, and refused on a record that does not exist, on another claim, on a revoked record, on a superseded one, with `as_of` after the registration, and with an unknown key; claims that take no endorsement or transition and are withdrawn by revoking them; sources revoked and replaced after the claims, with what a report states of each claim; the state, in which a claim's registration is in the claim's history only, and the log under a checkpoint |
+| `protocol-v0.15.json` | asking about a condition (v0.15, section 12): access request metadata of both forms, with their encodings, and refused metadata, each for the one rule it breaks; claims checked as answers to requests, accepted, or refused for the one rule of acceptance (items 3 and 4) they break, values equal as numbers or amounts but encoded otherwise among the refused |
 | `vm-v1.json` | contract execution (section 14): modules in and out of the profile, invocations with their outputs, traps, and fuel, and random integer programs, all from an independent reference interpreter (`tools/testvectors/wasm_ref.py`) |
 | `evidence-v1.json` | conformance (sections 11 and 15): record evidence and contract evidence forged from this specification independently of both verifiers, each with the options to verify it with, the verdict this specification decides (a failure names the section and step that decide it), and facts its report must show. A verifier passes it: `tests/verifiers/conformance.py` runs `cexchain verify` and `contract verify` on every case, and the Python verifier (`verifiers/python`) its own command line |
 | `bo-v1.json` | the Bo language ([`bo.md`](bo.md), section 18): contracts' sources in each language, their interfaces and bo-source bundles, the code `cexchain-bo` builds and its bounds (informative), calls with their outcomes (normative; answers to requests among them, with input key 9, and accepts with key 7), and sources that must not build with their errors' codes |

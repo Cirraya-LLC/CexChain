@@ -1938,12 +1938,18 @@ void print_kind(const console::Kind& kind) {
         : kind.files == console::KindFiles::required ? "required"
                                                      : "optional",
         kind.files != console::KindFiles::none && kind.keep_files ? ", kept with the record" : "");
-    if (!kind.printed.empty()) {
-        std::string printed;
-        for (const std::string& name : kind.printed) {
-            printed += (printed.empty() ? "" : ", ") + name;
+    auto listed = [](const std::vector<std::string>& names) {
+        std::string out;
+        for (const std::string& name : names) {
+            out += (out.empty() ? "" : ", ") + name;
         }
-        std::println("  printed on its certificates: {}", printed);
+        return out;
+    };
+    if (!kind.printed.empty()) {
+        std::println("  printed on its certificates: {}", listed(kind.printed));
+    }
+    if (!kind.answers.empty()) {
+        std::println("  the console answers questions about: {}", listed(kind.answers));
     }
 }
 

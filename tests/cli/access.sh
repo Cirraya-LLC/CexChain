@@ -6,7 +6,8 @@
 # certificate and its report; the factory grants part of it; the bank checks
 # what it gets against the factory's ledger and acknowledges it. First with
 # files, then online through each other's servers, where they also witness
-# each other's ledgers.
+# each other's ledgers. Then the bank asks only whether a condition holds in
+# it (spec v0.15), and the factory answers with a claim.
 # Usage: access.sh CEXCHAIN
 set -Eeuo pipefail
 trap 'echo "FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
@@ -102,7 +103,7 @@ contains 'ACCEPTED: example.document/1' accepted.txt
 contains '^  result = pass$' accepted.txt
 contains -v 'price' accepted.txt
 cmp report.txt received/report.txt || fail "the delivered report differs"
-f access receipt receipt.cbor | contains 'acknowledged the delivery'
+f access receipt receipt.cbor | contains 'acknowledged it'
 f access list --json | json '[i["acknowledged"] for i in d if i["kind"]=="grant"][0]' | contains -x True
 b access list --json | json 'sorted(i["kind"] for i in d)' | contains -x "\['receipt', 'request'\]"
 f audit | contains 'audit passed'
@@ -151,7 +152,7 @@ b access request --peer factory --record "$RECORD" --purpose "annual review" \
     --as b-root.key --log-key b-log.key --send | contains 'sent to factory'
 ONLINE="$(b access list --json | json '[i["id"] for i in d if i["kind"]=="request" and i["purpose"]=="annual review"][0]')"
 expect_exit 2 access fetch --peer factory --request "$ONLINE" --out d2.cbor --ledger "$B"
-contains 'has not granted' out.txt
+contains 'has not answered' out.txt
 f access inbox | contains 'annual review'
 f access grant "${ONLINE:0:12}" --fields product --attachments '' \
     --as f-root.key --log-key f-log.key > /dev/null
@@ -180,7 +181,7 @@ f access list --json | json 'sum(1 for i in d if i["kind"]=="grant" and i["ackno
 GRANT2="$(f access list --json | json '[i["id"] for i in d if i["kind"]=="grant" and i["request"]=="'"$ONLINE"'"][0]')"
 f record revoke "$GRANT2" --as f-root.key --reason "review over" > /dev/null
 expect_exit 2 access fetch --peer factory --request "$ONLINE" --out d3.cbor --ledger "$B"
-contains 'withdrew its grant' out.txt
+contains 'withdrew its answer' out.txt
 
 # A kept copy of the report serves a grant without --attach.
 f record file add "$RECORD" report.txt > /dev/null
@@ -202,6 +203,79 @@ f access dismiss "${CURIOUS:0:12}" | contains 'dismissed request'
 if f access inbox | grep -q 'curiosity'; then fail "a dismissed request stays in the inbox"; fi
 expect_exit 2 access dismiss "${CURIOUS:0:12}" --ledger "$F"
 contains 'no request' out.txt
+
+# --- Asking whether a condition holds, online ------------------------------------
+b access request --peer factory --record "$RECORD" --purpose "loan check" \
+    --if 'result = pass' --if 'price < 2000' --days 5 \
+    --as b-root.key --log-key b-log.key --send | contains 'sent to factory'
+ASK="$(b access list --json | json '[i["id"] for i in d if i["kind"]=="request" and i["purpose"]=="loan check"][0]')"
+b access list --json | json '[i["condition"] for i in d if i["id"]=="'"$ASK"'"][0]' |
+    contains -x 'result is "pass" and price is below 2000'
+expect_exit 1 access request --peer factory --record "$RECORD" --purpose x --if 'result = pass' \
+    --fields result --as b-root.key --log-key b-log.key --ledger "$B"
+expect_exit 1 access request --peer factory --record "$RECORD" --purpose x --if 'result > pass' \
+    --as b-root.key --log-key b-log.key --ledger "$B"
+f access inbox | contains 'whether, in'
+f access inbox --json | json '[i["condition"] for i in d if i["purpose"]=="loan check"][0]' |
+    contains 'price is below 2000'
+expect_exit 2 access fetch --peer factory --request "$ASK" --out a1.cbor --ledger "$B"
+contains 'has not answered' out.txt
+# A question is answered, not granted; a request for data is granted, not answered.
+expect_exit 2 access grant "${ASK:0:12}" --as f-root.key --log-key f-log.key --ledger "$F"
+contains 'access answer' out.txt
+expect_exit 2 access answer "${AUDIT:0:12}" --as f-root.key --log-key f-log.key --ledger "$F"
+contains 'access grant' out.txt
+f access answer "${ASK:0:12}" --subject "Flange lot 7" --until 2099-01-01 \
+    --as f-root.key --log-key f-log.key --json > answer.json
+json 'd["holds"]' < answer.json | contains -x True
+ANSWER="$(json 'd["claim"]' < answer.json)"
+f claim show "$ANSWER" --json | json 'd["subject"]' | contains -x 'Flange lot 7'
+f access inbox --json | json '[i["granted"] for i in d if i["purpose"]=="loan check"][0]' | contains -x True
+b access fetch --peer factory --request "$ASK" --out a1.cbor | contains 'fetched the answer'
+b access accept a1.cbor --as b-root.key --log-key b-log.key --send > accepted3.txt
+contains 'ACCEPTED: Example Factory confirms that, in its example.document/1' accepted3.txt
+contains 'result is "pass" and price is below 2000' accepted3.txt
+if contains '1200' accepted3.txt; then fail "the price left the factory"; fi
+for _ in $(seq 1 50); do
+    [ "$(f access list --json | json '[i["acknowledged"] for i in d if i["kind"]=="answer"][0]')" = True ] && break
+    sleep 0.1
+done
+f access list --json | json '[i["acknowledged"] for i in d if i["kind"]=="answer"][0]' | contains -x True
+f access list | contains 'answer'
+# Accepted once: the same answer is checked again, but its request now has its receipt.
+b access list --json | json 'sum(1 for i in d if i["kind"]=="receipt")' | contains -x 4
+# Its evidence states the condition, never the fields.
+run verify a1.cbor --ledger-id "$F_ID" --json > claim-report.json
+json 'd["record"]["claim"]["for"]' < claim-report.json | contains "$ASK"
+if contains '1200' claim-report.json; then fail "the price left the factory"; fi
+# A condition that does not hold is not answered unless asked; an answer for
+# another request's record, or a tampered one, is not accepted.
+b access request --peer factory --record "$RECORD" --purpose "big loan" --if 'price > 5000' \
+    --as b-root.key --log-key b-log.key --send > /dev/null
+BIG="$(b access list --json | json '[i["id"] for i in d if i["kind"]=="request" and i["purpose"]=="big loan"][0]')"
+expect_exit 2 access answer "${BIG:0:12}" --as f-root.key --log-key f-log.key --ledger "$F"
+contains 'does not hold: nothing is answered' out.txt
+f access answer "${BIG:0:12}" --allow-no --as f-root.key --log-key f-log.key --json |
+    json 'd["holds"]' | contains -x False
+b access fetch --peer factory --request "$BIG" --out no.cbor > /dev/null
+b access accept no.cbor --as b-root.key --log-key b-log.key --json | json 'd["holds"]' | contains -x False
+python3 -c "
+data = bytearray(open('a1.cbor', 'rb').read())
+data[-20] ^= 1
+open('a1-tampered.cbor', 'wb').write(data)
+"
+expect_exit 3 access accept a1-tampered.cbor --as b-root.key --log-key b-log.key --ledger "$B"
+contains 'NOT ACCEPTED' out.txt
+# Withdrawn: no longer handed out.
+f record revoke "$ANSWER" --as f-root.key --reason "superseded by a new check" > /dev/null
+expect_exit 2 access fetch --peer factory --request "$ASK" --out a2.cbor --ledger "$B"
+contains 'withdrew its answer' out.txt
+for command in "access request" "access answer" "access accept"; do
+    read -r -a words <<< "$command"
+    run "${words[@]}" --help | contains -- '--json'
+done
+run access request --help | contains -- '--if'
+run completion bash | contains 'answer'
 
 # Mutual witnessing: the bank cosigns the factory's checkpoints online.
 f checkpoint create --log-key f-log.key > /dev/null

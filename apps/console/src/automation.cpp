@@ -24,6 +24,7 @@
 #include <cexchain/console/people.hpp>
 #include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/node/executor.hpp>
 #include <cexchain/node/keeper.hpp>
 #include <cexchain/node/tokens.hpp>
@@ -439,6 +440,31 @@ Console::machine_step(const Signed& who, const nlohmann::json& intent) const {
         scope.require_presence = false;
         PersonStep step{protocol::Body{protocol::DelegationGrantBody{*machine, std::move(scope)}},
                         nullptr, kind->name, "certificates.allow"};
+        step.as_organization = true;
+        return step;
+    }
+    if (action == "machine.answer") {
+        // The console's machine answers parties' questions by itself (spec
+        // v0.15), within what each kind lets it: the organization lets it,
+        // an owner approves.
+        if (who.role != Role::owner) {
+            return error(403, "forbidden",
+                         "only an owner lets the console answer by itself (the organization "
+                         "signs it)");
+        }
+        std::optional<protocol::Id> machine;
+        served->read_state(
+            [&](const protocol::LedgerState& state) { machine = machine_actor(state); });
+        if (!machine) {
+            return error(409, "conflict", "this console's machine is not on the ledger");
+        }
+        protocol::Scope scope;
+        scope.statement_types = {protocol::StatementType::record_register};
+        scope.record_types = std::vector<std::string>{std::string(protocol::claim_type)};
+        scope.may_delegate = false;
+        scope.require_presence = false;
+        PersonStep step{protocol::Body{protocol::DelegationGrantBody{*machine, std::move(scope)}},
+                        nullptr, "", "answers.allow"};
         step.as_organization = true;
         return step;
     }

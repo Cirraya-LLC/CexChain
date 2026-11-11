@@ -6,8 +6,12 @@
 // other grants the fields and kept files it chooses with a tap (a grant on
 // its ledger, and the delivery sealed to the request's key, which the asker
 // fetches); the asker's console fetches it, shows it verified, and the
-// person accepts it with a tap (a receipt on their ledger, sent back). Each
-// step is checked as the command line checks it (app/access.hpp).
+// person accepts it with a tap (a receipt on their ledger, sent back). A
+// party may ask instead whether a condition holds in the record (spec
+// v0.15): the other answers with a claim, checked here against the record's
+// private data, which the asker fetches, reads verified, and acknowledges
+// the same way. Each step is checked as the command line checks it
+// (client/access.hpp).
 
 #include <algorithm>
 #include <charconv>
@@ -23,6 +27,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cexchain/client/access.hpp>
+#include <cexchain/client/claims.hpp>
 #include <cexchain/client/errors.hpp>
 #include <cexchain/client/peers.hpp>
 #include <cexchain/client/records.hpp>
@@ -33,6 +38,7 @@
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/ledger/verify.hpp>
 #include <cexchain/node/peers.hpp>
@@ -127,7 +133,8 @@ std::vector<AccessRecord> access_records(const ledger::Ledger& served,
         for (const auto& [key, r] : state.records()) {
             if (r.record_type == protocol::access_request_type ||
                 r.record_type == protocol::access_grant_type ||
-                r.record_type == protocol::access_receipt_type) {
+                r.record_type == protocol::access_receipt_type ||
+                r.record_type == protocol::claim_type) {
                 out.push_back({protocol::Id(r.id), r.record_type, r.state, r.revoked,
                                r.registered_at_index, std::nullopt});
             }
@@ -143,7 +150,7 @@ std::vector<AccessRecord> access_records(const ledger::Ledger& served,
 }
 
 /// This ledger's requests that a receipt here acknowledges: request (hex)
-/// to its grant and receipt, from the deliveries kept under the grants.
+/// to its grant (or claim) and receipt, from the answers kept under them.
 struct Acceptance {
     protocol::Id grant;
     protocol::Id receipt;
@@ -165,20 +172,29 @@ std::map<std::string, Acceptance> acceptances(const std::filesystem::path& dir,
                                ? std::optional(client::read_file(node::access_path(
                                      dir, node::AccessBox::deliveries, receipt->grant)))
                                : std::nullopt;
-        const auto delivery =
-            bytes ? protocol::decode_delivery(*bytes)
-                  : Result<protocol::Delivery>(fail(Errc::not_found, "no delivery kept"));
-        if (!delivery) {
+        if (!bytes) {
+            continue;
+        }
+        // A delivery under a grant, or the claim that answered (v0.15).
+        const bool claim = client::is_claim_answer(*bytes);
+        const auto delivery = claim ? Result<protocol::Delivery>(fail(Errc::not_found, "a claim"))
+                                    : protocol::decode_delivery(*bytes);
+        if (!claim && !delivery) {
             continue;
         }
         protocol::VerifyOptions pinned;
         pinned.expected_ledger = receipt->ledger;
         pinned.signatures = &ledger::signature_cache();
-        const auto report = protocol::verify_bundle(provider, delivery->grant_bundle, pinned);
-        const auto grant = report && report->metadata
-                               ? protocol::decode_access_grant(*report->metadata)
-                               : Result<protocol::AccessGrant>(fail(Errc::malformed, "no grant"));
-        if (grant) {
+        const auto report = protocol::verify_bundle(
+            provider, claim ? ByteView(*bytes) : ByteView(delivery->grant_bundle), pinned);
+        if (!report || !report->metadata) {
+            continue;
+        }
+        if (claim) {
+            if (const auto c = protocol::decode_claim(*report->metadata); c && c->answers) {
+                out[hex_of(c->answers->second)] = {receipt->grant, r.id};
+            }
+        } else if (const auto grant = protocol::decode_access_grant(*report->metadata)) {
             out[hex_of(grant->request)] = {receipt->grant, r.id};
         }
     }
@@ -303,7 +319,10 @@ nlohmann::json access_terms(std::string_view type, const cbor::Value& metadata) 
                     {"until", r->until},
                     {"fields", names_json(r->fields)},
                     {"attachments", names_json(r->attachments)},
-                    {"recipient", to_hex(r->recipient)}};
+                    {"recipient", to_hex(r->recipient)},
+                    {"condition", r->condition
+                                      ? nlohmann::json(protocol::condition_text(*r->condition))
+                                      : nlohmann::json()}};
         }
     } else if (type == protocol::access_grant_type) {
         if (const auto g = protocol::decode_access_grant(metadata)) {
@@ -376,17 +395,43 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
                          "days are 1 to 366; fields and files are lists of names");
         }
         request.until = now + *days * day_ms;
-        // A key made for this request: the delivery is sealed to it, and it
-        // is kept sealed to the vault key once the request has its id.
-        auto key = std::make_shared<crypto::openssl::HpkeKey>(
-            client::unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key"));
-        request.recipient = Bytes(key->public_key().begin(), key->public_key().end());
+        // Whether conditions hold (a claim answers), or the data itself.
+        if (const auto conditions = intent.find("conditions");
+            conditions != intent.end() && !conditions->is_null()) {
+            if (request.fields || request.attachments) {
+                return error(400, "invalid_argument",
+                             "ask for fields and files, or whether conditions hold: not both");
+            }
+            if (!conditions->is_array() || conditions->empty()) {
+                return error(400, "invalid_argument", "say what to ask: one condition or more");
+            }
+            request.condition.emplace();
+            try {
+                for (const auto& c : *conditions) {
+                    if (!c.is_object() || !c.value("field", nlohmann::json()).is_string() ||
+                        !c.value("op", nlohmann::json()).is_string()) {
+                        return error(400, "invalid_argument", "a condition is {field, op, value}");
+                    }
+                    request.condition->push_back(
+                        client::parse_claim_term(c["field"].get<std::string>(),
+                                                 c["op"].get<std::string>(), c.value("value", "")));
+                }
+            } catch (const client::UsageError& e) {
+                return error(400, "invalid_argument", e.message);
+            }
+        } else {
+            // A key made for this request: the delivery is sealed to it, and
+            // it is kept sealed to the vault key once the request has its id.
+            auto key = std::make_shared<crypto::openssl::HpkeKey>(
+                client::unwrap(crypto::openssl::HpkeKey::generate(), "making the request's key"));
+            request.recipient = Bytes(key->public_key().begin(), key->public_key().end());
+            draft.request_key = std::move(key);
+        }
         auto encoded = protocol::encode_access_request(request);
         if (!encoded) {
             return error(400, "invalid_argument", encoded.error().detail);
         }
         metadata = std::move(*encoded);
-        draft.request_key = std::move(key);
         note = request.purpose;
         type = protocol::access_request_type;
     } else if (action == "access.grant") {
@@ -405,6 +450,9 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
             return error(409, "conflict", "the request does not check out: " + received->problem);
         }
         const protocol::AccessRequest& asked = received->checked->value;
+        if (asked.condition) {
+            return error(409, "conflict", "the request asks whether a condition holds: answer it");
+        }
         const auto fields = names_of(intent, "fields", bad);
         const auto files = names_of(intent, "files", bad);
         const auto days = days_of(intent);
@@ -491,12 +539,18 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         }
         const Bytes delivery = client::read_file(file);
         std::optional<client::OpenedDelivery> opened;
+        std::optional<client::AnsweredClaim> answered;
         std::string refusal;
         const auto problem = attempt([&] {
             try {
-                opened = client::open_delivery(
-                    *served, dir, *services_.provider, delivery,
-                    [&] { return services_.keys->open_vault_key(); }, now);
+                if (client::is_claim_answer(delivery)) {
+                    answered =
+                        client::open_claim_answer(*served, dir, *services_.provider, delivery, now);
+                } else {
+                    opened = client::open_delivery(
+                        *served, dir, *services_.provider, delivery,
+                        [&] { return services_.keys->open_vault_key(); }, now);
+                }
             } catch (const client::NotAccepted& e) {
                 refusal = e.message;
             }
@@ -504,16 +558,18 @@ Console::access_draft(const Signed& who, const nlohmann::json& intent) const {
         if (problem || !refusal.empty()) {
             return error(422, "not_verified", problem ? *problem : refusal);
         }
-        if (opened->request != *request_id) {
+        if ((opened ? opened->request : answered->request) != *request_id) {
             return error(409, "conflict", "the delivery answers another request");
         }
         auto encoded = protocol::encode_access_receipt(
-            client::receipt_for(*services_.provider, *opened, delivery));
+            opened ? client::receipt_for(*services_.provider, *opened, delivery)
+                   : client::receipt_for(*services_.provider, *answered, delivery));
         if (!encoded) {
             return error(500, "internal", "the receipt could not be made");
         }
         metadata = std::move(*encoded);
-        draft.delivery = std::pair(opened->grant.report.record, delivery);
+        draft.delivery = std::pair(
+            opened ? opened->grant.report.record : answered->claim.report.record, delivery);
         note = "received";
         type = protocol::access_receipt_type;
     } else {
@@ -625,14 +681,18 @@ http::Response Console::access_route(const http::Request& request) const {
                 item["peer"] = r.peer ? nlohmann::json(r.peer->name) : nlohmann::json();
             } else {
                 const protocol::AccessRequest& asked = r.checked->value;
-                item.update({{"peer", r.peer->name},
-                             {"from", client::acted_by(r.checked->report)},
-                             {"record", hex_of(asked.record)},
-                             {"purpose", asked.purpose},
-                             {"until", asked.until},
-                             {"fields", names_json(asked.fields)},
-                             {"files", names_json(asked.attachments)},
-                             {"granted", r.granted}});
+                item.update(
+                    {{"peer", r.peer->name},
+                     {"from", client::acted_by(r.checked->report)},
+                     {"record", hex_of(asked.record)},
+                     {"purpose", asked.purpose},
+                     {"until", asked.until},
+                     {"fields", names_json(asked.fields)},
+                     {"files", names_json(asked.attachments)},
+                     {"condition", asked.condition
+                                       ? nlohmann::json(protocol::condition_text(*asked.condition))
+                                       : nlohmann::json()},
+                     {"granted", r.granted}});
                 served->read_state([&](const protocol::LedgerState& state) {
                     const protocol::RecordState* d = state.record(asked.record);
                     item["record_type"] =
@@ -645,6 +705,7 @@ http::Response Console::access_route(const http::Request& request) const {
         const auto accepted = acceptances(dir, *services_.provider, records);
         nlohmann::json asked_by_us = nlohmann::json::array();
         nlohmann::json granted = nlohmann::json::array();
+        nlohmann::json answered = nlohmann::json::array();
         for (const AccessRecord& r : records) {
             if (!r.metadata) {
                 continue;
@@ -675,6 +736,9 @@ http::Response Console::access_route(const http::Request& request) const {
                      {"record", hex_of(asked->record)},
                      {"purpose", asked->purpose},
                      {"until", asked->until},
+                     {"condition", asked->condition
+                                       ? nlohmann::json(protocol::condition_text(*asked->condition))
+                                       : nlohmann::json()},
                      {"status", status},
                      {"online", online_peer(dir, asked->ledger).has_value()},
                      {"receipt", acceptance != accepted.end()
@@ -685,7 +749,7 @@ http::Response Console::access_route(const http::Request& request) const {
                 if (!g) {
                     continue;
                 }
-                const bool delivered = node::delivery_for_grant(dir, g->request, r.id).has_value();
+                const bool delivered = node::kept_answer(dir, g->request, r.id).has_value();
                 const bool acknowledged = std::filesystem::exists(
                     node::access_path(dir, node::AccessBox::receipts, r.id));
                 granted.push_back({{"grant", hex_of(r.id)},
@@ -700,12 +764,45 @@ http::Response Console::access_route(const http::Request& request) const {
                                               : g->until <= now ? "expired"
                                               : delivered       ? "delivered"
                                                                 : "not_delivered"}});
+            } else if (r.type == protocol::claim_type) {
+                // A claim answering a party's request (v0.15); others are the
+                // Things list's.
+                const auto c = protocol::decode_claim(*r.metadata);
+                if (!c || !c->answers) {
+                    continue;
+                }
+                const bool delivered = node::kept_answer(dir, c->answers->second, r.id).has_value();
+                const bool acknowledged = std::filesystem::exists(
+                    node::access_path(dir, node::AccessBox::receipts, r.id));
+                const bool lapsed = c->until && *c->until <= now;
+                answered.push_back({{"claim", hex_of(r.id)},
+                                    {"request", hex_of(c->answers->second)},
+                                    {"peer", peer_name(peers, c->answers->first)},
+                                    {"record", hex_of(c->source)},
+                                    {"text", protocol::claim_text(*c)},
+                                    {"holds", c->holds},
+                                    {"status", r.revoked      ? "withdrawn"
+                                               : acknowledged ? "acknowledged"
+                                               : lapsed       ? "expired"
+                                               : delivered    ? "delivered"
+                                                              : "not_delivered"}});
             }
         }
-        return json(200, {{"asked_of_us", asked_of_us},
-                          {"asked_by_us", asked_by_us},
-                          {"granted", granted},
-                          {"may_act", signer.role != Role::viewer}});
+        // Whether the console's machine answers by itself (claiming.cpp).
+        bool by_itself = false;
+        bool machine = false;
+        served->read_state([&](const protocol::LedgerState& state) {
+            by_itself = answers_by_itself(state);
+            machine = machine_actor(state).has_value();
+        });
+        return json(200,
+                    {{"asked_of_us", asked_of_us},
+                     {"asked_by_us", asked_by_us},
+                     {"granted", granted},
+                     {"answered", answered},
+                     {"answers_by_console", by_itself},
+                     {"may_allow_answers", !by_itself && machine && signer.role == Role::owner},
+                     {"may_act", signer.role != Role::viewer}});
     }
 
     if (rest.starts_with("/requests/")) {
@@ -737,8 +834,12 @@ http::Response Console::access_route(const http::Request& request) const {
                            {"until", asked.until},
                            {"asked_fields", names_json(asked.fields)},
                            {"asked_files", names_json(asked.attachments)},
+                           {"condition", asked.condition ? nlohmann::json(protocol::condition_text(
+                                                               *asked.condition))
+                                                         : nlohmann::json()},
                            {"granted", received->granted},
-                           {"may_grant", false}};
+                           {"may_grant", false},
+                           {"may_answer", false}};
         served->read_state([&](const protocol::LedgerState& state) {
             const protocol::RecordState* r = state.record(asked.record);
             if (r == nullptr || r->revoked) {
@@ -756,6 +857,16 @@ http::Response Console::access_route(const http::Request& request) const {
             const auto body = registration(state, asked.record);
             out["locked"] = services_.keys == nullptr || !services_.keys->unlocked();
             if (!vault || !body) {
+                return;
+            }
+            if (asked.condition) {
+                // Answered with a claim: whether it holds, as it stands now,
+                // on the latest version only.
+                protocol::Claim claim;
+                claim.condition = *asked.condition;
+                out["holds"] = client::check_claim(claim, vault->fields).holds;
+                out["may_answer"] = !r->superseded_by;
+                out["replaced"] = r->superseded_by.has_value();
                 return;
             }
             nlohmann::json fields = nlohmann::json::array();
@@ -822,10 +933,48 @@ http::Response Console::access_route(const http::Request& request) const {
         if (!allowed) {
             return error(403, "forbidden", "you may not read what this request brought");
         }
+        const Bytes delivery = client::read_file(file);
+        if (client::is_claim_answer(delivery)) {
+            // The answer to a condition: what the claim says, verified.
+            if (file_index) {
+                return error(404, "not_found", "no such file was delivered");
+            }
+            std::optional<client::AnsweredClaim> answer;
+            std::string refusal;
+            const auto problem = attempt([&] {
+                try {
+                    answer =
+                        client::open_claim_answer(*served, dir, *services_.provider, delivery, now);
+                } catch (const client::NotAccepted& e) {
+                    refusal = e.message;
+                }
+            });
+            if (problem || !refusal.empty()) {
+                return error(422, "not_verified", problem ? *problem : refusal);
+            }
+            const protocol::Claim& c = answer->claim.value;
+            return json(200,
+                        {{"kind", "claim"},
+                         {"request", hex_of(*id)},
+                         {"peer", answer->peer.name},
+                         {"organization", answer->claim.report.organization},
+                         {"answered_by", client::acted_by(answer->claim.report)},
+                         {"claim", hex_of(answer->claim.report.record)},
+                         {"record", hex_of(c.source)},
+                         {"record_type", answer->claim.report.claim->source_type},
+                         {"text", protocol::claim_text(c)},
+                         {"holds", c.holds},
+                         {"subject", c.subject ? nlohmann::json(*c.subject) : nlohmann::json()},
+                         {"as_of", c.as_of},
+                         {"until", c.until ? nlohmann::json(*c.until) : nlohmann::json()},
+                         {"accepted", acceptance != accepted.end()},
+                         {"receipt", acceptance != accepted.end()
+                                         ? nlohmann::json(hex_of(acceptance->second.receipt))
+                                         : nlohmann::json()}});
+        }
         if (services_.keys == nullptr || !services_.keys->unlocked()) {
             return error(423, "locked", "the console is locked: unlock it first");
         }
-        const Bytes delivery = client::read_file(file);
         std::optional<client::OpenedDelivery> opened;
         std::string refusal;
         const auto problem = attempt([&] {
@@ -867,7 +1016,8 @@ http::Response Console::access_route(const http::Request& request) const {
                 files.push_back({{"index", i}, {"name", a.name}, {"size", a.size}});
             }
         }
-        return json(200, {{"request", hex_of(*id)},
+        return json(200, {{"kind", "delivery"},
+                          {"request", hex_of(*id)},
                           {"peer", opened->peer.name},
                           {"organization", record.organization},
                           {"granted_by", client::acted_by(opened->grant.report)},
@@ -988,6 +1138,10 @@ void Console::access_deliver_route(const http::Request& request, Respond respond
     }
     const auto body =
         nlohmann::json::parse(request.body.begin(), request.body.end(), nullptr, false);
+    if (body.is_object() && body.contains("claim")) {
+        deliver_answer(signer, body, std::move(respond));
+        return;
+    }
     const auto grant_id = body.is_object() ? id_of(body.value("grant", "")) : std::nullopt;
     if (!grant_id) {
         respond(error(400, "invalid_argument", "name the grant by its full id (hex)"));
@@ -1057,6 +1211,87 @@ void Console::access_deliver_route(const http::Request& request, Respond respond
     deliver(std::make_shared<DeliveryJob>(DeliveryJob{
         source, services_.provider, served->hash(), served->id(), *grant_id, std::move(*grant),
         std::move(*vault), std::move(contents), dir, std::move(respond)}));
+}
+
+void Console::deliver_answer(const Signed& signer, const nlohmann::json& body,
+                             Respond respond) const {
+    const ledger::Ledger* const served = ledger();
+    const Evidence source = evidence();
+    const auto claim_id = id_of(body.value("claim", ""));
+    if (!claim_id) {
+        respond(error(400, "invalid_argument", "name the claim by its full id (hex)"));
+        return;
+    }
+    // A live claim of this ledger's that answers a request in the inbox,
+    // kept for the asker by whoever may read the record it is about.
+    const std::filesystem::path dir = services_.directory.parent_path();
+    const protocol::Timestamp now = services_.clock->now();
+    const auto metadata = node::record_metadata(*services_.provider, *served, *claim_id);
+    std::optional<protocol::Claim> claim;
+    std::optional<http::Response> refused;
+    served->read_state([&](const protocol::LedgerState& state) {
+        const protocol::RecordState* c = state.record(*claim_id);
+        auto decoded = c != nullptr && c->record_type == protocol::claim_type && metadata
+                           ? protocol::decode_claim(*metadata)
+                           : Result<protocol::Claim>(fail(Errc::not_found, "none"));
+        if (!decoded || !decoded->answers) {
+            refused = error(404, "not_found", "no answer of this ledger's by that id");
+            return;
+        }
+        if (c->revoked) {
+            refused = error(409, "conflict", "the answer was withdrawn");
+            return;
+        }
+        const protocol::RecordState* r = state.record(decoded->source);
+        if (signer.role == Role::viewer || r == nullptr || !may_read_private(signer, state, *r)) {
+            refused = error(403, "forbidden", "you may not answer for this document");
+            return;
+        }
+        claim = std::move(*decoded);
+    });
+    if (refused) {
+        respond(std::move(*refused));
+        return;
+    }
+    std::optional<client::ReceivedRequest> received;
+    if (const auto problem = attempt([&] {
+            received = client::received_request(dir, *services_.provider, served->id(),
+                                                claim->answers->second, now);
+        })) {
+        respond(error(404, "not_found", *problem));
+        return;
+    }
+    if (!received->checked || received->peer->ledger_id != claim->answers->first) {
+        respond(error(409, "conflict", "the request it answers does not check out"));
+        return;
+    }
+    source(*claim_id, [provider = services_.provider, own = served->id(), dir, now,
+                       request = received->checked->value, request_id = claim->answers->second,
+                       asker = claim->answers->first,
+                       respond = std::move(respond)](Result<Bytes> bundle) mutable {
+        if (!bundle) {
+            respond(error(503, "unavailable", bundle.error().detail));
+            return;
+        }
+        // Checked as the asker will check it, then kept for it to fetch.
+        std::thread([provider, own, dir, now, request = std::move(request), request_id, asker,
+                     bundle = std::move(*bundle), respond = std::move(respond)] {
+            if (const auto self = protocol::check_claim_answer(*provider, bundle, own, asker,
+                                                               request_id, request, now);
+                !self) {
+                respond(
+                    error(409, "conflict",
+                          "the answer does not check out: " + std::string(self.error().detail)));
+                return;
+            }
+            const auto stored = attempt([&] {
+                const auto path = node::access_path(dir, node::AccessBox::outbox, request_id);
+                std::filesystem::create_directories(path.parent_path());
+                client::write_file(path, bundle, true);
+            });
+            respond(stored ? error(500, "internal", *stored) : json(200, {{"delivered", true}}));
+        }).detach();
+    });
 }
 
 } // namespace cexchain::console

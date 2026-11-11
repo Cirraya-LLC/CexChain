@@ -73,7 +73,9 @@ Json access_terms(std::string_view type, const cbor::Value& metadata) {
                     {"until", r->until},
                     {"fields", names_or_null(r->fields)},
                     {"attachments", names_or_null(r->attachments)},
-                    {"recipient", to_hex(r->recipient)}};
+                    {"recipient", to_hex(r->recipient)},
+                    {"condition",
+                     r->condition ? Json(protocol::condition_text(*r->condition)) : Json()}};
         }
     } else if (type == protocol::access_grant_type) {
         if (const auto g = protocol::decode_access_grant(metadata)) {
@@ -178,7 +180,10 @@ Json describe(const protocol::Statement& s) {
                                 {"holds", claim->holds},
                                 {"subject", claim->subject ? Json(*claim->subject) : Json()},
                                 {"as_of", claim->as_of},
-                                {"until", claim->until ? Json(*claim->until) : Json()}};
+                                {"until", claim->until ? Json(*claim->until) : Json()},
+                                {"answers", claim->answers
+                                                ? Json(to_hex(claim->answers->second.bytes()))
+                                                : Json()}};
             }
         }
         // Public metadata as the console writes it: text names and values.

@@ -51,6 +51,12 @@ struct Claim {
     friend bool operator==(const Claim&, const Claim&) = default;
 };
 
+/// Reads a condition, 1 to 16 terms, checking each as the ledger does: a
+/// claim's, and (v0.15) an access request's that asks for a claim.
+[[nodiscard]] Result<std::vector<ClaimTerm>> decode_claim_condition(const cbor::Value& value);
+/// The encoding of a condition (unchecked: decode it to check it).
+[[nodiscard]] cbor::Value encode_claim_condition(const std::vector<ClaimTerm>& condition);
+
 /// Reads a claim's metadata, checking its shape as the ledger does; other
 /// keys are refused.
 [[nodiscard]] Result<Claim> decode_claim(const cbor::Value& metadata);
@@ -60,6 +66,7 @@ struct Claim {
 /// The condition in words (spec section 11, "A claim in words"): each term
 /// its field, the operator's words, and the value, joined by " and ".
 [[nodiscard]] std::string claim_text(const Claim& claim);
+[[nodiscard]] std::string condition_text(const std::vector<ClaimTerm>& condition);
 
 /// The source a claim's registration among `events` (a record's history)
 /// names, if the record is a claim: the record whose history its evidence

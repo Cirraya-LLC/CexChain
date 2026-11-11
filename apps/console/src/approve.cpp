@@ -296,7 +296,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
         activity = std::move(p.activity);
         machine = {p.hand_out, p.agent, std::move(p.model), std::move(p.model_version),
                    p.as_organization};
-    } else if (action.starts_with("access.")) {
+    } else if (action.starts_with("access.") && action != "access.answer") {
         // A request to a party, a grant of a request received, or a receipt
         // for a delivery: a record of this ledger's, its note private.
         auto drafted = access_draft(signer, intent);
@@ -306,7 +306,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
         auto& [registration, d] = std::get<0>(drafted);
         body = protocol::Body{std::move(registration)};
         draft = std::move(d);
-    } else if (action == "claim.issue") {
+    } else if (action == "claim.issue" || action == "access.answer") {
         auto drafted = claim_draft(signer, intent);
         if (auto* refused = std::get_if<http::Response>(&drafted)) {
             return std::move(*refused);
@@ -488,7 +488,9 @@ http::Response Console::prepare_route(const http::Request& request) const {
                     {"holds", c->holds},
                     {"subject", c->subject ? nlohmann::json(*c->subject) : nlohmann::json()},
                     {"as_of", c->as_of},
-                    {"until", c->until ? nlohmann::json(*c->until) : nlohmann::json()}};
+                    {"until", c->until ? nlohmann::json(*c->until) : nlohmann::json()},
+                    {"answers", c->answers ? nlohmann::json(to_hex(c->answers->second.bytes()))
+                                           : nlohmann::json()}};
             }
         } else if (const auto terms =
                        g.metadata ? access_terms(g.record_type, *g.metadata) : nlohmann::json();

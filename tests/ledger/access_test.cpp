@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Cirraya
 
-// Access across two ledgers: a bank asks a factory for a certificate.
+// Access across two ledgers: a bank asks a factory for a certificate, or
+// whether a condition holds in it (spec v0.15), which a claim answers.
 
 #include <string>
 #include <vector>
@@ -9,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 
 #include "support/ledger_world.hpp"
 
@@ -84,13 +86,26 @@ struct Parties {
     protocol::Timestamp now = t0 + day / 2;
 
     protocol::AccessRequest request() {
-        return {factory.ledger().id(),
-                cert.id,
-                "loan collateral",
-                t0 + 10 * day,
-                recipient,
-                std::vector<std::string>{"result"},
-                std::vector<std::string>{"report.pdf"}};
+        protocol::AccessRequest r;
+        r.ledger = factory.ledger().id();
+        r.record = cert.id;
+        r.purpose = "loan collateral";
+        r.until = t0 + 10 * day;
+        r.recipient = recipient;
+        r.fields = std::vector<std::string>{"result"};
+        r.attachments = std::vector<std::string>{"report.pdf"};
+        return r;
+    }
+
+    /// Whether the certificate's result is "pass": no key, fields, or files.
+    protocol::AccessRequest question() {
+        protocol::AccessRequest r;
+        r.ledger = factory.ledger().id();
+        r.record = cert.id;
+        r.purpose = "loan";
+        r.until = t0 + 10 * day;
+        r.condition = {{"result", "=", "text", cbor::Value::text("pass")}};
+        return r;
     }
 
     protocol::AccessGrant grant(const protocol::Id& request_id) {
@@ -297,19 +312,18 @@ TEST_CASE("a request, a grant, a delivery, a receipt", "[access]") {
             p.bank, protocol::access_receipt_type,
             *protocol::encode_access_receipt({p.factory.ledger().id(), grant_id, delivery_hash}));
         const Bytes receipt_bundle = evidence(p.bank, receipt_id);
-        const auto made = p.grant(request_id);
+        const protocol::Id made_to = p.grant(request_id).ledger;
         CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
-                                             p.factory.ledger().id(), grant_id, made,
+                                             p.factory.ledger().id(), grant_id, made_to,
                                              delivery_hash));
         CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
-                                             p.factory.ledger().id(), grant_id, made, Bytes(32, 0))
+                                             p.factory.ledger().id(), grant_id, made_to,
+                                             Bytes(32, 0))
                   .error()
                   .code == Errc::rejected);
         // Only the ledger the grant was made to may acknowledge it.
-        auto to_another = made;
-        to_another.ledger = p.cert.id;
         CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
-                                             p.factory.ledger().id(), grant_id, to_another,
+                                             p.factory.ledger().id(), grant_id, p.cert.id,
                                              delivery_hash)
                   .error()
                   .code == Errc::rejected);
@@ -332,4 +346,131 @@ TEST_CASE("a withdrawn request is refused", "[access]") {
                                          p.bank.ledger().id(), p.factory.ledger().id(), p.now)
               .error()
               .code == Errc::rejected);
+}
+
+TEST_CASE("a request for a condition: its two forms never mix", "[access][claims]") {
+    Parties p;
+    const protocol::AccessRequest asked = p.question();
+    const auto encoded = protocol::encode_access_request(asked);
+    REQUIRE(encoded);
+    CHECK(encoded->find("recipient") == nullptr);
+    CHECK(*protocol::decode_access_request(*encoded) == asked);
+
+    // Neither a key, nor fields, nor attachments with a condition; a
+    // malformed condition is refused as a claim's would be.
+    auto bad = asked;
+    bad.recipient = p.recipient;
+    CHECK_FALSE(protocol::encode_access_request(bad));
+    bad = asked;
+    bad.fields = std::vector<std::string>{};
+    CHECK_FALSE(protocol::encode_access_request(bad));
+    bad = asked;
+    bad.condition = std::vector<protocol::ClaimTerm>{};
+    CHECK_FALSE(protocol::encode_access_request(bad));
+    bad = asked;
+    bad.condition = {{"result", ">", "text", cbor::Value::text("pass")}};
+    CHECK_FALSE(protocol::encode_access_request(bad));
+    cbor::Map mixed = *encoded->as_map();
+    mixed.push_back({cbor::Value::text("recipient"), cbor::Value::bytes(p.recipient)});
+    CHECK_FALSE(protocol::decode_access_request(cbor::Value::map(mixed)));
+    // A request for data still needs its key.
+    auto data = p.request();
+    data.recipient.clear();
+    CHECK_FALSE(protocol::encode_access_request(data));
+}
+
+TEST_CASE("a question, the claim that answers it, a receipt", "[access][claims]") {
+    Parties p;
+    const protocol::AccessRequest asked = p.question();
+    const protocol::Id request_id = issue_access(p.bank, protocol::access_request_type,
+                                                 *protocol::encode_access_request(asked));
+    const Bytes request_bundle = evidence(p.bank, request_id);
+    const auto checked = protocol::check_access_request(
+        provider(), request_bundle, p.bank.ledger().id(), p.factory.ledger().id(), p.now);
+    REQUIRE(checked);
+    CHECK(checked->value == asked);
+
+    // The factory answers with a claim naming the request.
+    protocol::Claim claim;
+    claim.source = p.cert.id;
+    claim.condition = *asked.condition;
+    claim.as_of = p.factory.clock().now();
+    claim.until = t0 + 20 * day;
+    claim.answers = std::pair{p.bank.ledger().id(), request_id};
+    auto answer = [&](const protocol::Claim& c) {
+        return issue_access(p.factory, protocol::claim_type, *protocol::encode_claim(c));
+    };
+    const protocol::Id claim_id = answer(claim);
+    const Bytes claim_bundle = evidence(p.factory, claim_id);
+    const auto accepted =
+        protocol::check_claim_answer(provider(), claim_bundle, p.factory.ledger().id(),
+                                     p.bank.ledger().id(), request_id, asked, p.now);
+    REQUIRE(accepted);
+    CHECK(accepted->value == claim);
+    CHECK(accepted->report.record == claim_id);
+
+    auto refused = [&](const Bytes& bundle, const protocol::AccessRequest& request,
+                       const protocol::Id& id, protocol::Timestamp now) {
+        const auto outcome = protocol::check_claim_answer(
+            provider(), bundle, p.factory.ledger().id(), p.bank.ledger().id(), id, request, now);
+        return outcome ? Errc{} : outcome.error().code;
+    };
+    // Not for another request, nor a request for data, nor another record
+    // or condition than asked; not lapsed.
+    CHECK(refused(claim_bundle, asked, p.cert.id, p.now) == Errc::rejected);
+    CHECK(refused(claim_bundle, p.request(), request_id, p.now) == Errc::rejected);
+    auto other = asked;
+    other.record = request_id;
+    CHECK(refused(claim_bundle, other, request_id, p.now) == Errc::rejected);
+    other = asked;
+    other.condition = {{"result", "!=", "text", cbor::Value::text("fail")}};
+    CHECK(refused(claim_bundle, other, request_id, p.now) == Errc::rejected);
+    other = asked;
+    other.condition->push_back({"price", "exists", "text", cbor::Value::null()});
+    CHECK(refused(claim_bundle, other, request_id, p.now) == Errc::rejected);
+    other = asked;
+    other.ledger = p.bank.ledger().id(); // the answer comes from a ledger not asked
+    CHECK(refused(claim_bundle, other, request_id, p.now) == Errc::rejected);
+    CHECK(refused(claim_bundle, asked, request_id, t0 + 21 * day) == Errc::rejected);
+    // A claim answering another ledger, or nothing, answers nobody here.
+    auto elsewhere = claim;
+    elsewhere.answers = std::pair{p.factory.ledger().id(), request_id};
+    CHECK(refused(evidence(p.factory, answer(elsewhere)), asked, request_id, p.now) ==
+          Errc::rejected);
+    auto unasked = claim;
+    unasked.answers.reset();
+    CHECK(refused(evidence(p.factory, answer(unasked)), asked, request_id, p.now) ==
+          Errc::rejected);
+    // A grant is no answer to a condition.
+    const protocol::Id grant_id = issue_access(p.factory, protocol::access_grant_type,
+                                               *protocol::encode_access_grant(p.grant(request_id)));
+    CHECK(refused(evidence(p.factory, grant_id), asked, request_id, p.now) ==
+          Errc::verification_failed);
+
+    SECTION("the bank acknowledges the claim, and the factory checks it") {
+        const Bytes bundle_hash(32, 0x24);
+        const protocol::Id receipt_id = issue_access(
+            p.bank, protocol::access_receipt_type,
+            *protocol::encode_access_receipt({p.factory.ledger().id(), claim_id, bundle_hash}));
+        const Bytes receipt_bundle = evidence(p.bank, receipt_id);
+        CHECK(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
+                                             p.factory.ledger().id(), claim_id,
+                                             claim.answers->first, bundle_hash));
+        CHECK_FALSE(protocol::check_access_receipt(provider(), receipt_bundle, p.bank.ledger().id(),
+                                                   p.factory.ledger().id(), grant_id,
+                                                   claim.answers->first, bundle_hash));
+    }
+    SECTION("a withdrawn answer, or one whose record was revoked since") {
+        SECTION("the claim revoked") {
+            p.factory.ok(p.factory.org(),
+                         p.factory.statement(p.factory.org_id(), std::nullopt,
+                                             protocol::RecordRevokeBody{claim_id, "withdrawn"}));
+        }
+        SECTION("its source revoked") {
+            p.factory.ok(p.factory.org(),
+                         p.factory.statement(p.factory.org_id(), std::nullopt,
+                                             protocol::RecordRevokeBody{p.cert.id, "reissued"}));
+        }
+        CHECK(refused(evidence(p.factory, claim_id), asked, request_id, p.now) == Errc::rejected);
+    }
 }

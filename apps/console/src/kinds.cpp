@@ -179,21 +179,31 @@ Kind parse_kind(const nlohmann::json& sheet) {
         bad("a kind's files are optional, required, or none");
     }
     kind.keep_files = flag_of(sheet, "keep_files", true);
-    if (const auto printed = sheet.find("printed"); printed != sheet.end() && !printed->is_null()) {
-        if (!printed->is_array()) {
-            bad("\"printed\" lists the fields a certificate shows");
+    // Lists of the kind's own fields: those a certificate shows, and those
+    // whose conditions the console's machine may answer by itself.
+    const auto names_of = [&](std::string_view key, std::string_view what) {
+        std::vector<std::string> out;
+        const auto list = sheet.find(key);
+        if (list == sheet.end() || list->is_null()) {
+            return out;
         }
-        for (const auto& name : *printed) {
+        if (!list->is_array()) {
+            bad("\"" + std::string(key) + "\" lists the fields " + std::string(what));
+        }
+        for (const auto& name : *list) {
             if (!name.is_string() || std::ranges::find(kind.fields, name.get<std::string>(),
                                                        &KindField::name) == kind.fields.end()) {
-                bad("\"printed\" names the kind's own fields");
+                bad("\"" + std::string(key) + "\" names the kind's own fields");
             }
-            if (std::ranges::contains(kind.printed, name.get<std::string>())) {
-                bad("\"printed\" names " + name.get<std::string>() + " twice");
+            if (std::ranges::contains(out, name.get<std::string>())) {
+                bad("\"" + std::string(key) + "\" names " + name.get<std::string>() + " twice");
             }
-            kind.printed.push_back(name.get<std::string>());
+            out.push_back(name.get<std::string>());
         }
-    }
+        return out;
+    };
+    kind.printed = names_of("printed", "a certificate shows");
+    kind.answers = names_of("answers", "the console answers questions about");
     return kind;
 }
 
@@ -216,6 +226,9 @@ nlohmann::json kind_json(const Kind& kind) {
                             {"keep_files", kind.keep_files}};
     if (!kind.printed.empty()) {
         sheet["printed"] = kind.printed;
+    }
+    if (!kind.answers.empty()) {
+        sheet["answers"] = kind.answers;
     }
     return sheet;
 }

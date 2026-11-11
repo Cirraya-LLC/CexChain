@@ -167,7 +167,9 @@ run audit --json | json 'd["timestamps"]' | contains -x 2
 
 # --- A server stamps by itself; a replica and a backup keep the tokens --------
 run token create replica --scope read --out replica.token > /dev/null
-run serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
+# The program itself, not the run function: a function in the background
+# is a subshell, and killing it would leave the server running.
+"$CEXCHAIN" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
     --tsa "$TSA" --timestamp-interval 1 > serve.json 2> serve.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do

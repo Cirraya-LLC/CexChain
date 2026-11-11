@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <deque>
 #include <format>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -2330,10 +2331,14 @@ struct LedgerApi::State {
             return error_response(s.error());
         }
         event("access-request", peer->name + " " + hex(checked->report.record));
-        return json_response(202, {{"request", hex(checked->report.record)},
-                                   {"peer", peer->name},
-                                   {"record", hex(checked->value.record)},
-                                   {"purpose", checked->value.purpose}});
+        return json_response(
+            202, {{"request", hex(checked->report.record)},
+                  {"peer", peer->name},
+                  {"record", hex(checked->value.record)},
+                  {"purpose", checked->value.purpose},
+                  {"condition", checked->value.condition
+                                    ? json(protocol::condition_text(*checked->value.condition))
+                                    : json(nullptr)}});
     }
 
     /// Peers cannot fill the disk: pending requests are capped.
@@ -2362,34 +2367,50 @@ struct LedgerApi::State {
                        ? error_response(404, "not_found", "not granted (yet)")
                        : error_response(bytes.error());
         }
-        // Only to the peer it was granted to; to anyone else it does not exist.
+        // The answer: a delivery under a grant, or a claim's bundle (a bundle
+        // has key 0, a delivery not). Only to the peer it was made to; to
+        // anyone else it does not exist.
         auto delivery = protocol::decode_delivery(*bytes);
         protocol::VerifyOptions own;
         own.expected_ledger = ledger->id();
         own.signatures = &ledger::signature_cache();
-        auto report = delivery
-                          ? protocol::verify_bundle(*provider, delivery->grant_bundle, own)
-                          : Result<protocol::EvidenceReport>(std::unexpected(delivery.error()));
-        auto grant = report && report->metadata
-                         ? protocol::decode_access_grant(*report->metadata)
-                         : Result<protocol::AccessGrant>(fail(Errc::malformed, "no grant"));
+        auto report = protocol::verify_bundle(
+            *provider, delivery ? ByteView(delivery->grant_bundle) : ByteView(*bytes), own);
+        std::optional<protocol::Id> made_to;
+        std::optional<protocol::Id> answers;
+        protocol::Timestamp until = std::numeric_limits<protocol::Timestamp>::max();
+        if (report && report->metadata && report->record_type == protocol::access_grant_type) {
+            if (auto grant = protocol::decode_access_grant(*report->metadata)) {
+                made_to = grant->ledger;
+                answers = grant->request;
+                until = grant->until;
+            }
+        } else if (report && report->metadata && report->record_type == protocol::claim_type) {
+            if (auto claim = protocol::decode_claim(*report->metadata); claim && claim->answers) {
+                made_to = claim->answers->first;
+                answers = claim->answers->second;
+                until = claim->until.value_or(until);
+            }
+        }
         auto peers = load_peers(options.directory);
-        const bool theirs = grant && peers && grant->request == *request &&
+        const bool theirs = made_to && peers && answers == *request &&
                             std::ranges::any_of(*peers, [&](const Peer& p) {
-                                return p.ledger_id == grant->ledger && p.name == principal;
+                                return p.ledger_id == *made_to && p.name == principal;
                             });
         if (!theirs) {
             return error_response(404, "not_found", "not granted (yet)");
         }
-        // Only while the grant lives on this ledger: not once it is revoked
+        // Only while the answer lives on this ledger: not once it is revoked
         // or has expired (the file is a snapshot from when it was made).
         bool live = false;
         ledger->read_state([&](const protocol::LedgerState& state) {
             const protocol::RecordState* g = state.record(report->record);
-            live = g != nullptr && !g->revoked && g->state == "granted";
+            live = g != nullptr && !g->revoked && g->state == (delivery ? "granted" : "confirmed");
         });
-        if (!live || grant->until <= clock->now()) {
-            return error_response(410, "gone", "the grant was revoked or has expired");
+        if (!live || until <= clock->now()) {
+            return error_response(410, "gone",
+                                  delivery ? "the grant was revoked or has expired"
+                                           : "the claim was withdrawn or has lapsed");
         }
         return binary("application/cbor", std::move(*bytes));
     }
@@ -2402,7 +2423,7 @@ struct LedgerApi::State {
         if (!peer) {
             return error_response(403, "forbidden", peer.error().detail);
         }
-        // Which grant: from the receipt's metadata, checked below.
+        // Which answer: from the receipt's metadata, checked below.
         protocol::VerifyOptions pinned;
         pinned.expected_ledger = peer->ledger_id;
         pinned.signatures = &ledger::signature_cache();
@@ -2414,21 +2435,19 @@ struct LedgerApi::State {
         if (!receipt) {
             return error_response(receipt.error());
         }
-        auto grant = record_metadata(*provider, *ledger, receipt->grant);
-        auto decoded = grant ? protocol::decode_access_grant(*grant)
-                             : Result<protocol::AccessGrant>(std::unexpected(grant.error()));
-        if (!decoded) {
-            return error_response(404, "not_found", "no such grant on this ledger");
+        auto answered = answered_request(*provider, *ledger, receipt->grant);
+        if (!answered) {
+            return error_response(404, "not_found", "no such grant or claim on this ledger");
         }
-        auto delivery = delivery_for_grant(options.directory, decoded->request, receipt->grant);
+        auto delivery = kept_answer(options.directory, answered->request, receipt->grant);
         auto digest = delivery ? provider->digest(crypto::HashAlg::sha256, *delivery)
                                : Result<crypto::Digest>(std::unexpected(delivery.error()));
         if (!digest) {
-            return error_response(404, "not_found", "nothing was delivered for this grant");
+            return error_response(404, "not_found", "nothing was delivered for this answer");
         }
         auto checked =
             protocol::check_access_receipt(*provider, r.body, peer->ledger_id, ledger->id(),
-                                           receipt->grant, *decoded, digest->bytes());
+                                           receipt->grant, answered->ledger, digest->bytes());
         if (!checked) {
             return error_response(checked.error());
         }

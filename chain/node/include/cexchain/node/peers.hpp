@@ -64,7 +64,8 @@ inline constexpr std::string_view peers_file = "peers.json";
 
 /// Where access exchanges are kept, under <ledger>/access:
 ///   inbox/<request>.cbor     requests received (evidence bundles)
-///   outbox/<request>.cbor    deliveries made, for the requester to fetch
+///   outbox/<request>.cbor    answers made, for the requester to fetch: a
+///                            delivery, or a claim's evidence bundle
 ///   receipts/<grant>.cbor    receipts received (evidence bundles)
 ///   requests/<request>.cbor  this ledger's own requests (evidence bundles)
 ///   deliveries/<grant>.cbor  deliveries received (still sealed)
@@ -81,12 +82,26 @@ enum class AccessBox { inbox, outbox, receipts, requests, deliveries };
 [[nodiscard]] std::filesystem::path access_path(const std::filesystem::path& ledger_directory,
                                                 AccessBox box, const protocol::Id& id);
 
-/// The delivery in the outbox for `request`, if it is the one made under
-/// `grant` (a later grant for the same request replaces it): Errc::not_found
+/// The answer in the outbox for `request`, if it is the one made under
+/// `answer` (a later answer to the same request replaces it): a delivery
+/// made under that grant, or that claim's evidence bundle. Errc::not_found
 /// otherwise.
-[[nodiscard]] Result<Bytes> delivery_for_grant(const std::filesystem::path& ledger_directory,
-                                               const protocol::Id& request,
-                                               const protocol::Id& grant);
+[[nodiscard]] Result<Bytes> kept_answer(const std::filesystem::path& ledger_directory,
+                                        const protocol::Id& request, const protocol::Id& answer);
+
+/// What one of this ledger's answers answered: the requester's ledger and
+/// its request, from a grant's metadata or a claim's `for`.
+struct Answered {
+    protocol::Id ledger;
+    protocol::Id request;
+    /// The answer is a claim (else a grant).
+    bool claim = false;
+};
+/// Errc::not_found unless `answer` is a grant, or a claim answering a
+/// request, on `ledger`.
+[[nodiscard]] Result<Answered> answered_request(const crypto::Provider& provider,
+                                                const ledger::Ledger& ledger,
+                                                const protocol::Id& answer);
 
 /// Stores the receipt for `grant`, once: storing the same bytes again
 /// succeeds, different ones are refused (Errc::rejected), so a stored

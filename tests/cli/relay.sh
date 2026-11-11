@@ -129,7 +129,7 @@ expect_exit 2 access fetch --peer factory --request "$REQUEST" --out early.cbor 
 contains 'relay' out.txt || fail "says the relay needs the log key"
 expect_exit 2 access fetch --peer factory --request "$REQUEST" --out early.cbor --log-key b-log.key \
     --ledger "$B"
-contains 'has not granted' out.txt || fail "not granted yet"
+contains 'has not answered' out.txt || fail "not answered yet"
 f access grant "${REQUEST:0:12}" --fields product,result --attach report.txt=report.txt \
     --as f-root.key --log-key f-log.key > /dev/null
 b access fetch --peer factory --request "$REQUEST" --out delivery.cbor --log-key b-log.key |

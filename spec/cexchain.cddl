@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Copyright 2026 Cirraya
 ;
-; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.14 (draft); the
+; The CexChain protocol (RFC 8610 CDDL). Specification revision v0.15 (draft); the
 ; wire protocol version (statement key 0) is 1.
 ;
 ; Revision history:
@@ -60,6 +60,11 @@
 ;   v0.14 claims: the cexchain.claim/1 mechanism type and its metadata
 ;         (claim); a claim's bundle carries its source as an involved
 ;         object. Earlier objects remain valid.
+;   v0.15 asking about a condition: an access-request with a condition
+;         instead of a recipient key, fields, and attachments, answered by a
+;         claim whose "for" names it; access names written down as readers
+;         already checked them (access-names), so an object readers took
+;         before is still taken.
 ;
 ; Every structure is encoded as deterministic CBOR (RFC 8949 section 4.2.1) in
 ; the CexChain profile: no floats, no indefinite lengths, no duplicate keys.
@@ -693,27 +698,39 @@ attachment-opening = [
 ; complete (proven against the state commitment).
 access-request = {
   "ledger" => bstr .size 32,      ; the ledger asked
-  "record" => bstr .size 32,      ; the record wanted there
+  "record" => bstr .size 32,      ; the record wanted there, or asked about
   "purpose" => tstr,              ; non-empty
-  "until" => uint,                ; access wanted until (ms), > 0
-  "recipient" => bstr .size 32,   ; X25519 key deliveries are sealed to; one
+  "until" => uint,                ; access wanted, or the question open,
+                                  ; until (ms), > 0
+  (
+    "recipient" => bstr .size 32, ; X25519 key deliveries are sealed to; one
                                   ; per request
-  ? "fields" => [* tstr],         ; wanted fields; absent: all (unique names)
-  ? "attachments" => [* tstr],    ; wanted attachments; absent: all
+    ? "fields" => access-names,   ; wanted fields; absent: all
+    ? "attachments" => access-names, ; wanted attachments; absent: all
+  //
+    "condition" => [1*16 claim-term], ; v0.15: whether this holds in the
+                                  ; record; a claim answers it (section 12)
+  )
 }
 access-grant = {
   "ledger" => bstr .size 32,      ; the requester's ledger
   "request" => bstr .size 32,     ; the request record there
   "record" => bstr .size 32,      ; the record granted, on this ledger
-  "fields" => [* tstr],           ; granted fields (unique names)
-  "attachments" => [* tstr],      ; granted attachments
+  "fields" => access-names,       ; granted fields
+  "attachments" => access-names,  ; granted attachments
   "until" => uint,                ; > 0; the requester refuses it afterwards
   "recipient" => bstr .size 32,   ; the request's recipient key
 }
+; Field or attachment names in access metadata: unique within the list
+; (v0.15 writes down what readers checked before).
+access-names = [0*256 access-name]
+access-name = tstr .size (1..)
 access-receipt = {
   "ledger" => bstr .size 32,      ; the granter's ledger
-  "grant" => bstr .size 32,       ; the grant record there
-  "delivery" => bstr .size 32,    ; SHA-256 of the delivery received
+  "grant" => bstr .size 32,       ; the grant record there, or (v0.15) the
+                                  ; claim that answered
+  "delivery" => bstr .size 32,    ; SHA-256 of the delivery received, or of
+                                  ; the claim's evidence bundle
 }
 
 ; What the granter sends. The contents are sealed with HPKE (RFC 9180, base

@@ -233,7 +233,9 @@ run audit --json | json 'd["network_cosignatures"]' | contains -E '^[1-9]'
 # --- A server asks by itself; a replica and a backup keep them ---------------------
 run token create replica --scope read --out replica.token > /dev/null
 BEFORE="$(run checkpoint network-cosignatures --json | json 'len(d)')"
-run serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
+# The program itself, not the run function: a function in the background
+# is a subshell, and killing it would leave the server running.
+"$CEXCHAIN" serve --listen 127.0.0.1:0 --json --log-key log.key --checkpoint-interval 1 \
     --note-key note.key --network-interval 1 > serve.json 2> serve.log &
 SERVERS+=("$!")
 for _ in $(seq 1 300); do

@@ -13,6 +13,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/error.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 
@@ -33,20 +34,25 @@ inline constexpr std::string_view access_receipt_type = "cexchain.access-receipt
 inline constexpr std::string_view delivery_info = "CexChain delivery v1";
 inline constexpr std::size_t recipient_key_size = 32; // X25519
 
-/// Metadata of an access request, on the requester's ledger.
+/// Metadata of an access request, on the requester's ledger. It asks for
+/// data (a recipient key, and the fields and attachments wanted), or (v0.15)
+/// whether a condition holds in the record: then it has a condition, and no
+/// recipient, fields, or attachments, and a claim answers it.
 struct AccessRequest {
     /// The ledger asked.
     Id ledger;
-    /// The record wanted there.
+    /// The record wanted there, or asked about.
     Id record;
     std::string purpose;
-    /// Access is wanted until then (ms since the epoch).
+    /// Access is wanted, or the question open, until then (ms since the epoch).
     Timestamp until = 0;
-    /// Deliveries are sealed to this X25519 public key.
+    /// Deliveries are sealed to this X25519 public key; empty for a condition.
     Bytes recipient;
     /// Fields and attachments wanted, by name; nullopt asks for all.
     std::optional<std::vector<std::string>> fields;
     std::optional<std::vector<std::string>> attachments;
+    /// The condition asked about.
+    std::optional<std::vector<ClaimTerm>> condition;
 
     friend bool operator==(const AccessRequest&, const AccessRequest&) = default;
 };
@@ -68,10 +74,11 @@ struct AccessGrant {
 
 /// Metadata of an access receipt, on the requester's ledger.
 struct AccessReceipt {
-    /// The granter's ledger, and the grant record there.
+    /// The granter's ledger, and the record there that answered: a grant, or
+    /// (v0.15) a claim.
     Id ledger;
     Id grant;
-    /// SHA-256 of the delivery received.
+    /// SHA-256 of what was received: the delivery, or the claim's bundle.
     Bytes delivery;
 
     friend bool operator==(const AccessReceipt&, const AccessReceipt&) = default;
@@ -146,13 +153,29 @@ check_access_grant(const crypto::Provider& provider, ByteView grant_bundle,
                                                             const Id& granter_ledger,
                                                             const Checked<AccessGrant>& grant);
 
+/// Whether `claim` answers this ledger's request `request_id` (v0.15): its
+/// `for` names this ledger and the request, its source is the record asked
+/// about, and its condition the one asked, term for term.
+[[nodiscard]] Status claim_answers(const Claim& claim, const Id& this_ledger, const Id& request_id,
+                                   const AccessRequest& request);
+
+/// Checks the answer to a condition, for the requester, against its own
+/// request `request_id`: the claim's evidence verifies for the granter's
+/// ledger, which is the ledger the request asked, completely; it is a live
+/// claim that has not lapsed at `now`; it answers the request
+/// (`claim_answers`); and its source is neither revoked nor replaced.
+[[nodiscard]] Result<Checked<Claim>>
+check_claim_answer(const crypto::Provider& provider, ByteView claim_bundle,
+                   const Id& granter_ledger, const Id& this_ledger, const Id& request_id,
+                   const AccessRequest& request, Timestamp now);
+
 /// Checks a receipt, for the granter: its evidence verifies for the
-/// recipient's ledger, which is the ledger `grant` (this ledger's grant
-/// `grant_id`) was made to; and it acknowledges that grant, on this ledger,
-/// with `delivery_hash`.
+/// recipient's ledger, which is `made_to`, the ledger this ledger's answer
+/// `answer_id` (a grant, or a claim) was made to; and it acknowledges that
+/// answer, on this ledger, with `delivery_hash`.
 [[nodiscard]] Result<Checked<AccessReceipt>>
 check_access_receipt(const crypto::Provider& provider, ByteView receipt_bundle,
-                     const Id& recipient_ledger, const Id& this_ledger, const Id& grant_id,
-                     const AccessGrant& grant, ByteView delivery_hash);
+                     const Id& recipient_ledger, const Id& this_ledger, const Id& answer_id,
+                     const Id& made_to, ByteView delivery_hash);
 
 } // namespace cexchain::protocol

@@ -1014,15 +1014,20 @@ async function thingScreen(id) {
 /// Confirming a condition on a document's fields without them (a claim,
 /// v0.14): the conditions, checked by the console against the private
 /// data, then approved with a tap as any registration.
-function claimScreen(thing) {
-    const names = (thing.private.fields ?? []).map((f) => f.name);
+/// Conditions to confirm or to ask about, one row each: a field (chosen
+/// from `names`, or typed when the fields are another party's), a
+/// comparison, and a value. `read()` gives them as the console takes them.
+function conditionRows(names) {
     const rows = el("div");
     let count = 0;
     const addRow = () => {
         count += 1;
         const n = count;
-        const field = el("select", { "aria-label": t("claim.field", { n }) },
-                         names.map((name) => el("option", { value: name, text: name })));
+        const field = names
+            ? el("select", { "aria-label": t("claim.field", { n }) },
+                 names.map((name) => el("option", { value: name, text: name })))
+            : el("input", { type: "text", "aria-label": t("claim.field", { n }), maxlength: 64,
+                            spellcheck: "false" });
         const op = el("select", { "aria-label": t("claim.op", { n }) },
                       [">", ">=", "<", "<=", "=", "!=", "between", "in", "exists"].map((o) =>
                           el("option", { value: o, text: t(`claim.ops.${o}`) })));
@@ -1030,12 +1035,17 @@ function claimScreen(thing) {
         op.addEventListener("change", () => { value.hidden = op.value === "exists"; });
         const row = el("fieldset", { class: "kind-field" },
                        el("legend", { text: t("claim.condition", { n }) }), field, op, value);
-        row.read = () => ({ field: field.value, op: op.value, value: value.value.trim() });
+        row.read = () => ({ field: field.value.trim(), op: op.value, value: value.value.trim() });
         rows.append(row);
     };
     addRow();
     const more = el("button", { type: "button", text: t("claim.add") });
     more.addEventListener("click", addRow);
+    return { rows, more, read: () => [...rows.children].map((r) => r.read()) };
+}
+
+function claimScreen(thing) {
+    const { rows, more, read } = conditionRows((thing.private.fields ?? []).map((f) => f.name));
     const [subjectField, subject] = field("claim-subject", t("claim.subject"), t("claim.subject_hint"),
                                           { maxlength: 256 });
     const [untilField, until] = field("claim-until", t("claim.until"), t("claim.until_hint"), { type: "date" });
@@ -1048,10 +1058,9 @@ function claimScreen(thing) {
                     el("label", { class: "check" }, allowNo, " ", t("claim.allow_no")), notice, prepare);
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const conditions = [...rows.children].map((r) => r.read());
         try {
             const prepared = await api("POST", "prepare", {
-                action: "claim.issue", record: thing.id, conditions, subject: subject.value.trim(),
+                action: "claim.issue", record: thing.id, conditions: read(), subject: subject.value.trim(),
                 until: until.value ? Date.parse(`${until.value}T23:59:59Z`) : null,
                 allow_no: allowNo.checked,
             });
@@ -1305,6 +1314,9 @@ async function kindsScreen() {
                            fields, el("p", { text: t(`kinds.files.${kind.files}`) }),
                            kind.printed?.length
                                ? el("p", { text: t("kinds.printed_list", { fields: kind.printed.join(", ") }) })
+                               : null,
+                           kind.answers?.length
+                               ? el("p", { text: t("kinds.answers_list", { fields: kind.answers.join(", ") }) })
                                : null);
         if (listed.may_change) {
             const remove = el("button", { type: "button", text: t("kinds.remove"),
@@ -1349,15 +1361,18 @@ function kindForm() {
         const secret = el("input", { type: "checkbox", checked: true });
         const required = el("input", { type: "checkbox" });
         const printed = el("input", { type: "checkbox" });
+        const answers = el("input", { type: "checkbox" });
         const row = el("fieldset", { class: "kind-field" },
                        el("legend", { text: t("kinds.field", { n }) }),
                        el("label", { for: `kind-field-${n}`, text: t("kinds.field_label") }), label,
                        kindOf,
                        el("label", { class: "check" }, secret, " ", t("kinds.private")),
                        el("label", { class: "check" }, required, " ", t("kinds.required_box")),
-                       el("label", { class: "check" }, printed, " ", t("kinds.printed")));
+                       el("label", { class: "check" }, printed, " ", t("kinds.printed")),
+                       el("label", { class: "check" }, answers, " ", t("kinds.answers")));
         row.read = () => ({ name: label.value.trim(), type: kindOf.value, private: secret.checked,
-                            required: required.checked, printed: printed.checked });
+                            required: required.checked, printed: printed.checked,
+                            answers: answers.checked });
         rows.append(row);
         label.focus();
     };
@@ -1386,6 +1401,8 @@ function kindForm() {
                 files: files.value, keep_files: keep.checked,
                 ...(fields.some((f) => f.printed)
                     ? { printed: fields.filter((f) => f.printed).map((f) => f.name) } : {}),
+                ...(fields.some((f) => f.answers)
+                    ? { answers: fields.filter((f) => f.answers).map((f) => f.name) } : {}),
             });
             route();
         } catch (error) {
@@ -3433,14 +3450,14 @@ async function accessInto(area) {
     const parts = [];
     if (asked.length) {
         parts.push(el("h2", { text: t("access.asked_of_you") }),
-                   el("ul", {}, asked.map((r) => el("li", {}, t("access.asks", {
-                       peer: r.peer, purpose: r.purpose,
+                   el("ul", {}, asked.map((r) => el("li", {}, t(r.condition ? "access.asks_whether" : "access.asks", {
+                       peer: r.peer, purpose: r.purpose, condition: r.condition,
                    }), " ", el("a", { href: `#/access/request/${r.request}`, text: t("access.look"),
                                       "aria-label": t("access.look_label", { peer: r.peer }) })))));
     }
     if (came.length) {
         parts.push(el("h2", { text: t("access.delivered") }),
-                   el("ul", {}, came.map((r) => el("li", {}, t("access.came", {
+                   el("ul", {}, came.map((r) => el("li", {}, t(r.condition ? "access.came_answer" : "access.came", {
                        peer: r.peer, purpose: r.purpose,
                    }), " ", el("a", { href: `#/access/delivery/${r.request}`, text: t("access.open"),
                                       "aria-label": t("access.open_label", { peer: r.peer }) })))));
@@ -3471,9 +3488,10 @@ function documentsView(access, online) {
         });
         return button;
     };
+    const asking = (r) => (r.condition ? `${r.purpose} (${t("access.whether", { condition: r.condition })})` : r.purpose);
     parts.push(...table(t("access.asked_of_them"), [
         ["access.party", (r) => r.peer || short(r.ledger).text],
-        ["access.purpose", (r) => r.purpose],
+        ["access.purpose", asking],
         ["access.document", (r) => short(r.record)],
         ["column.status", (r) => accessStatus(r.status)],
         ["column.actions", (r) => (r.status === "delivered" || r.status === "accepted"
@@ -3489,10 +3507,10 @@ function documentsView(access, online) {
     ], access.asked_by_us));
     parts.push(...table(t("access.asked_of_you"), [
         ["access.party", (r) => r.peer ?? ""],
-        ["access.purpose", (r) => r.problem ?? r.purpose],
+        ["access.purpose", (r) => r.problem ?? asking(r)],
         ["access.document", (r) => (r.record ? short(r.record) : "")],
         ["column.status", (r) => (r.problem ? t("access.status.unreadable")
-            : accessStatus(r.granted ? "granted" : "waiting"))],
+            : accessStatus(r.granted ? (r.condition ? "answered" : "granted") : "waiting"))],
         ["column.actions", (r) => (r.problem ? "" : el("a", {
             href: `#/access/request/${r.request}`, text: t("access.look"),
             "aria-label": t("access.look_label", { peer: r.peer }) }))],
@@ -3515,6 +3533,38 @@ function documentsView(access, online) {
                 await approveScreen(prepared);
             })))],
     ], access.granted));
+    parts.push(...table(t("access.answered"), [
+        ["access.party", (c) => c.peer],
+        ["access.document", (c) => short(c.record)],
+        ["access.answer", (c) => (c.holds ? c.text : t("access.not_holding", { condition: c.text }))],
+        ["column.status", (c) => accessStatus(c.status)],
+        ["column.actions", (c) => (c.status === "withdrawn" ? "" : el("span", {},
+            c.status === "not_delivered" ? action(t("access.deliver"), t("access.deliver_label", { peer: c.peer }), async () => {
+                await api("POST", "access/deliver", { claim: c.claim });
+                state.flash = t("access.answered_ok", { peer: c.peer });
+                route();
+            }) : null, " ",
+            action(t("access.withdraw"), t("access.withdraw_label", { peer: c.peer }), async () => {
+                const prepared = await api("POST", "prepare", { action: "record.revoke", record: c.claim,
+                                                                 reason: t("access.withdraw_reason") });
+                await approveScreen(prepared);
+            })))],
+    ], access.answered ?? []));
+    // Answering by itself: an owner lets the console's machine answer the
+    // questions each kind allows, when they hold.
+    if (access.answers_by_console) {
+        parts.push(el("p", { class: "hint", text: t("access.by_console") }));
+    } else if (access.may_allow_answers) {
+        const allow = el("button", { type: "button", text: t("access.allow_console") });
+        allow.addEventListener("click", async () => {
+            try {
+                await approveScreen(await api("POST", "prepare", { action: "machine.answer" }));
+            } catch (error) {
+                allow.after(problem(t("error.server", { message: error.message })));
+            }
+        });
+        parts.push(el("p", { class: "hint", text: t("access.allow_console_hint") }), el("p", {}, allow));
+    }
     if (!access.may_act || online.length === 0) {
         return parts;
     }
@@ -3553,13 +3603,49 @@ function documentsView(access, online) {
         }
     });
     parts.push(el("h2", { text: t("access.ask_title") }), el("p", { class: "hint", text: t("access.ask_intro") }), form);
+    parts.push(...questionForm(online));
     return parts;
+}
+
+/// Asking a party whether conditions hold in one of its documents (spec
+/// v0.15): it answers with a claim, never with the fields.
+function questionForm(online) {
+    const party = el("select", { id: "question-party" }, online.map((p) => el("option", { value: p.name, text: p.name })));
+    const [recordField, record] = field("question-record", t("access.document"), t("access.document_hint"),
+                                        { spellcheck: "false", class: "id", maxlength: 64 });
+    const [purposeField, purpose] = field("question-purpose", t("access.purpose"), t("access.purpose_hint"), { maxlength: 500 });
+    const { rows, more, read } = conditionRows(null);
+    const [daysField, days] = field("question-days", t("access.days"), t("access.question_days_hint"),
+                                    { type: "number", min: 1, max: 366, value: 30 });
+    const notice = el("div", { role: "status" });
+    const ask = el("button", { type: "submit", class: "primary", text: t("access.ask") });
+    const form = el("form", { novalidate: true },
+                    el("div", { class: "field" }, el("label", { for: "question-party", text: t("access.party") }), party),
+                    recordField, purposeField, rows, more,
+                    el("p", { class: "hint", text: t("claim.value_hint") }), daysField, notice, ask);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const prepared = await api("POST", "prepare", {
+                action: "access.request", peer: party.value, record: record.value.trim().toLowerCase(),
+                purpose: purpose.value.trim(), conditions: read(), days: Number(days.value) || 30,
+            });
+            const peer = party.value;
+            await approveScreen(prepared, new Map(), async (done) => {
+                await api("POST", "access/send", { record: done.statement_id });
+                return el("p", { class: "notice", text: t("access.question_sent", { peer }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    return [el("h2", { text: t("access.question_title") }), el("p", { class: "hint", text: t("access.question_intro") }), form];
 }
 
 /// A request a party sent: what it asks, and what to share, granted with a tap.
 async function accessRequestScreen(id) {
     const r = await api("GET", `access/requests/${id}`);
-    const parts = [el("h1", { text: t("access.request_title", { peer: r.peer ?? "" }) })];
+    const parts = [el("h1", { text: t(r.condition ? "access.question_from" : "access.request_title", { peer: r.peer ?? "" }) })];
     if (r.problem) {
         show(...parts, problem(t("access.unreadable", { message: r.problem })), goButton(t("nav.parties"), "#/parties"));
         return;
@@ -3576,8 +3662,12 @@ async function accessRequestScreen(id) {
     if (r.kind || r.record_type) {
         fact("column.type", r.kind ?? r.record_type);
     }
-    fact("access.asked_fields", names(r.asked_fields));
-    fact("access.asked_files", names(r.asked_files));
+    if (r.condition) {
+        fact("access.asks_if", r.condition);
+    } else {
+        fact("access.asked_fields", names(r.asked_fields));
+        fact("access.asked_files", names(r.asked_files));
+    }
     parts.push(facts);
     if (!r.missing) {
         parts.push(el("p", {}, el("a", { href: `#/thing/${r.record}`, text: t("access.see_document") })));
@@ -3595,7 +3685,11 @@ async function accessRequestScreen(id) {
         }
     });
     if (r.granted) {
-        parts.push(el("p", { class: "notice", text: t("access.granted_already") }));
+        parts.push(el("p", { class: "notice", text: t(r.condition ? "access.answered_already" : "access.granted_already") }));
+    }
+    if (r.condition) {
+        answerForm(r, parts, notice, dismiss);
+        return;
     }
     if (r.missing || !r.may_grant) {
         parts.push(el("p", { class: "hint", text: t(r.missing ? "access.missing"
@@ -3640,6 +3734,46 @@ async function accessRequestScreen(id) {
     show(...parts);
 }
 
+/// The answer to a party's question: whether it holds in the document as it
+/// stands, then a claim approved with a tap and kept for the party to fetch.
+/// A condition that does not hold is answered only if the person asks.
+function answerForm(r, parts, notice, dismiss) {
+    if (r.missing || !r.may_answer) {
+        parts.push(el("p", { class: "hint", text: t(r.missing ? "access.missing"
+            : r.replaced ? "access.replaced" : r.locked ? "home.locked" : "access.cannot_answer") }), notice, dismiss);
+        show(...parts);
+        return;
+    }
+    parts.push(el("p", { class: "notice", role: "status",
+                         text: t(r.holds ? "access.holds_now" : "access.does_not_hold_now") }));
+    const [subjectField, subject] = field("answer-subject", t("claim.subject"), t("claim.subject_hint"),
+                                          { maxlength: 256 });
+    const [untilField, until] = field("answer-until", t("claim.until"), t("claim.until_hint"), { type: "date" });
+    const allowNo = el("input", { type: "checkbox", id: "answer-allow-no" });
+    const answer = el("button", { type: "submit", class: "primary", text: t("access.answer_it") });
+    const form = el("form", { novalidate: true }, subjectField, untilField,
+                    r.holds ? null : el("label", { class: "check" }, allowNo, " ", t("access.answer_no")),
+                    notice, answer, " ", dismiss);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+            const prepared = await api("POST", "prepare", {
+                action: "access.answer", request: r.request, subject: subject.value.trim(),
+                until: until.value ? Date.parse(`${until.value}T23:59:59Z`) : null,
+                allow_no: allowNo.checked,
+            });
+            await approveScreen(prepared, new Map(), async (done) => {
+                await api("POST", "access/deliver", { claim: done.statement_id });
+                return el("p", { class: "notice", text: t("access.answered_ok", { peer: r.peer }) });
+            });
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    parts.push(el("h2", { text: t("access.answer_title") }), el("p", { class: "hint", text: t("access.answer_intro") }), form);
+    show(...parts);
+}
+
 /// What a party shared for one of this ledger's requests: opened and
 /// verified here, and accepted with a tap (the receipt goes back).
 async function accessDeliveryScreen(request) {
@@ -3657,8 +3791,25 @@ async function accessDeliveryScreen(request) {
     }
     const facts = el("dl", { class: "facts" });
     const fact = (key, value, attributes = {}) => {
-        facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+        if (value !== undefined && value !== null) {
+            facts.append(el("dt", { text: t(key) }), el("dd", { text: String(value), ...attributes }));
+        }
     };
+    if (d.kind === "claim") {
+        // The answer to a question: what the claim says, never the fields.
+        fact("access.organization", d.organization);
+        fact("access.answered_by", d.answered_by);
+        fact("column.type", d.record_type);
+        fact("access.document", d.record, { class: "id" });
+        fact("claim.subject", d.subject);
+        fact("claim.as_of", timeText(d.as_of));
+        fact("claim.until", d.until ? timeText(d.until) : null);
+        const parts = [el("h1", { text: t("access.answer_from", { peer: d.peer }) }),
+                       el("p", { class: "notice", role: "status", text: t(d.holds ? "access.confirms" : "access.says_not", {
+                           organization: d.organization, condition: d.text }) }), facts];
+        acceptPart(d, request, parts);
+        return;
+    }
     fact("access.organization", d.organization);
     fact("column.type", d.record_type);
     fact("column.state", d.state);
@@ -3685,6 +3836,11 @@ async function accessDeliveryScreen(request) {
                    });
                    return el("li", {}, `${f.name} (${sizeText(f.size)}) `, save);
                })) : el("p", { text: t("value.none") }));
+    acceptPart(d, request, parts, notice);
+}
+
+/// Accepting what came with a tap: a receipt on this ledger, sent back.
+function acceptPart(d, request, parts, notice = el("div", { role: "status" })) {
     if (d.accepted) {
         parts.push(el("p", { class: "notice", text: t("access.accepted_already", { receipt: d.receipt.slice(0, 12) }) }), notice);
         show(...parts);
@@ -4352,15 +4508,18 @@ async function approveScreen(prepared, files = new Map(), after = null) {
     const access = summary.access;
     const machine = summary.type === "actor-register" && summary.kind !== 1;
     fact("approve.action", t(consenting ? "approve.type.consent"
-        : summary.claim ? "approve.type.claim"
-        : access ? `approve.type.access_${access.kind}`
+        : summary.claim ? (summary.claim.answers ? "approve.type.access_answer" : "approve.type.claim")
+        : access ? (access.condition ? "approve.type.access_question" : `approve.type.access_${access.kind}`)
         : machine ? "approve.type.machine-register" : `approve.type.${summary.type}`));
     if (access) {
         const names = (list) => (list === null ? t("access.all")
             : list.length ? list.join(", ") : t("value.none"));
         fact("access.document", access.record);
         fact("access.purpose", access.purpose);
-        if (access.kind !== "receipt") {
+        if (access.condition) {
+            fact("access.asks_if", access.condition);
+            fact("exchange.until", timeText(access.until));
+        } else if (access.kind !== "receipt") {
             fact("access.fields", names(access.fields));
             fact("access.files", names(access.attachments));
             fact("exchange.until", timeText(access.until));
@@ -4374,6 +4533,7 @@ async function approveScreen(prepared, files = new Map(), after = null) {
         fact("claim.subject", summary.claim.subject);
         fact("claim.until", summary.claim.until ? timeText(summary.claim.until) : null);
         fact("claim.source", summary.claim.source);
+        fact("claim.answers", summary.claim.answers);
     }
     if (consenting && summary.consent) {
         fact("approve.function", summary.consent.function);

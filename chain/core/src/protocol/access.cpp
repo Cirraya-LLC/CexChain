@@ -153,14 +153,29 @@ Status require_live(const EvidenceReport& report, std::string_view type,
 } // namespace
 
 Result<cbor::Value> encode_access_request(const AccessRequest& r) {
-    if (r.purpose.empty() || r.until == 0 || r.recipient.size() != recipient_key_size) {
-        return fail(Errc::invalid_argument, "an access request needs a purpose, an end, and a key");
+    if (r.purpose.empty() || r.until == 0) {
+        return fail(Errc::invalid_argument, "an access request needs a purpose and an end");
     }
     cbor::Map map{text_entry("ledger", cbor::Value::bytes(r.ledger.bytes())),
                   text_entry("record", cbor::Value::bytes(r.record.bytes())),
                   text_entry("purpose", cbor::Value::text(r.purpose)),
-                  text_entry("until", cbor::Value::unsigned_integer(r.until)),
-                  text_entry("recipient", cbor::Value::bytes(r.recipient))};
+                  text_entry("until", cbor::Value::unsigned_integer(r.until))};
+    if (r.condition) {
+        if (!r.recipient.empty() || r.fields || r.attachments) {
+            return fail(Errc::invalid_argument,
+                        "a request for a condition names no key, fields, or attachments");
+        }
+        cbor::Value condition = encode_claim_condition(*r.condition);
+        if (auto checked = decode_claim_condition(condition); !checked) {
+            return std::unexpected(Error{Errc::invalid_argument, checked.error().detail});
+        }
+        map.push_back(text_entry("condition", std::move(condition)));
+        return cbor::Value::map(std::move(map));
+    }
+    if (r.recipient.size() != recipient_key_size) {
+        return fail(Errc::invalid_argument, "a request for data needs a 32-byte recipient key");
+    }
+    map.push_back(text_entry("recipient", cbor::Value::bytes(r.recipient)));
     if (r.fields) {
         if (auto s = check_names(*r.fields); !s) {
             return std::unexpected(Error{Errc::invalid_argument, s.error().detail});
@@ -177,13 +192,23 @@ Result<cbor::Value> encode_access_request(const AccessRequest& r) {
 }
 
 Result<AccessRequest> decode_access_request(const cbor::Value& metadata) {
-    CEXCHAIN_TRY(Fields f, Fields::open(metadata, {"ledger", "record", "purpose", "until",
-                                                   "recipient", "fields", "attachments"}));
+    CEXCHAIN_TRY(Fields f,
+                 Fields::open(metadata, {"ledger", "record", "purpose", "until", "recipient",
+                                         "fields", "attachments", "condition"}));
     AccessRequest r;
     CEXCHAIN_TRY(r.ledger, f.id("ledger"));
     CEXCHAIN_TRY(r.record, f.id("record"));
     CEXCHAIN_TRY(r.purpose, f.text("purpose"));
     CEXCHAIN_TRY(r.until, f.time("until"));
+    if (const cbor::Value* condition = f.get("condition")) {
+        if (f.get("recipient") != nullptr || f.get("fields") != nullptr ||
+            f.get("attachments") != nullptr) {
+            return fail(Errc::malformed,
+                        "a request for a condition names no key, fields, or attachments");
+        }
+        CEXCHAIN_TRY(r.condition, decode_claim_condition(*condition));
+        return r;
+    }
     CEXCHAIN_TRY(r.recipient, f.bytes("recipient", recipient_key_size));
     CEXCHAIN_TRY(r.fields, f.names("fields"));
     CEXCHAIN_TRY(r.attachments, f.names("attachments"));
@@ -450,12 +475,59 @@ Result<EvidenceReport> check_delivered_record(const crypto::Provider& provider,
     return report;
 }
 
-Result<Checked<AccessReceipt>>
-check_access_receipt(const crypto::Provider& provider, ByteView receipt_bundle,
-                     const Id& recipient_ledger, const Id& this_ledger, const Id& grant_id,
-                     const AccessGrant& grant, ByteView delivery_hash) {
-    if (grant.ledger != recipient_ledger) {
-        return fail(Errc::rejected, "the receipt comes from another ledger than the grant's");
+Status claim_answers(const Claim& claim, const Id& this_ledger, const Id& request_id,
+                     const AccessRequest& request) {
+    if (!request.condition) {
+        return fail(Errc::rejected, "the request asks for data, not a condition");
+    }
+    if (!claim.answers || claim.answers->first != this_ledger ||
+        claim.answers->second != request_id) {
+        return fail(Errc::rejected, "the claim answers another ledger's or another request");
+    }
+    if (claim.source != request.record) {
+        return fail(Errc::rejected, "the claim is about another record than asked");
+    }
+    // Term for term, as encoded: the condition asked, and nothing weaker.
+    const auto stated = cbor::encode(encode_claim_condition(claim.condition));
+    const auto asked = cbor::encode(encode_claim_condition(*request.condition));
+    if (!stated || !asked || *stated != *asked) {
+        return fail(Errc::rejected, "the claim states another condition than asked");
+    }
+    return {};
+}
+
+Result<Checked<Claim>> check_claim_answer(const crypto::Provider& provider, ByteView claim_bundle,
+                                          const Id& granter_ledger, const Id& this_ledger,
+                                          const Id& request_id, const AccessRequest& request,
+                                          Timestamp now) {
+    if (request.ledger != granter_ledger) {
+        return fail(Errc::rejected, "the answer comes from another ledger than the one asked");
+    }
+    VerifyOptions options;
+    options.expected_ledger = granter_ledger;
+    CEXCHAIN_TRY(EvidenceReport report, verify_bundle(provider, claim_bundle, options));
+    CEXCHAIN_CHECK(require_live(report, claim_type, "confirmed"));
+    auto claim = decode_claim(*report.metadata);
+    if (!claim) {
+        return fail(Errc::verification_failed, "the claim's metadata is malformed");
+    }
+    CEXCHAIN_CHECK(claim_answers(*claim, this_ledger, request_id, request));
+    if (claim->until && *claim->until <= now) {
+        return fail(Errc::rejected, "the claim has lapsed");
+    }
+    if (!report.claim || report.claim->source_status != "live") {
+        return fail(Errc::rejected, "the claim's source has been revoked or replaced");
+    }
+    return Checked<Claim>{std::move(report), std::move(*claim)};
+}
+
+Result<Checked<AccessReceipt>> check_access_receipt(const crypto::Provider& provider,
+                                                    ByteView receipt_bundle,
+                                                    const Id& recipient_ledger,
+                                                    const Id& this_ledger, const Id& answer_id,
+                                                    const Id& made_to, ByteView delivery_hash) {
+    if (made_to != recipient_ledger) {
+        return fail(Errc::rejected, "the receipt comes from another ledger than the answer's");
     }
     VerifyOptions options;
     options.expected_ledger = recipient_ledger;
@@ -465,8 +537,8 @@ check_access_receipt(const crypto::Provider& provider, ByteView receipt_bundle,
     if (!receipt) {
         return fail(Errc::verification_failed, "the access receipt's metadata is malformed");
     }
-    if (receipt->ledger != this_ledger || receipt->grant != grant_id) {
-        return fail(Errc::rejected, "the access receipt is for another ledger or grant");
+    if (receipt->ledger != this_ledger || receipt->grant != answer_id) {
+        return fail(Errc::rejected, "the access receipt is for another ledger or answer");
     }
     if (!std::ranges::equal(receipt->delivery, delivery_hash)) {
         return fail(Errc::rejected, "the access receipt acknowledges another delivery");

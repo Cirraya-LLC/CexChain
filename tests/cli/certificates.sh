@@ -69,14 +69,18 @@ cat > diploma.json << 'JSON'
             {"name": "degree", "label": "Degree", "required": true},
             {"name": "grades", "label": "Grades"},
             {"name": "year", "label": "Year", "type": "number", "private": false}],
- "files": "none", "printed": ["name", "degree", "year"]}
+ "files": "none", "printed": ["name", "degree", "year"], "answers": ["degree", "grades"]}
 JSON
 run cexchain-console kind add diploma.json > /dev/null
 run cexchain-console kind show "$TYPE" | contains "printed on its certificates: name, degree, year"
 [ "$(run cexchain-console kind show "$TYPE" --json | json 'd["printed"]')" = "['name', 'degree', 'year']" ]
+run cexchain-console kind show "$TYPE" | contains "the console answers questions about: degree, grades"
 python3 -c 'import json; d = json.load(open("diploma.json")); d["printed"] = ["nickname"]; print(json.dumps(d))' > bad.json
 expect_exit 1 cexchain-console kind add bad.json --replace
 contains "names the kind's own fields" out.txt || fail "printed names its own fields"
+python3 -c 'import json; d = json.load(open("diploma.json")); d["answers"] = ["grades", "grades"]; print(json.dumps(d))' > bad.json
+expect_exit 1 cexchain-console kind add bad.json --replace
+contains '"answers" names grades twice' out.txt
 
 # --- The table: mistakes name their line -------------------------------------------
 issue() { cert issue "$TYPE" --as root.key "$@"; }
@@ -213,6 +217,13 @@ run actor show --ledger "$SCRIPTED" "$BY" --json | json 'd["kind"]' | contains -
     fail "issued by the organization's device"
 run cexchain-console activity --ledger "$SCRIPTED" --json | contains "certificates.issue" ||
     fail "the console's log says so"
+
+# The console's machine may answer parties' questions too, once allowed (spec v0.15).
+run cexchain-console answers allow --ledger "$SCRIPTED" --unlock-file unlock.txt --json |
+    json 'd["machine"]' | contains -x "$BY" || fail "the same machine answers"
+run cexchain-console activity --ledger "$SCRIPTED" --json | contains "answers.allow" ||
+    fail "the console's log says it may answer"
+run cexchain-console answers allow --help | contains -- '--json'
 
 for command in allow issue list show withdraw print; do
     cert "$command" --help | contains -- '--json'

@@ -467,6 +467,11 @@ std::string report_text(const protocol::EvidenceReport& r, bool ledger_checked) 
                          c.claim.until ? std::format(", until {}{}", format_time(*c.claim.until),
                                                      c.lapsed ? " - LAPSED" : "")
                                        : std::string()));
+        if (c.claim.answers) {
+            // The access request it answers (v0.15).
+            line(std::format("  Answers      the access request {} of ledger {}",
+                             short_id(c.claim.answers->second), short_id(c.claim.answers->first)));
+        }
         line(std::format("  Source       {} (id {}), {}", c.source_type, short_id(c.claim.source),
                          c.source_status == "live"      ? "live"
                          : c.source_status == "revoked" ? "REVOKED since"

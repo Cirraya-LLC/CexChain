@@ -169,6 +169,20 @@ cexchain-console settings show
   showing the fields and offering the files. "Accept with your passkey" records the receipt and
   sends it back, and the granter sees the delivery acknowledged. A grant is withdrawn with a tap
   (its record revoked), after which its delivery is no longer handed out.
+- **Questions between parties.** "Ask whether a condition holds" asks a party only whether
+  conditions hold in one of its records (as `access request --if`): no key is made, since nothing
+  is sealed to the asker. The party's page for the question shows the condition and whether it
+  holds as the record stands; "Answer with your passkey" registers a claim that names the
+  question (as `access answer`), kept for the asker; one that does not hold is answered only if
+  the person ticks "Answer that it does not hold", and otherwise dismissing it looks like
+  silence. The asker reads the answer verified (the claim against the question, its record, and
+  its condition), never the fields, and acknowledges it with a tap; the party sees it under
+  "Answered for them", where an answer is withdrawn with a tap. A kind may list fields under
+  `"answers"` (a box per field in the kind form): once an owner taps "Let the console answer by
+  itself" (or runs `cexchain-console answers allow`), the console's machine answers, at each
+  poll, a question whose every term is about those fields, on the record's latest version, when
+  it holds, valid as long as the question was asked for; a question about other fields, and
+  every one that does not hold, waits for a person. Each such answer is in the activity log.
 - **Settings** show the ledger and its folder, the language new browsers start in, and the
   backup folder (`console settings show|set` from the command line).
 - **In the background.** `cexchain-console open` starts the console if it is not running (in

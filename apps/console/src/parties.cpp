@@ -222,6 +222,7 @@ void Console::start_polling(std::chrono::seconds every) {
         const client::RelaySenderScope scope(&relay_sender_);
         while (!stop.stop_requested()) {
             poll_peers();
+            answer_questions();
             maybe_back_up();
             std::unique_lock lock(poll_mutex_);
             poll_wake_.wait_for(lock, stop, every, [this] { return poll_asked_; });

@@ -223,6 +223,67 @@ protocol::AccessReceipt receipt_for(const crypto::Provider& provider, const Open
             Bytes(digest.bytes().begin(), digest.bytes().end())};
 }
 
+bool is_claim_answer(ByteView answer) {
+    return protocol::decode_bundle(answer).has_value();
+}
+
+AnsweredClaim open_claim_answer(const ledger::Ledger& ledger, const std::filesystem::path& dir,
+                                const crypto::Provider& provider, ByteView bundle,
+                                protocol::Timestamp now) {
+    AnsweredClaim out{peer_for_bundle(dir, bundle), {}, {}};
+    // Which of our requests it answers, from the claim's "for"; then it is
+    // checked fully against that request.
+    protocol::VerifyOptions pinned;
+    pinned.expected_ledger = out.peer.ledger_id;
+    auto verified = protocol::verify_bundle(provider, bundle, pinned);
+    if (!verified) {
+        throw NotAccepted{"the claim: " + std::string(verified.error().detail),
+                          verified.error().code == Errc::verification_failed};
+    }
+    const protocol::EvidenceReport& report = *verified;
+    if (report.record_type != protocol::claim_type || !report.metadata) {
+        throw ActionError{"the answer is not a claim"};
+    }
+    const auto claimed = unwrap(protocol::decode_claim(*report.metadata), "the claim");
+    if (!claimed.answers || claimed.answers->first != ledger.id()) {
+        throw ActionError{"the claim answers no request of this ledger's"};
+    }
+    out.request = claimed.answers->second;
+    bool ours = false;
+    bool live = false;
+    ledger.read_state([&](const protocol::LedgerState& state) {
+        const protocol::RecordState* r = state.record(out.request);
+        ours = r != nullptr && r->record_type == protocol::access_request_type;
+        live = ours && !r->revoked && r->state == "requested";
+    });
+    if (!ours) {
+        throw ActionError{"the claim answers request " + short_id(out.request) +
+                          ", which this ledger did not make"};
+    }
+    if (!live) {
+        throw ActionError{"request " + short_id(out.request) + " was withdrawn"};
+    }
+    const auto request =
+        unwrap(protocol::decode_access_request(unwrap(
+                   node::record_metadata(provider, ledger, out.request), "reading our request")),
+               "our request");
+    auto checked = protocol::check_claim_answer(provider, bundle, out.peer.ledger_id, ledger.id(),
+                                                out.request, request, now);
+    if (!checked) {
+        throw NotAccepted{std::string(checked.error().detail),
+                          checked.error().code == Errc::verification_failed};
+    }
+    out.claim = std::move(*checked);
+    return out;
+}
+
+protocol::AccessReceipt receipt_for(const crypto::Provider& provider, const AnsweredClaim& answered,
+                                    ByteView bundle) {
+    const auto digest = unwrap(provider.digest(crypto::HashAlg::sha256, bundle), "hashing");
+    return {answered.peer.ledger_id, answered.claim.report.record,
+            Bytes(digest.bytes().begin(), digest.bytes().end())};
+}
+
 bool plain_file_name(std::string_view name) {
     return !name.empty() && name.find('/') == std::string_view::npos &&
            name.find('\\') == std::string_view::npos && name != ".." && name != ".";

@@ -194,6 +194,22 @@ std::vector<CommandSpec> console_commands() {
          "registrar and keeper) a delegation to register records of TYPE only, signed with the\n"
          "root key the console keeps sealed, as an owner does on the Certificates screen. The\n"
          "certificates it issues then show as issued by the organization's device."},
+        {{"answers", "allow"},
+         "Let the console's machine answer parties' questions by itself",
+         "Parties",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"unlock-file", "FILE",
+                "The console's passphrase or recovery code (default: asked on the terminal)"}}),
+         cmd_answers_allow,
+         "The organization grants the console's machine a delegation to register claims\n"
+         "(cexchain.claim/1) only, signed with the root key the console keeps sealed, as an\n"
+         "owner does on the Parties screen. The console then answers by itself a party's\n"
+         "question about the fields a kind lists under \"answers\" (kind add), when the\n"
+         "condition holds; any other question, and every one that does not hold, waits for a\n"
+         "person. Its answers show as given by the organization's device."},
         {{"certificate", "issue"},
          "Issue certificates from a table, each at a private address for its QR code",
          "Certificates",

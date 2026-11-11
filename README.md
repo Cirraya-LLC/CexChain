@@ -248,7 +248,7 @@ The `cexchain` tool controls every part of a ledger:
 | Replicas | `replica init`, `replica sync`, `replica status`, `replica promote` |
 | Backups | `backup create`, `backup verify`, `backup restore` |
 | Relays | `relay key init`, `relay use`, `relay show`, `relay stop`; `serve --relay-dir`, `serve --relay-key` |
-| Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access fetch`, `access accept`, `access receipt`, `access list` |
+| Other organizations | `peer invite`, `peer accept`, `peer add`, `peer list`, `peer show`, `peer remove`, `access request`, `access send`, `access inbox`, `access dismiss`, `access grant`, `access answer`, `access fetch`, `access accept`, `access receipt`, `access list` |
 | Contracts | `contract deploy`, `contract show`, `contract list`, `contract retire`, `contract create`, `contract call`, `contract instance`, `contract instances`, `contract evidence`, `contract proposal`, `contract file show`, `contract propose`, `contract pending`, `contract consent`, `contract withdraw`, `contract send`, `contract fetch`, `contract verify`, `contract export` |
 | Requests | `request list`, `request show`, `request answer`, `request cancel`, `request wait` |
 | Executors | `executor add`, `executor list`, `executor show`, `executor revoke`, `executor run`, `executor check`, `executor connector add\|list\|show\|remove`, `executor secret set\|list\|remove`, `executor journal list\|show`; `connector webhook`, `connector command` |
@@ -685,6 +685,22 @@ with HPKE to the request's key. The recipient checks every field and file agains
 commitments. Revoking a grant (`record revoke`) stops future deliveries, and receipts make access
 accountable. The same exchange works with files instead of the API (`--out`, then
 `access grant FILE`, `access accept FILE`, `access receipt FILE`).
+
+A party may ask instead only whether a condition holds in the record: a bank asks an employer
+whether a salary is above an amount, and never sees the salary. The holder's answer is a claim
+(above) that names the request; the reviewer checks that it answers that request, about that
+record, with that condition, and acknowledges it as it acknowledges a delivery.
+
+```sh
+cexchain access request --peer holder --record <id> --purpose "eligibility check" \
+    --if 'monthly_salary > HKD 30000' --as reviewer.key --log-key log.key --send
+cexchain access answer <request> --as approver.key --log-key log.key   # on the holder
+cexchain access fetch --peer holder --request <request> --out answer.cbor
+cexchain access accept answer.cbor --as reviewer.key --log-key log.key --send
+```
+
+If the condition does not hold, nothing is answered unless the holder chooses to say so
+(`--allow-no`), so a refusal looks like silence.
 
 Two parties can also witness each other's ledgers. `cexchain serve --witness-dir DIR
 --witness-key KEY` cosigns a peer's checkpoints online, and the peer runs

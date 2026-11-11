@@ -20,6 +20,7 @@
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/console/sessions.hpp>
 #include <cexchain/console/setup.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/record.hpp>
 #include <cexchain/ledger/environment.hpp>
 
@@ -197,6 +198,32 @@ int cmd_certificate_allow(const Args& args) {
     } else {
         std::println("the console's machine may now issue {} certificates (delegation {})",
                      kind.name, short_id(granted));
+    }
+    return exit_ok;
+}
+
+int cmd_answers_allow(const Args& args) {
+    Session session(args);
+    const std::filesystem::path state = console::state_directory(args.console_ledger());
+    console::KeyStore keys(state);
+    unlock_console_keys(keys, args);
+    const protocol::Id machine = console_machine(session, keys);
+    protocol::Scope scope;
+    scope.statement_types = {protocol::StatementType::record_register};
+    scope.record_types = std::vector<std::string>{std::string(protocol::claim_type)};
+    scope.may_delegate = false;
+    scope.require_presence = false;
+    // The organization's grant, as an owner gives it on the Parties screen.
+    const auto root = keys.open(console::root_key_name);
+    const protocol::Id granted = session.submit(
+        root, protocol::DelegationGrantBody{machine, std::move(scope)}, std::nullopt);
+    record(args, "answers.allow", {{"statement", hex_id(granted)}});
+    if (args.json()) {
+        print_json({{"delegation", hex_id(granted)}, {"machine", hex_id(machine)}});
+    } else {
+        std::println("the console's machine may now answer parties' questions about the fields "
+                     "kinds let it (delegation {})",
+                     short_id(granted));
     }
     return exit_ok;
 }

@@ -19,7 +19,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 from cexchain_verify import cbor, claims, cose, crypto, merkle, presence, protocol, rules, statetree  # noqa: E402
-from cexchain_verify import timestamps, evidence, report  # noqa: E402
+from cexchain_verify import access, timestamps, evidence, report  # noqa: E402
 from cexchain_verify.errors import VerifyError  # noqa: E402
 
 import vector_bundles  # noqa: E402
@@ -345,6 +345,54 @@ class Claims(unittest.TestCase):
                     entry = protocol.LogEntry(encoded=b"", id=h(s.sign1.to_be_signed()), registered_at=refused["at"],
                                               statement=signed, commitment=None)
                     state.apply(entry, refused["after"])
+
+
+class AskingAboutACondition(unittest.TestCase):
+    """v0.15: access requests of both forms decode to their values, and each
+    refused one is refused for its rule; claims answer requests about a
+    condition, or are refused for the one acceptance check they fail."""
+
+    def test_requests(self):
+        d = load("protocol-v0.15.json")["access_requests"]
+        for case in d["valid"]:
+            with self.subTest(case["name"]):
+                metadata = hx(case["metadata"])
+                r = access.decode_access_request(metadata)
+                self.assertEqual((r.ledger.hex(), r.record.hex(), r.purpose, r.until),
+                                 (case["ledger"], case["record"], case["purpose"], case["until"]))
+                self.assertEqual(r.recipient.hex() if r.recipient is not None else None, case["recipient"])
+                self.assertEqual(list(r.fields) if r.fields is not None else None, case["fields"])
+                self.assertEqual(list(r.attachments) if r.attachments is not None else None, case["attachments"])
+                if case["condition"] is None:
+                    self.assertIsNone(r.condition)
+                    self.assertIsNone(case["text"])
+                else:
+                    terms = [[t.field, t.op, t.type, t.value] for t in r.condition]
+                    self.assertEqual(cbor.encode(terms).hex(), case["condition"])
+                    self.assertEqual(claims.words(r.condition), case["text"])
+                # The decoded map, as a record's key 5 holds it, reads the same.
+                self.assertEqual(access.decode_access_request(cbor.decode(metadata)), r)
+        for case in d["refused"]:
+            with self.subTest(case["name"]):
+                with self.assertRaises(access.AccessError) as caught:
+                    access.decode_access_request(hx(case["metadata"]))
+                self.assertEqual(caught.exception.why, case["why"])
+
+    def test_answers(self):
+        for case in load("protocol-v0.15.json")["answers"]:
+            with self.subTest(case["name"]):
+                claim = claims.parse(cbor.decode(hx(case["claim"])))
+                request = access.decode_access_request(hx(case["request"]))
+                ledger, request_id = hx(case["requester_ledger"]), hx(case["request_id"])
+                if case["accepted"]:
+                    self.assertIsNone(case["why"])
+                    access.claim_answers(claim, ledger, request_id, request)
+                    # The metadata, undecoded, is checked the same way.
+                    access.claim_answers(hx(case["claim"]), ledger, request_id, hx(case["request"]))
+                    continue
+                with self.assertRaises(access.AccessError) as caught:
+                    access.claim_answers(claim, ledger, request_id, request)
+                self.assertEqual(caught.exception.why, case["why"])
 
 
 class TimeStampTokens(unittest.TestCase):

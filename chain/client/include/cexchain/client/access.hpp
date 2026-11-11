@@ -116,6 +116,32 @@ struct NotAccepted {
 [[nodiscard]] protocol::AccessReceipt receipt_for(const crypto::Provider& provider,
                                                   const OpenedDelivery& opened, ByteView delivery);
 
+/// Whether what a peer served is a claim's evidence bundle, the answer to a
+/// request for a condition (v0.15), rather than a delivery: a bundle has
+/// key 0, a delivery not.
+[[nodiscard]] bool is_claim_answer(ByteView answer);
+
+/// A claim a requester checked: the answer to one of its requests for a
+/// condition.
+struct AnsweredClaim {
+    node::Peer peer;
+    protocol::Id request;
+    protocol::Checked<protocol::Claim> claim;
+};
+
+/// Checks a claim's bundle from a peer as the answer to a live request for a
+/// condition made on `ledger` (at `dir`), the one its `for` names (spec
+/// section 12). Throws ActionError for a claim that answers no request of
+/// this ledger's, and NotAccepted for one that fails a check.
+[[nodiscard]] AnsweredClaim open_claim_answer(const ledger::Ledger& ledger,
+                                              const std::filesystem::path& dir,
+                                              const crypto::Provider& provider, ByteView bundle,
+                                              protocol::Timestamp now);
+
+/// The receipt that acknowledges the claim's bundle (its SHA-256).
+[[nodiscard]] protocol::AccessReceipt receipt_for(const crypto::Provider& provider,
+                                                  const AnsweredClaim& answered, ByteView bundle);
+
 /// An attachment's name is a file name, safe to save under: no path.
 [[nodiscard]] bool plain_file_name(std::string_view name);
 

@@ -162,6 +162,7 @@ int cmd_access_accept(const Args& args);
 int cmd_access_inbox(const Args& args);
 int cmd_access_dismiss(const Args& args);
 int cmd_access_grant(const Args& args);
+int cmd_access_answer(const Args& args);
 int cmd_access_receipt(const Args& args);
 int cmd_access_list(const Args& args);
 

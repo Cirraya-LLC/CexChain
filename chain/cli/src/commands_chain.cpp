@@ -1462,7 +1462,7 @@ std::vector<CommandSpec> chain_commands() {
          with({ledger_option}),
          cmd_peer_remove},
         {{"access", "request"},
-         "Ask a peer for access to one of its records",
+         "Ask a peer for one of its records, or whether a condition holds in it",
          "Other organizations",
          "",
          0,
@@ -1473,12 +1473,20 @@ std::vector<CommandSpec> chain_commands() {
                   {"days", "N", "For how long (default: 30)"},
                   {"fields", "NAMES", "Only these fields, comma-separated (default: all)"},
                   {"attachments", "NAMES", "Only these attachments (default: all)"},
+                  {"if", "CONDITION",
+                   "Ask only whether FIELD OP VALUE holds, as claim issue takes it (repeat: all "
+                   "must hold)",
+                   false, true},
                   log_key_option,
                   {"out", "FILE", "Write the request (its evidence) here, to send"},
                   {"send", "", "Send it to the peer's API"}}),
          cmd_access_request,
          "Records an access request on this ledger, with a key made for it alone (kept\n"
-         "sealed in this ledger's vault): the peer seals what it grants to that key."},
+         "sealed in this ledger's vault): the peer seals what it grants to that key.\n\n"
+         "With --if, the request asks only whether the condition holds in the record, and\n"
+         "the peer answers with a claim (access answer): what it says, never the fields.\n\n"
+         "  cexchain access request --peer employer --record ID --purpose 'Eligibility check' \\\n"
+         "    --if 'monthly_salary > HKD 30000' --send --as clerk.key --log-key log.key"},
         {{"access", "send"},
          "Send an access request to the peer's API",
          "Other organizations",
@@ -1488,7 +1496,7 @@ std::vector<CommandSpec> chain_commands() {
          with({relay_log_key_option, ledger_option, {"peer", "NAME", "The peer", true}}),
          cmd_access_send_request},
         {{"access", "fetch"},
-         "Fetch the delivery for a request from the peer's API",
+         "Fetch the answer to a request (a delivery, or a claim) from the peer's API",
          "Other organizations",
          "",
          0,
@@ -1497,10 +1505,10 @@ std::vector<CommandSpec> chain_commands() {
                ledger_option,
                {"peer", "NAME", "The peer", true},
                {"request", "ID", "The request", true},
-               {"out", "FILE", "Write the delivery here", true}}),
+               {"out", "FILE", "Write the answer here", true}}),
          cmd_access_fetch},
         {{"access", "accept"},
-         "Check a delivery, record a receipt, and show what was granted",
+         "Check an answer, record a receipt, and show what was granted or confirmed",
          "Other organizations",
          "DELIVERY",
          1,
@@ -1513,7 +1521,9 @@ std::vector<CommandSpec> chain_commands() {
          cmd_access_accept,
          "Checks the grant against the peer's ledger, this ledger's request, and its key;\n"
          "opens the delivery; and checks the record's evidence, every disclosed field, and\n"
-         "every attachment against the record's commitments. Exit 3 if anything fails."},
+         "every attachment against the record's commitments. For a request with --if, the\n"
+         "answer is a claim: it must answer that request, about that record, with that\n"
+         "condition, and be live. Exit 3 if anything fails."},
         {{"access", "inbox"},
          "List access requests received through the API",
          "Other organizations",
@@ -1550,6 +1560,26 @@ std::vector<CommandSpec> chain_commands() {
          "recorded on this ledger; the delivery holds its evidence and the record's, with\n"
          "the granted fields and attachments, sealed to the requester's key. The requester\n"
          "can fetch it from this ledger's API. End a grant with: cexchain record revoke ID."},
+        {{"access", "answer"},
+         "Answer a request that asks whether a condition holds",
+         "Other organizations",
+         "REQUEST",
+         1,
+         1,
+         signing({log_key_option,
+                  vault_key_option,
+                  {"subject", "TEXT", "Whom or what the record is about, as you name them"},
+                  {"until", "DATE", "The answer lapses then (YYYY-MM-DD or an ISO time)"},
+                  {"allow-no", "", "Answer even if the condition does not hold, saying so"},
+                  {"out", "FILE", "Also write the answer (the claim's evidence) here"}}),
+         cmd_access_answer,
+         "REQUEST is a request file, or a request in the inbox (by id prefix), made with\n"
+         "access request --if. The condition is checked against the record's private data\n"
+         "(opened with the vault key) and a claim is registered that answers the request:\n"
+         "the condition and whether it holds, never the fields. The peer fetches it from this\n"
+         "ledger's API. If the condition does not hold, nothing is answered unless\n"
+         "--allow-no, so that a refusal looks like silence; access dismiss takes the request\n"
+         "away. Withdraw an answer with: cexchain record revoke CLAIM."},
         {{"access", "receipt"},
          "Check and keep a peer's receipt for a delivery",
          "Other organizations",
@@ -1559,7 +1589,7 @@ std::vector<CommandSpec> chain_commands() {
          with({relay_log_key_option, ledger_option}),
          cmd_access_receipt},
         {{"access", "list"},
-         "List this ledger's access requests, grants, and receipts",
+         "List this ledger's access requests, grants, answers, and receipts",
          "Other organizations",
          "",
          0,

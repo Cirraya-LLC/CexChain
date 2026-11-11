@@ -172,25 +172,53 @@ Result<cbor::Value> record_metadata(const crypto::Provider& provider, const ledg
     return *body->metadata;
 }
 
-Result<Bytes> delivery_for_grant(const std::filesystem::path& ledger_directory,
-                                 const protocol::Id& request, const protocol::Id& grant) {
+Result<Bytes> kept_answer(const std::filesystem::path& ledger_directory,
+                          const protocol::Id& request, const protocol::Id& answer) {
     auto bytes = detail::read_file(access_path(ledger_directory, AccessBox::outbox, request));
     if (!bytes) {
         return std::unexpected(bytes.error());
     }
-    // Our own file: decoding is enough to tell which grant it was made under.
+    // Our own file: decoding is enough to tell what it was made under. A
+    // bundle has key 0 and a delivery has not, so neither reads as the other.
     auto delivery = protocol::decode_delivery(*bytes);
-    if (!delivery) {
-        return std::unexpected(delivery.error());
-    }
-    auto bundle = protocol::decode_bundle(delivery->grant_bundle);
+    auto bundle =
+        protocol::decode_bundle(delivery ? ByteView(delivery->grant_bundle) : ByteView(*bytes));
     if (!bundle) {
         return std::unexpected(bundle.error());
     }
-    if (bundle->record != grant) {
-        return fail(Errc::not_found, "the delivery for this request was made under another grant");
+    if (bundle->record != answer) {
+        return fail(Errc::not_found, "the answer to this request was made under another record");
     }
     return bytes;
+}
+
+Result<Answered> answered_request(const crypto::Provider& provider, const ledger::Ledger& ledger,
+                                  const protocol::Id& answer) {
+    std::string type;
+    ledger.read_state([&](const protocol::LedgerState& state) {
+        if (const protocol::RecordState* found = state.record(answer)) {
+            type = found->record_type;
+        }
+    });
+    if (type != protocol::access_grant_type && type != protocol::claim_type) {
+        return fail(Errc::not_found, "no such grant or claim on this ledger");
+    }
+    auto metadata = record_metadata(provider, ledger, answer);
+    if (!metadata) {
+        return std::unexpected(metadata.error());
+    }
+    if (type == protocol::access_grant_type) {
+        auto grant = protocol::decode_access_grant(*metadata);
+        if (!grant) {
+            return std::unexpected(grant.error());
+        }
+        return Answered{grant->ledger, grant->request, false};
+    }
+    auto claim = protocol::decode_claim(*metadata);
+    if (!claim || !claim->answers) {
+        return fail(Errc::not_found, "the claim answers no request");
+    }
+    return Answered{claim->answers->first, claim->answers->second, true};
 }
 
 Status store_receipt(const std::filesystem::path& ledger_directory, const protocol::Id& grant,

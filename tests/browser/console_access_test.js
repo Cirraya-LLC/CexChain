@@ -8,8 +8,11 @@
 // shares the place and the photo, not the day, with a tap, and the delivery
 // waits for Bob. Bob's console fetches it; he opens it, verified, saves the
 // photo, and accepts it with a tap, the receipt sent back; Alice sees it
-// acknowledged. And each console witnesses the other's ledger: it follows
-// it from its genesis and cosigns its checkpoints.
+// acknowledged. Then Bob asks only whether the photo was taken before 2027:
+// Alice's console checks it in the record, she answers with a tap, and Bob
+// reads the answer verified, the day never shown, and acknowledges it. And
+// each console witnesses the other's ledger: it follows it from its genesis
+// and cosigns its checkpoints.
 // Usage: node console_access_test.js CEXCHAIN
 "use strict";
 const assert = require("node:assert/strict");
@@ -163,11 +166,12 @@ async function until(page, locator, tries = 20) {
     current = bob;
     await b.reload(); // still on Parties, from connecting: the same address does not reload
     await b.getByRole("heading", { name: "Ask for a document" }).waitFor();
-    await b.getByLabel("Party", { exact: true }).selectOption("alice");
-    await b.getByLabel("Document", { exact: true }).fill(record);
-    await b.getByLabel("Why", { exact: true }).fill("insurance claim");
+    // The screen asks for documents and asks questions: two forms alike.
+    await b.locator("#access-party").selectOption("alice");
+    await b.locator("#access-record").fill(record);
+    await b.locator("#access-purpose").fill("insurance claim");
     await b.getByLabel("Fields", { exact: true }).fill("place");
-    await b.getByRole("button", { name: "Ask with your passkey" }).click();
+    await b.getByRole("button", { name: "Ask with your passkey" }).first().click();
     await tap(b, "Ask for a document");
     await b.getByText("Sent to alice. It shows on Home once they share it.").waitFor();
     const requests = JSON.parse(bob.run("access", "list", "--json"));
@@ -216,6 +220,54 @@ async function until(page, locator, tries = 20) {
     assert.equal(grants.length, 1);
     assert.equal(grants[0].acknowledged, true);
     assert.deepEqual(grants[0].fields, ["place"]);
+
+    // Bob asks only whether the photo was taken before 2027.
+    current = bob;
+    await b.getByRole("link", { name: "Parties" }).click();
+    await b.getByRole("heading", { name: "Ask whether a condition holds" }).waitFor();
+    await b.locator("#question-party").selectOption("alice");
+    await b.locator("#question-record").fill(record);
+    await b.locator("#question-purpose").fill("insurance check");
+    await b.getByLabel("Field of condition 1").fill("taken");
+    await b.getByLabel("Comparison of condition 1").selectOption("<");
+    await b.getByLabel("Value of condition 1").fill("2027-01-01");
+    await b.getByRole("button", { name: "Ask with your passkey" }).nth(1).click();
+    await tap(b, "Ask whether a condition holds");
+    await b.getByText("Sent to alice. Their answer shows on Home once they give it.").waitFor();
+
+    // Alice's console checks it in the photo's record; she answers with a tap.
+    current = alice;
+    await a.getByRole("link", { name: "Home" }).click();
+    await until(a, a.getByText("bob asks whether taken is below 2027-01-01: insurance check"));
+    await a.getByRole("link", { name: "Look at what bob asks" }).click();
+    await a.getByRole("heading", { name: "bob asks whether a condition holds" }).waitFor();
+    await a.getByText("As the document stands, this holds.").waitFor();
+    await a.getByLabel("About whom or what").fill("the harbour photo");
+    await a.getByRole("button", { name: "Answer with your passkey" }).click();
+    await tap(a, "Answer a question");
+    await a.getByText("Answered: bob fetches the answer from here.").waitFor();
+
+    // Bob reads the answer, verified, without the day, and acknowledges it.
+    current = bob;
+    await b.getByRole("link", { name: "Home" }).click();
+    await until(b, b.getByText("alice answered your question: insurance check"));
+    await b.getByText("alice answered your question: insurance check")
+      .getByRole("link").click();
+    await b.getByRole("heading", { name: "alice's answer" }).waitFor();
+    await b.getByText("Verified: Alice confirms that taken is below 2027-01-01.").waitFor();
+    await b.getByText("the harbour photo").waitFor();
+    assert.equal(await b.getByText("2026-10-16").count(), 0, "the day stays with Alice");
+    await b.getByRole("button", { name: "Accept with your passkey" }).click();
+    await tap(b, "Acknowledge a delivery");
+    await b.getByText("Accepted: the receipt went to alice.").waitFor();
+    current = alice;
+    await a.getByRole("link", { name: "Parties" }).click();
+    const answeredTable = a.getByRole("table", { name: "Answered for them" });
+    await until(a, answeredTable.getByRole("cell", { name: "Acknowledged" }));
+    const answers = JSON.parse(alice.run("access", "list", "--json")).filter((r) => r.kind === "answer");
+    assert.equal(answers.length, 1);
+    assert.equal(answers[0].holds, true);
+    assert.equal(answers[0].acknowledged, true);
 
     // Each witnesses the other: Alice follows Bob's ledger and asks him to
     // cosign hers, Bob does the same, and each cosigns the other's checkpoint.
