@@ -1701,6 +1701,65 @@ TEST_CASE("a thing's page shows private data to those allowed", "[console][thing
     CHECK(f.w.get("/console/api/records/" + std::string(64, '0'), owner).status == 404);
 }
 
+TEST_CASE("a claim confirms a condition on a document's fields, checked against them",
+          "[console][claims]") {
+    FirstRunWorld f;
+    Served served(f);
+    const std::string owner = f.made["session"].get<std::string>();
+    const auto id = register_photo(f, owner, "the photo itself");
+    const std::string record = cexchain::to_hex(id.bytes());
+    CHECK(nlohmann::json::parse(
+              body(f.w.get("/console/api/records/" + record, owner)))["may_claim"] == true);
+    auto prepare = [&](nlohmann::json conditions, bool allow_no, const std::string& as) {
+        return f.w.post_as("/console/api/prepare",
+                           {{"action", "claim.issue"},
+                            {"record", record},
+                            {"conditions", std::move(conditions)},
+                            {"subject", "the harbour photo"},
+                            {"allow_no", allow_no}},
+                           as);
+    };
+    const nlohmann::json before{{{"field", "taken"}, {"op", "<"}, {"value", "2026-12-01"}},
+                                {{"field", "place"}, {"op", "exists"}, {"value", ""}}};
+    const auto prepared_answer = prepare(before, false, owner);
+    REQUIRE(prepared_answer.status == 200);
+    const auto prepared = nlohmann::json::parse(body(prepared_answer));
+    CHECK(prepared["summary"]["record_type"] == "cexchain.claim/1");
+    CHECK(prepared["summary"]["claim"]["text"] == "taken is below 2026-12-01 and place is given");
+    CHECK(prepared["summary"]["claim"]["holds"] == true);
+    // The claim's own fields are the values it checked, never shown publicly.
+    CHECK(prepared["summary"]["metadata"].empty());
+    const auto approved = approve(f.w, owner, prepared, f.alice);
+    REQUIRE(approved.status == 201);
+    const std::string claim =
+        nlohmann::json::parse(body(approved))["statement_id"].get<std::string>();
+    const auto page = nlohmann::json::parse(body(f.w.get("/console/api/records/" + claim, owner)));
+    CHECK(page["claim"]["text"] == "taken is below 2026-12-01 and place is given");
+    CHECK(page["claim"]["status"] == "standing");
+    CHECK(page["claim"]["source"] == record);
+    CHECK(page["claim"]["subject"] == "the harbour photo");
+    CHECK(page["may_claim"] == false); // a claim is no source
+
+    // Not holding: no claim, unless asked for one that says so.
+    const nlohmann::json after{{{"field", "taken"}, {"op", ">"}, {"value", "2027-01-01"}}};
+    CHECK(prepare(after, false, owner).status == 422);
+    const auto no = prepare(after, true, owner);
+    REQUIRE(no.status == 200);
+    CHECK(nlohmann::json::parse(body(no))["summary"]["claim"]["holds"] == false);
+    // Conditions of the wrong shape, and people who may not read the fields.
+    CHECK(prepare({{{"field", "place"}, {"op", ">"}, {"value", "\"A\""}}}, false, owner).status ==
+          400);
+    CHECK(prepare({{{"field", "place"}, {"op", "~"}, {"value", "A"}}}, false, owner).status == 400);
+    CHECK(prepare(nlohmann::json::array(), false, owner).status == 400);
+    const std::string viewer = f.w.session_for("Vera", console::Role::viewer);
+    CHECK(prepare(before, false, viewer).status == 403);
+    CHECK(nlohmann::json::parse(
+              body(f.w.get("/console/api/records/" + record, viewer)))["may_claim"] == false);
+    CHECK(f.w.post_as("/console/api/prepare",
+                      {{"action", "claim.issue"}, {"record", claim}, {"conditions", before}}, owner)
+              .status == 409);
+}
+
 TEST_CASE("a proof discloses the fields and files chosen, and verifies", "[console][things]") {
     FirstRunWorld f;
     Served served(f);

@@ -26,9 +26,11 @@
 #include <cexchain/console/console.hpp>
 #include <cexchain/console/kinds.hpp>
 #include <cexchain/core/bytes.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/evidence.hpp>
 #include <cexchain/core/protocol/log.hpp>
 #include <cexchain/core/protocol/record.hpp>
+#include <cexchain/core/protocol/record_types.hpp>
 #include <cexchain/core/protocol/state.hpp>
 #include <cexchain/node/contracts.hpp>
 #include <cexchain/node/record_files.hpp>
@@ -282,6 +284,12 @@ http::Response Console::record_route(const http::Request& request) const {
                   {"superseded_index",
                    r->superseded_by ? nlohmann::json(r->superseded_at_index) : nlohmann::json()},
                   {"versions", versions},
+                  {"claim", r->record_type == protocol::claim_type ? claim_view(state, *r, *body)
+                                                                   : nlohmann::json()},
+                  // "Confirm a condition": on a live document whose fields
+                  // this person may read.
+                  {"may_claim", vault.has_value() && !r->revoked && !r->superseded_by &&
+                                    protocol::find_record_type(r->record_type) == nullptr},
                   {"private",
                    {{"allowed", allowed}, {"locked", allowed && locked}, {"fields", fields}}}});
     });

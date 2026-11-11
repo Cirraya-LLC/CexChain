@@ -10,6 +10,7 @@
 add_library(cexchain_client
     src/access.cpp
     src/backups.cpp
+    src/claims.cpp
     src/contract_views.cpp
     src/contracts.cpp
     src/peers.cpp

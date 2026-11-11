@@ -28,6 +28,7 @@
 #include <cexchain/console/setup.hpp>
 #include <cexchain/core/bytes.hpp>
 #include <cexchain/core/cbor.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/presence.hpp>
 #include <cexchain/core/protocol/state.hpp>
@@ -305,6 +306,14 @@ http::Response Console::prepare_route(const http::Request& request) const {
         auto& [registration, d] = std::get<0>(drafted);
         body = protocol::Body{std::move(registration)};
         draft = std::move(d);
+    } else if (action == "claim.issue") {
+        auto drafted = claim_draft(signer, intent);
+        if (auto* refused = std::get_if<http::Response>(&drafted)) {
+            return std::move(*refused);
+        }
+        auto& [registration, d] = std::get<0>(drafted);
+        body = protocol::Body{std::move(registration)};
+        draft = std::move(d);
     } else if (action == "record.register") {
         auto drafted = register_draft(intent, signer.user);
         if (auto* problem = std::get_if<std::string>(&drafted)) {
@@ -469,6 +478,17 @@ http::Response Console::prepare_route(const http::Request& request) const {
                                       {"arguments", to_hex(c->arguments.bytes())},
                                       {"head", c->head},
                                       {"until", c->until}};
+            }
+        } else if (g.record_type == protocol::claim_type && g.metadata) {
+            // A claim's terms, which the page checks in the bytes too.
+            if (const auto c = protocol::decode_claim(*g.metadata)) {
+                summary["claim"] = {
+                    {"source", to_hex(c->source.bytes())},
+                    {"text", protocol::claim_text(*c)},
+                    {"holds", c->holds},
+                    {"subject", c->subject ? nlohmann::json(*c->subject) : nlohmann::json()},
+                    {"as_of", c->as_of},
+                    {"until", c->until ? nlohmann::json(*c->until) : nlohmann::json()}};
             }
         } else if (const auto terms =
                        g.metadata ? access_terms(g.record_type, *g.metadata) : nlohmann::json();

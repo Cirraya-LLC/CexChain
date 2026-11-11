@@ -23,6 +23,7 @@
 #include <cexchain/core/cbor.hpp>
 #include <cexchain/core/crypto.hpp>
 #include <cexchain/core/protocol/access.hpp>
+#include <cexchain/core/protocol/claims.hpp>
 #include <cexchain/core/protocol/common.hpp>
 #include <cexchain/core/protocol/contract_evidence.hpp>
 #include <cexchain/core/protocol/contracts.hpp>
@@ -166,6 +167,18 @@ Json describe(const protocol::Statement& s) {
         if (g->metadata) {
             if (Json terms = access_terms(g->record_type, *g->metadata); !terms.is_null()) {
                 out["access"] = std::move(terms);
+            }
+        }
+        // A claim's terms (v0.14), which the page compares with what it
+        // asked to confirm.
+        if (g->record_type == protocol::claim_type && g->metadata) {
+            if (const auto claim = protocol::decode_claim(*g->metadata)) {
+                out["claim"] = {{"source", to_hex(claim->source.bytes())},
+                                {"text", protocol::claim_text(*claim)},
+                                {"holds", claim->holds},
+                                {"subject", claim->subject ? Json(*claim->subject) : Json()},
+                                {"as_of", claim->as_of},
+                                {"until", claim->until ? Json(*claim->until) : Json()}};
             }
         }
         // Public metadata as the console writes it: text names and values.

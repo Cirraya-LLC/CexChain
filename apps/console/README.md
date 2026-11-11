@@ -99,6 +99,13 @@ cexchain-console settings show
   cexchain-console certificate print --type example.org.diploma/1 --out pages \
       --url https://ledger.example.com --language zh-Hant
   ```
+- **Claims.** "Confirm a condition" on a document's page confirms that its fields meet a
+  condition without showing them ("monthly_salary is above HKD 30,000.00", not the salary): the
+  console checks the conditions against the document's private data, the page checks the claim's
+  bytes in WebAssembly, and a passkey tap approves it, as `cexchain claim issue` does. A condition
+  that does not hold gets no claim unless asked for one that says so. The claim's page, its proof,
+  and the verifier page show the condition, the answer, and whether the document was revoked or
+  replaced since.
 - **Rules.** The Rules screen lists the contracts on the ledger and retires them; "Write
   rules" is an editor with two views of the same rules: a form (parties, the thing and its
   fields, actions with their conditions, consents, presence, what AI agents may do, the state

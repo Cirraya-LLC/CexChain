@@ -920,6 +920,20 @@ async function thingScreen(id) {
         fact("register.replaces", thing.supersedes, { class: "id" });
     }
     parts.push(facts);
+    if (thing.claim) {
+        // A claim (v0.14): what it confirms, and whether it still stands.
+        const c = thing.claim;
+        const claim = el("dl", { class: "facts" });
+        const line = (key, value) => claim.append(el("dt", { text: t(key) }), el("dd", {}, value));
+        line("claim.confirms", c.text);
+        line("claim.answer", t(c.holds ? "claim.holds" : "claim.does_not_hold"));
+        if (c.subject) line("claim.subject", c.subject);
+        line("claim.as_of", timeText(c.as_of));
+        if (c.until) line("claim.until", timeText(c.until));
+        line("claim.status", t(`claim.status.${c.status.replace(" ", "_")}`));
+        line("claim.source", el("a", { href: `#/thing/${c.source}`, text: c.source_type ?? c.source }));
+        parts.push(el("h2", { text: t("claim.title") }), claim);
+    }
     if (thing.versions.length > 1) {
         parts.push(el("h2", { text: t("thing.versions_title") }),
                    el("ol", { class: "versions" }, thing.versions.map((v, n) => {
@@ -984,12 +998,70 @@ async function thingScreen(id) {
         act.addEventListener("click", () => actScreen({ id: thing.id, type: thing.type }));
         actions.append(" ", act);
     }
-    if (state.who.role !== "viewer" && !thing.superseded_by) {
+    if (state.who.role !== "viewer" && !thing.superseded_by && !thing.claim) {
         actions.append(" ", el("a", { href: `#/new/${thing.id}`, class: "button",
                                       text: t("thing.new_version") }));
     }
+    if (state.who.role !== "viewer" && thing.may_claim) {
+        const confirm = el("button", { type: "button", text: t("claim.button") });
+        confirm.addEventListener("click", () => claimScreen(thing));
+        actions.append(" ", confirm);
+    }
     parts.push(actions);
     show(...parts);
+}
+
+/// Confirming a condition on a document's fields without them (a claim,
+/// v0.14): the conditions, checked by the console against the private
+/// data, then approved with a tap as any registration.
+function claimScreen(thing) {
+    const names = (thing.private.fields ?? []).map((f) => f.name);
+    const rows = el("div");
+    let count = 0;
+    const addRow = () => {
+        count += 1;
+        const n = count;
+        const field = el("select", { "aria-label": t("claim.field", { n }) },
+                         names.map((name) => el("option", { value: name, text: name })));
+        const op = el("select", { "aria-label": t("claim.op", { n }) },
+                      [">", ">=", "<", "<=", "=", "!=", "between", "in", "exists"].map((o) =>
+                          el("option", { value: o, text: t(`claim.ops.${o}`) })));
+        const value = el("input", { type: "text", "aria-label": t("claim.value", { n }), maxlength: 512 });
+        op.addEventListener("change", () => { value.hidden = op.value === "exists"; });
+        const row = el("fieldset", { class: "kind-field" },
+                       el("legend", { text: t("claim.condition", { n }) }), field, op, value);
+        row.read = () => ({ field: field.value, op: op.value, value: value.value.trim() });
+        rows.append(row);
+    };
+    addRow();
+    const more = el("button", { type: "button", text: t("claim.add") });
+    more.addEventListener("click", addRow);
+    const [subjectField, subject] = field("claim-subject", t("claim.subject"), t("claim.subject_hint"),
+                                          { maxlength: 256 });
+    const [untilField, until] = field("claim-until", t("claim.until"), t("claim.until_hint"), { type: "date" });
+    const allowNo = el("input", { type: "checkbox", id: "claim-allow-no" });
+    const notice = el("div", { role: "status" });
+    const prepare = el("button", { type: "submit", class: "primary", text: t("act.prepare") });
+    const form = el("form", { novalidate: true }, rows, more,
+                    el("p", { class: "hint", text: t("claim.value_hint") }),
+                    subjectField, untilField,
+                    el("label", { class: "check" }, allowNo, " ", t("claim.allow_no")), notice, prepare);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const conditions = [...rows.children].map((r) => r.read());
+        try {
+            const prepared = await api("POST", "prepare", {
+                action: "claim.issue", record: thing.id, conditions, subject: subject.value.trim(),
+                until: until.value ? Date.parse(`${until.value}T23:59:59Z`) : null,
+                allow_no: allowNo.checked,
+            });
+            await approveScreen(prepared);
+        } catch (error) {
+            notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        }
+    });
+    show(el("h1", { text: t("claim.title_new") }), el("p", { class: "hint", text: t("claim.intro") }),
+         el("p", { class: "id", text: thing.id }), form, backButton(t("nav.things")));
 }
 
 /// Sharing proof: the fields to disclose and whether to open the files;
@@ -4129,6 +4201,11 @@ function registrationAgrees(check, decoded, prepared, files) {
             .every((k) => decoded.consent[k] === summary.consent[k]))) {
         return false;
     }
+    // A claim's terms are the ones the page showed (v0.14).
+    if (Boolean(decoded.claim) !== Boolean(summary.claim) ||
+        (summary.claim && canonical(decoded.claim) !== canonical(summary.claim))) {
+        return false;
+    }
     // An access record's terms are the ones the page showed.
     if (!sameTerms(decoded.access, summary.access)) {
         return false;
@@ -4275,6 +4352,7 @@ async function approveScreen(prepared, files = new Map(), after = null) {
     const access = summary.access;
     const machine = summary.type === "actor-register" && summary.kind !== 1;
     fact("approve.action", t(consenting ? "approve.type.consent"
+        : summary.claim ? "approve.type.claim"
         : access ? `approve.type.access_${access.kind}`
         : machine ? "approve.type.machine-register" : `approve.type.${summary.type}`));
     if (access) {
@@ -4289,6 +4367,13 @@ async function approveScreen(prepared, files = new Map(), after = null) {
         } else {
             fact("access.grant_id", access.grant);
         }
+    }
+    if (summary.claim) {
+        fact("claim.confirms", summary.claim.text);
+        fact("claim.answer", t(summary.claim.holds ? "claim.holds" : "claim.does_not_hold"));
+        fact("claim.subject", summary.claim.subject);
+        fact("claim.until", summary.claim.until ? timeText(summary.claim.until) : null);
+        fact("claim.source", summary.claim.source);
     }
     if (consenting && summary.consent) {
         fact("approve.function", summary.consent.function);

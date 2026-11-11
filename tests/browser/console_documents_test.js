@@ -208,6 +208,40 @@ async function waitRunning() {
       console.log("the standalone verifier page was not given: skipped");
     }
 
+    // A claim on the photo (v0.14): a condition on its fields, checked by
+    // the console, approved with a tap after this browser checked the bytes;
+    // its page and its evidence show the condition, not the fields.
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
+    await page.getByRole("button", { name: "Confirm a condition" }).click();
+    await page.getByRole("heading", { name: "Confirm a condition" }).waitFor();
+    await page.getByLabel("Field of condition 1").selectOption("taken");
+    await page.getByLabel("Comparison of condition 1").selectOption("<");
+    await page.getByLabel("Value of condition 1").fill("2026-12-01");
+    await page.getByLabel("About whom or what").fill("the harbour photo");
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByRole("heading", { name: "Approve with your passkey" }).waitFor();
+    await page.getByText("Checked in this browser").waitFor();
+    await page.getByText("taken is below 2026-12-01").waitFor();
+    await page.getByRole("button", { name: "Approve with your passkey" }).click();
+    await page.getByRole("heading", { name: "Done" }).waitFor();
+    const claim = (await page.locator("main p.id").textContent()).trim();
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, claim);
+    await page.getByRole("heading", { name: "What it confirms" }).waitFor();
+    await page.getByText("taken is below 2026-12-01").waitFor();
+    await page.getByText("standing", { exact: true }).waitFor();
+    const claimed = JSON.parse(run("claim", "show", claim, "--json"));
+    assert.equal(claimed.text, "taken is below 2026-12-01");
+    assert.equal(claimed.subject, "the harbour photo");
+    // A condition that does not hold gets nothing.
+    await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
+    await page.getByRole("button", { name: "Confirm a condition" }).click();
+    await page.getByLabel("Field of condition 1").selectOption("taken");
+    await page.getByLabel("Comparison of condition 1").selectOption(">");
+    await page.getByLabel("Value of condition 1").fill("2027-01-01");
+    await page.getByRole("button", { name: "Prepare" }).click();
+    await page.getByText(/the condition does not hold/).waitFor();
+    await page.getByRole("button", { name: "Things" }).click();
+
     // A new version of the photo, from its page: one tap, and the old one
     // says a newer version replaced it.
     await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
@@ -255,7 +289,9 @@ async function waitRunning() {
     await page.getByRole("button", { name: "Download as CSV" }).first().click();
     const reportFile = path.join(work, "report.csv");
     await (await reporting).saveAs(reportFile);
-    assert.equal(fs.readFileSync(reportFile, "utf8"), "type,state,count\r\nexample.org.photo/1,registered,2\r\n");
+    // The claim made above is a record too.
+    assert.equal(fs.readFileSync(reportFile, "utf8"),
+                 "type,state,count\r\nexample.org.photo/1,registered,2\r\ncexchain.claim/1,confirmed,1\r\n");
     // Its proof now says so, here and on the standalone page.
     await page.evaluate((id) => { location.hash = `#/thing/${id}`; }, record);
     await page.getByRole("button", { name: "Share proof" }).click();

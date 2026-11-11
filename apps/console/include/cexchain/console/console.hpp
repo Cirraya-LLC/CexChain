@@ -551,6 +551,15 @@ private:
     [[nodiscard]] nlohmann::json held_on(const protocol::Id& instance) const;
     [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
     consent_draft(const Signed& who, const nlohmann::json& intent) const;
+    /// Claims (claiming.cpp): a claim on a record, its conditions as typed,
+    /// checked against the record's private data (a condition that does not
+    /// hold gets none unless asked), drafted for the person's tap; and a
+    /// claim's facts for its page.
+    [[nodiscard]] std::variant<std::pair<protocol::RecordRegisterBody, Draft>, http::Response>
+    claim_draft(const Signed& who, const nlohmann::json& intent) const;
+    [[nodiscard]] nlohmann::json claim_view(const protocol::LedgerState& state,
+                                            const protocol::RecordState& record,
+                                            const protocol::RecordRegisterBody& body) const;
     struct Cited {
         protocol::ContractCallBody body;
         std::vector<Bytes> bundles;
