@@ -572,8 +572,9 @@ Result<SyncReport> sync_replica(const Client& primary, ledger::Ledger& replica,
             break; // the primary's log is what it is
         }
         if (auto s = replica.append_entries(*page); !s) {
-            return fail(Errc::verification_failed,
-                        "the primary sent an entry that does not validate");
+            // The replay's own reason, which says what failed; the code says
+            // the primary's history is not one this replica can follow.
+            return fail(Errc::verification_failed, s.error().detail);
         }
         report.entries += page->size();
     }
