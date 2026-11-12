@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Kanhe
-    VERSION 0.0.1
+    VERSION 0.0.2
     DESCRIPTION "Verifiable records for business, built for the age of AI agents"
     LANGUAGES CXX)
 
