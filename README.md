@@ -15,7 +15,7 @@ Like a spreadsheet, Kanhe knows nothing of what you keep in it: there are no bui
 purchase orders, invoices, or certificates. Those are things you define, and the
 [examples](examples/) show how such things are built.
 
-> **Alpha: pre-release software.** The protocol specification (v0.12) is a draft and may change,
+> **Alpha: pre-release software.** The protocol specification (revision v0.17) is a draft and may change,
 > and so may interfaces and file formats; ledgers and evidence made with this version may need
 > to be made again with a later one. The code has not been audited yet; see
 > [Security](#security) for how to report a vulnerability and the known open items.
