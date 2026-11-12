@@ -194,14 +194,14 @@ struct Choices {
 /// The smallest module in the profile: an empty kanhe_call and its memory.
 const Bytes& empty_module() {
     static const Bytes wasm =
-        kanhe::test::hex("0061736d01000000"                 // header
-                         "010401600000"                     // type 0: [] -> []
-                         "03020100"                         // function 0 has type 0
-                         "0503010001"                       // memory: 1 page, no maximum
-                         "071702"                           // two exports:
-                         "066d656d6f72790200"               //   "memory", memory 0
+        kanhe::test::hex("0061736d01000000"           // header
+                         "010401600000"               // type 0: [] -> []
+                         "03020100"                   // function 0 has type 0
+                         "0503010001"                 // memory: 1 page, no maximum
+                         "071702"                     // two exports:
+                         "066d656d6f72790200"         //   "memory", memory 0
                          "0a6b616e68655f63616c6c0000" //   "kanhe_call", function 0
-                         "0a040102000b");                   // code: no locals, end
+                         "0a040102000b");             // code: no locals, end
     return wasm;
 }
 
@@ -483,14 +483,14 @@ Bytes module_with(const Bytes& body, std::uint32_t locals = 0) {
     }
     code.insert(code.end(), body.begin(), body.end());
     code.push_back(0x0B);
-    Bytes wasm = kanhe::test::hex("0061736d01000000"                 // header
-                                  "010401600000"                     // type 0: [] -> []
-                                  "03020100"                         // function 0: type 0
-                                  "0503010001"                       // memory: 1 page
-                                  "071702"                           // two exports:
-                                  "066d656d6f72790200"               //   "memory"
+    Bytes wasm = kanhe::test::hex("0061736d01000000"           // header
+                                  "010401600000"               // type 0: [] -> []
+                                  "03020100"                   // function 0: type 0
+                                  "0503010001"                 // memory: 1 page
+                                  "071702"                     // two exports:
+                                  "066d656d6f72790200"         //   "memory"
                                   "0a6b616e68655f63616c6c0000" //   "kanhe_call"
-                                  "0a");                             // code section
+                                  "0a");                       // code section
     Bytes section;
     section.push_back(0x01);
     put_uleb(section, code.size());
