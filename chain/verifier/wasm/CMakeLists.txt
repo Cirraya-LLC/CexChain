@@ -20,7 +20,7 @@ target_link_options(kanhe_verifier_wasm PRIVATE
     -sALLOW_MEMORY_GROWTH=1
     -sDYNAMIC_EXECUTION=0
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=_malloc,_free,_kanhe_version,_kanhe_reset,_kanhe_set_expected_ledger,_kanhe_add_witness,_kanhe_add_network_witness,_kanhe_add_timestamp_root,_kanhe_add_trust_node,_kanhe_add_attachment,_kanhe_verify,_kanhe_free"
+    "-sEXPORTED_FUNCTIONS=_malloc,_free,_kanhe_version,_kanhe_reset,_kanhe_set_expected_ledger,_kanhe_add_witness,_kanhe_add_network_witness,_kanhe_add_timestamp_root,_kanhe_add_trust_node,_kanhe_add_attachment,_kanhe_verify,_kanhe_credential_addresses,_kanhe_verify_credential,_kanhe_free"
     "-sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString,stringToUTF8,lengthBytesUTF8")
 
 set(page "${CMAKE_CURRENT_BINARY_DIR}/kanhe-verify.html")

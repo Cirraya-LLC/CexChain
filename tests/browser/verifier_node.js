@@ -204,6 +204,33 @@ const text = (name) => fs.readFileSync(path.join(dir, name), "utf8").trim();
     assert.equal(verifier.verify(hexBytes(c.bundle), { ledgerId: c.ledger }).verified, false, c.name);
   }
   assert.equal(verifier.verify(new Uint8Array(1), { trustNodes: [{ ledger: "xyz", name: "A" }] }).verified, false);
+
+  // A W3C credential (spec/credentials.md): the same report as `kanhe
+  // credential verify --offline`, and a changed claim fails.
+  const credential = text("credential.jwt");
+  const where = verifier.credentialAddresses(credential);
+  assert.equal(where.evidence, "https://college.example/c/" + text("credential-token"));
+  assert.equal(where.did_document, "https://college.example/.well-known/did.json");
+  assert.equal(where.status_list, "https://college.example/status/1");
+  assert.equal(where.ledger, ledgerId);
+  const credentialOptions = { didDocument: text("credential-did.json"), statusList: text("credential-list.jwt") };
+  const checked = verifier.verifyCredential(credential, read("credential-evidence.cbor"), credentialOptions);
+  assert.equal(checked.verified, true, JSON.stringify(checked.problems || checked.error));
+  assert.equal(typeof checked.text, "string");
+  delete checked.text;
+  assert.deepEqual(checked, JSON.parse(text("native-credential-report.json")));
+  assert.equal(checked.credential.subject.note, "中文 ✓ <script>alert(1)</script>");
+  const [h, p, sig] = credential.split(".");
+  const payload = JSON.parse(Buffer.from(p, "base64url").toString("utf8"));
+  payload.credentialSubject.result = "fail";
+  const canonical = (v) => Array.isArray(v) ? "[" + v.map(canonical).join(",") + "]"
+    : v && typeof v === "object" ? "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",") + "}"
+    : JSON.stringify(v);
+  const forgedCredential = [h, Buffer.from(canonical(payload)).toString("base64url"), sig].join(".");
+  const lie = verifier.verifyCredential(forgedCredential, read("credential-evidence.cbor"), credentialOptions);
+  assert.equal(lie.verified, false);
+  assert.ok(lie.problems.some((x) => /result = fail/.test(x)), JSON.stringify(lie.problems));
+  assert.match(verifier.credentialAddresses("not a credential").error, /JWS/);
   console.log("wasm verifier (node): ok, version " + verifier.version);
 })().catch((e) => {
   console.error(e);

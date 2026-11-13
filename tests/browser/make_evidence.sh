@@ -184,3 +184,21 @@ run checkpoint create --log-key svc-log.key --ledger "$SVC" > /dev/null
 svc contract evidence "$(cat requests-id)" --log-key svc-log.key --out requests.cbor > /dev/null
 run contract verify requests.cbor --ledger-id "$(cat requests-ledger-id)" --json > native-requests-report.json
 run contract verify requests.cbor --ledger-id "$(cat requests-ledger-id)" > native-requests-report.txt
+
+# The record handed over as a W3C credential (spec/credentials.md), issued for
+# https://college.example (the tests answer that address themselves):
+# credential.jwt, credential-evidence.cbor (its published address's evidence,
+# with the endorsement), credential-did.json, credential-list.jwt, and
+# native-credential-report.json (what `kanhe credential verify --offline` reports).
+run credential key add Credentials --key-out credentials.key --as root.key > /dev/null
+CREDENTIAL_TOKEN="$(run record publish "$(cat record-id)" --disclose result,note --json |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+echo "$CREDENTIAL_TOKEN" > credential-token
+run credential issue "$CREDENTIAL_TOKEN" --as credentials.key --url https://college.example \
+    --name "Inspection certificate" --metadata product --log-key log.key --out credential.jwt > /dev/null
+run checkpoint create --log-key log.key > /dev/null
+run export "$(cat record-id)" --log-key log.key --disclose result,note --out credential-evidence.cbor > /dev/null
+run credential did-document --url https://college.example --out credential-did.json > /dev/null
+run credential status --as credentials.key --url https://college.example --out credential-list.jwt > /dev/null
+run credential verify credential.jwt --offline --evidence credential-evidence.cbor \
+    --did-document credential-did.json --status-list credential-list.jwt --json > native-credential-report.json

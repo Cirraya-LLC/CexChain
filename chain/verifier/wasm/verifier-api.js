@@ -13,6 +13,13 @@
 //     trustNodes: [{ ledger: "<64 hex digits>", name: "HK Trust" }], // trust nodes believed
 //   });
 //   report.verified  // true or false; report.error explains a failure
+//
+// A W3C Verifiable Credential issued from a Kanhe record (spec/credentials.md):
+//   const where = verifier.credentialAddresses(jwsText); // {evidence, did_document, status_list, ledger}
+//   const report = verifier.verifyCredential(jwsText, evidenceBytes, {
+//     didDocument: didJsonText, statusList: statusListJwsText, // when fetched
+//     ledgerId, witnesses, timestampRoots, trustNodes,         // as for verify
+//   });
 
 async function createKanheVerifier(factory) {
   const module = await (factory || KanheVerifier)();
@@ -38,7 +45,16 @@ async function createKanheVerifier(factory) {
     }
   }
 
-  function verify(bundle, options = {}) {
+  function read(resultPointer) {
+    try {
+      return JSON.parse(module.UTF8ToString(resultPointer));
+    } finally {
+      module._kanhe_free(resultPointer);
+    }
+  }
+
+  // Sets the options; a problem's report, or null.
+  function configure(options) {
     module._kanhe_reset();
     if (options.ledgerId) {
       const ok = withString(options.ledgerId.trim().toLowerCase(), (p) => module._kanhe_set_expected_ledger(p));
@@ -72,15 +88,30 @@ async function createKanheVerifier(factory) {
       withString(name, (namePointer) =>
         withBytes(content, (p, n) => module._kanhe_add_attachment(namePointer, p, n)));
     }
-    const resultPointer = withBytes(bundle, (p, n) => module._kanhe_verify(p, n));
-    try {
-      return JSON.parse(module.UTF8ToString(resultPointer));
-    } finally {
-      module._kanhe_free(resultPointer);
-    }
+    return null;
   }
 
-  return { version: module.UTF8ToString(module._kanhe_version()), verify };
+  function verify(bundle, options = {}) {
+    const problem = configure(options);
+    if (problem) return problem;
+    return read(withBytes(bundle, (p, n) => module._kanhe_verify(p, n)));
+  }
+
+  function credentialAddresses(credential) {
+    return read(withString(credential.trim(), (p) => module._kanhe_credential_addresses(p)));
+  }
+
+  function verifyCredential(credential, evidence, options = {}) {
+    const problem = configure(options);
+    if (problem) return problem;
+    const optional = (text, use) => (text == null ? use(0) : withString(text, use));
+    return read(withString(credential.trim(), (c) =>
+      withBytes(evidence, (b, n) =>
+        optional(options.didDocument, (d) =>
+          optional(options.statusList, (l) => module._kanhe_verify_credential(c, b, n, d, l))))));
+  }
+
+  return { version: module.UTF8ToString(module._kanhe_version()), verify, credentialAddresses, verifyCredential };
 }
 
 if (typeof module !== "undefined" && module.exports) {

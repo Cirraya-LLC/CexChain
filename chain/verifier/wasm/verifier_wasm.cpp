@@ -22,6 +22,7 @@
 #include <kanhe/core/protocol/contract_evidence.hpp>
 #include <kanhe/core/protocol/evidence.hpp>
 #include <kanhe/crypto/openssl.hpp>
+#include <kanhe/verifier/credentials.hpp>
 #include <kanhe/verifier/report.hpp>
 
 namespace {
@@ -165,6 +166,52 @@ EMSCRIPTEN_KEEPALIVE char* kanhe_verify(const std::uint8_t* bundle, std::size_t 
         Json out = verifier::report_json(*report, checked);
         out["kind"] = "record";
         out["text"] = verifier::report_text(*report, checked);
+        return to_c_string(out);
+    } catch (const std::exception& e) {
+        return to_c_string(failure(std::string("internal error: ") + e.what()));
+    }
+}
+
+/// The addresses a credential (a compact JWS) names: its record's evidence,
+/// the issuer's DID document, and its status list, and the ledger: JSON
+/// {evidence, did_document, status_list, ledger}, or {error}.
+EMSCRIPTEN_KEEPALIVE char* kanhe_credential_addresses(const char* credential) {
+    const auto addresses = verifier::credential_addresses(credential);
+    if (!addresses) {
+        return to_c_string(failure(addresses.error().detail));
+    }
+    return to_c_string(Json{{"evidence", addresses->evidence},
+                            {"did_document", addresses->did_document},
+                            {"status_list", addresses->status_list},
+                            {"ledger", to_hex(addresses->ledger.bytes())}});
+}
+
+/// Verifies a credential against its record's evidence (spec/credentials.md,
+/// section 7), with the issuer's DID document and status list if given
+/// (null for none), and the options set since the last reset.
+EMSCRIPTEN_KEEPALIVE char* kanhe_verify_credential(const char* credential,
+                                                   const std::uint8_t* bundle, std::size_t size,
+                                                   const char* did_document,
+                                                   const char* status_list) {
+    try {
+        verifier::CredentialOptions credential_options;
+        credential_options.verify = options;
+        if (did_document != nullptr) {
+            credential_options.did_document = did_document;
+        }
+        if (status_list != nullptr) {
+            credential_options.status_list = status_list;
+        }
+        const auto report = verifier::verify_credential(provider(), credential,
+                                                        ByteView(bundle, size), credential_options);
+        if (!report) {
+            Json out = failure(report.error().detail);
+            out["kind"] = "credential";
+            return to_c_string(out);
+        }
+        const bool checked = options.expected_ledger.has_value();
+        Json out = verifier::credential_report_json(*report, checked);
+        out["text"] = verifier::credential_report_text(*report, checked);
         return to_c_string(out);
     } catch (const std::exception& e) {
         return to_c_string(failure(std::string("internal error: ") + e.what()));

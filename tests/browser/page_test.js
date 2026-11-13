@@ -284,6 +284,46 @@ async function verdict(page) {
     assert.match((await verdict(page)).detail, /confirms: monthly_salary is above HKD 30,000\.00 and status is one of "staff", "contractor"/);
     await page.close();
 
+    // 12. A W3C credential chosen as a file (spec/credentials.md): the page
+    // fetches its record's evidence, the issuer's DID document, and its status
+    // list from the addresses it names (answered here), and checks them all.
+    const college = { ["/c/" + text("credential-token")]: ["credential-evidence.cbor", "application/cbor"],
+                      "/.well-known/did.json": ["credential-did.json", "application/did+json"],
+                      "/status/1": ["credential-list.jwt", "application/vc+jwt"] };
+    const answerCollege = async (route) => {
+      const found = college[new URL(route.request().url()).pathname];
+      if (!found) return route.fulfill({ status: 404 });
+      return route.fulfill({ status: 200, contentType: found[1], headers: { "Access-Control-Allow-Origin": "*" },
+                             body: fs.readFileSync(path.join(dir, found[0])) });
+    };
+    page = await open("file://" + pagePath);
+    await page.route("https://college.example/**", answerCollege);
+    await page.setInputFiles("#bundle-file", path.join(dir, "credential.jwt"));
+    v = await verdict(page);
+    assert.equal(v.kind, "ok", v.title + ": " + v.detail);
+    assert.equal(v.title, "Valid credential");
+    assert.match(v.detail, /Cirraya Test Factory/);
+    const credentialSummary = await page.textContent("#summary");
+    assert.match(credentialSummary, /Inspection certificate/);
+    assert.match(credentialSummary, /Credentials, a device of the issuer's/);
+    assert.match(credentialSummary, /not revoked, as the ledger says/);
+    assert.match(credentialSummary, /names this key and this ledger/);
+    assert.equal(await page.locator("#fields script").count(), 0);
+    await page.selectOption("#language", "zh-Hant");
+    await page.waitForFunction(() => document.getElementById("verdict-title").textContent === "\u6191\u8b49\u6709\u6548");
+    await page.close();
+    // A credential whose evidence cannot be fetched says so.
+    page = await open("file://" + pagePath);
+    await page.route("https://college.example/**", (route) => route.fulfill({ status: 404 }));
+    await page.setInputFiles("#bundle-file", path.join(dir, "credential.jwt"));
+    v = await verdict(page);
+    assert.equal(v.kind, "warn");
+    assert.match(v.detail, /college\.example\/c\//);
+    await page.close();
+    // (The browser logs the refused fetch; nothing else may be logged.)
+    const fetched = problems.filter((p) => !/Failed to load resource/.test(p));
+    problems.splice(0, problems.length, ...fetched);
+
     assert.deepEqual(problems, []);
     console.log("wasm verifier (browser): ok");
   } finally {
