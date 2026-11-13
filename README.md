@@ -145,6 +145,10 @@ shell completion. Removing a package keeps every ledger, console, and backup. Up
 same way: a newer package, through the platform's package manager or the releases page. To build
 from source instead, see [Building](#building).
 
+`SHA256SUMS` in each release lists every file's SHA-256. From 0.0.3 on, each file also carries
+signed build provenance: `gh attestation verify FILE --repo Cirraya-LLC/Kanhe` checks that the
+Release workflow built it from the tagged commit.
+
 ## Certificates
 
 An issuer defines a kind of certificate once, issues a whole table of them, and prints each with

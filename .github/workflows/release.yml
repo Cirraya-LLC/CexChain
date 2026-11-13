@@ -6,7 +6,10 @@
 # a .pkg with all four programs, and a tarball. Built on a version tag (then
 # kept in a draft release with their SHA-256 sums, for a person to publish) or
 # by hand (then kept as the run's artifacts). macOS runners cost ten times as
-# many minutes as Linux, so this runs only then.
+# many minutes as Linux, so this runs only then. A tag's packages also get
+# signed build provenance (SLSA, through Sigstore): anyone can check that a
+# file was built by this workflow from the tagged commit, with
+# `gh attestation verify FILE --repo Cirraya-LLC/Kanhe`.
 name: Release
 
 on:
@@ -96,6 +99,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
@@ -103,6 +109,10 @@ jobs:
           path: packages
           pattern: "*-packages"
           merge-multiple: true
+      - name: Build provenance for every package
+        uses: actions/attest@v4
+        with:
+          subject-path: "packages/*"
       - name: A draft release with the packages, for a person to publish
         env:
           GH_TOKEN: ${{ github.token }}
