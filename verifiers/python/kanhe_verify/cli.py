@@ -4,6 +4,7 @@
 
     python3 -m kanhe_verify BUNDLE [options]             as `kanhe verify`
     python3 -m kanhe_verify contract FILE [options]      as `kanhe contract verify`
+    python3 -m kanhe_verify credential FILE [options]    as `kanhe credential verify --offline`
 
 Exit codes, as those commands use them: 0 verified, 1 usage error, 2 an
 input file could not be read (or an output file written), 3 not verified.
@@ -15,7 +16,7 @@ import argparse
 import json
 import sys
 
-from . import cbor, contract_report, crypto, network, report, timestamps
+from . import cbor, contract_report, credentials, crypto, network, report, timestamps
 from .contract_evidence import verify_contract_evidence
 from .errors import UsageError, VerifyError
 from .evidence import verify_bundle
@@ -84,6 +85,53 @@ def _contract_parser() -> argparse.ArgumentParser:
     p.add_argument("--deploy-out", metavar="FILE", help="write the deploy the evidence carries here, as a deploy file")
     p.add_argument("--json", action="store_true", help="print machine-readable JSON")
     return p
+
+
+def _credential_parser() -> argparse.ArgumentParser:
+    p = _Parser(
+        prog="python3 -m kanhe_verify credential",
+        description="Verify a W3C Verifiable Credential issued from a Kanhe record (spec/credentials.md, "
+                    "section 7): the credential, and the record behind it in its evidence bundle; with the "
+                    "issuer's DID document and status list when given. Offline: nothing is fetched.",
+        epilog=EPILOG)
+    p.add_argument("credential", metavar="FILE", help="the credential (a compact JWS)")
+    p.add_argument("--evidence", metavar="BUNDLE", required=True, help="the record's evidence bundle (CBOR)")
+    p.add_argument("--did-document", metavar="FILE", help="the issuer's DID document (JSON)")
+    p.add_argument("--status-list", metavar="FILE", help="the status list credential (a compact JWS)")
+    p.add_argument("--ledger-id", metavar="HEX", help="the issuer's ledger id (64 hex digits), learned out of band")
+    p.add_argument("--witness", metavar="PUBKEY_FILE", action="append", default=[],
+                   help="trust this witness's public key file (CBOR [alg, key]) [repeatable]")
+    p.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    return p
+
+
+def _credential_main(argv: list[str]) -> int:
+    args = _credential_parser().parse_args(argv)
+    try:
+        ledger_id = _ledger_id(args.ledger_id)
+    except UsageError as e:
+        print(f"usage error: {e}", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        compact = _read(args.credential).decode("utf-8", "replace")
+        bundle = _read(args.evidence)
+        did = _read(args.did_document).decode("utf-8", "replace") if args.did_document else None
+        lst = _read(args.status_list).decode("utf-8", "replace") if args.status_list else None
+        witnesses = [_witness_key(path) for path in args.witness]
+    except UsageError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return EXIT_INPUT
+    try:
+        result = credentials.verify_credential(compact, bundle, did_document=did, status_list=lst,
+                                               ledger_id=ledger_id, witnesses=witnesses)
+    except VerifyError as e:
+        return _not_verified(args, e)
+    document = credentials.to_json(result)
+    if args.json:
+        print(json.dumps(document, indent=2, ensure_ascii=False))
+    else:
+        print(credentials.to_text(result))
+    return EXIT_VERIFIED if result.verified else EXIT_NOT_VERIFIED
 
 
 def _read(path: str) -> bytes:
@@ -259,4 +307,6 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "contract":
         return _contract_main(argv[1:])
+    if argv and argv[0] == "credential":
+        return _credential_main(argv[1:])
     return _bundle_main(argv)

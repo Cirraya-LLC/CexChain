@@ -875,6 +875,103 @@ echo "Probes of the specification's edges (ledgers forged by the test)"
 echo "Probes of open witness networks (anchors forged by the test, verified with the witnesses' verifier keys)"
 "$PYTHON" "$VERIFIER/tests/network_probes.py" "$KANHE"
 
+# --- Credentials (spec/credentials.md, section 7) -------------------------------------
+# A certificate issued as a W3C credential: both verifiers check it against its
+# evidence, with the DID document and status list, and agree; PyJWT, a widely used
+# JOSE library, verifies its signature with the DID document's key as any wallet
+# would; and every lie fails in both.
+export KANHE_LEDGER="$WORK/vc"
+run key generate --out vc-root.key > /dev/null
+run key generate --out vc-log.key > /dev/null
+VC_ID="$(run init --name "Example College" --root-key vc-root.key --log-key vc-log.key --json | json 'd["ledger_id"]')"
+VC_CERT="$(issue --as vc-root.key --type example.org.diploma/1 --field name="Chan Siu Ming" \
+    --field programme="Nursing" --field grades="A, A, B" --meta year=2026)"
+VC_TOKEN="$(run record publish "$VC_CERT" --disclose name,programme --json | json 'd["token"]')"
+run credential key add Credentials --key-out vc-cred.key --as vc-root.key > /dev/null
+VC_URL="https://college.example"
+run credential issue "$VC_TOKEN" --as vc-cred.key --url "$VC_URL" --name "Diploma in Nursing" --metadata year \
+    --log-key vc-log.key --out vc.jwt > /dev/null
+run checkpoint create --log-key vc-log.key > /dev/null
+run export "$VC_CERT" --disclose name,programme --log-key vc-log.key --out vc-evidence.cbor > /dev/null
+run credential did-document --url "$VC_URL" --out vc-did.json > /dev/null
+run credential status --as vc-cred.key --url "$VC_URL" --out vc-list.jwt > /dev/null
+vc_compare() { # CREDENTIAL EVIDENCE LIST: both verifiers, the same facts
+    local c="$1" e="$2" l="$3" ours theirs
+    ours="$(run credential verify "$c" --offline --evidence "$e" --did-document vc-did.json --status-list "$l" \
+        --ledger-id "$VC_ID" --json || true)"
+    theirs="$(pyverify credential "$c" --evidence "$e" --did-document vc-did.json --status-list "$l" \
+        --ledger-id "$VC_ID" --json || true)"
+    "$PYTHON" - "$ours" "$theirs" << 'PY' || fail "the verifiers disagree on a credential"
+import json, sys
+a, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+def facts(d):
+    if not d.get("credential"):
+        return {"verified": d["verified"]}
+    key = d["credential_key"]
+    return {"verified": d["verified"], "credential": d["credential"], "status": d["record"]["status"],
+            "complete": d["record"]["complete"], "key": key and key["id"], "problems": len(d["problems"]),
+            "did": d["did_document"] and len(d["did_document"]["problems"]),
+            "list": d["status_list"] and (d["status_list"]["revoked"], len(d["status_list"]["problems"]))}
+if facts(a) != facts(b):
+    print(json.dumps(facts(a), indent=1), json.dumps(facts(b), indent=1), sep="\n")
+    sys.exit(1)
+print(facts(a)["verified"])
+PY
+}
+[ "$(vc_compare vc.jwt vc-evidence.cbor vc-list.jwt)" = True ] || fail "the credential verifies in both"
+COMPARED=$((COMPARED + 1))
+# PyJWT, with the key the DID document gives under the credential's kid.
+"$PYTHON" - vc.jwt vc-did.json << 'PY' || fail "PyJWT does not verify the credential"
+import json, sys
+import jwt
+token = open(sys.argv[1]).read().strip()
+doc = json.load(open(sys.argv[2]))
+kid = jwt.get_unverified_header(token)["kid"]
+method = next(m for m in doc["verificationMethod"] if m["id"] == kid)
+claims = jwt.decode(token, jwt.PyJWK(method["publicKeyJwk"]).key, algorithms=["ES256"])
+assert claims["@context"] == ["https://www.w3.org/ns/credentials/v2"]
+assert claims["credentialSubject"]["name"] == "Chan Siu Ming"
+PY
+# Lies: a changed claim (signature kept), a sealed field claimed (signed anew by a
+# stranger's key), and the record revoked behind a list that hides it.
+"$PYTHON" - vc.jwt << 'PY' > vc-forged.jwt
+import base64, json, sys
+h, p, s = open(sys.argv[1]).read().strip().split(".")
+d = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+d["credentialSubject"]["programme"] = "Medicine"
+p = base64.urlsafe_b64encode(json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
+print(h + "." + p.rstrip(b"=").decode() + "." + s)
+PY
+[ "$(vc_compare vc-forged.jwt vc-evidence.cbor vc-list.jwt)" = False ] || fail "a changed claim fails in both"
+"$PYTHON" - vc.jwt << 'PY' > vc-stranger.jwt
+import base64, json, sys
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()
+h, p, _ = open(sys.argv[1]).read().strip().split(".")
+d = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+d["credentialSubject"]["grades"] = "A, A, A"
+key = ec.generate_private_key(ec.SECP256R1())
+header = json.loads(base64.urlsafe_b64decode(h + "=" * (-len(h) % 4)))
+p = b(json.dumps(d, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
+r, s = decode_dss_signature(key.sign((h + "." + p).encode(), ec.ECDSA(hashes.SHA256())))
+n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+s = min(s, n - s)
+print(h + "." + p + "." + b(r.to_bytes(32, "big") + s.to_bytes(32, "big")))
+PY
+[ "$(vc_compare vc-stranger.jwt vc-evidence.cbor vc-list.jwt)" = False ] || fail "a stranger's signature fails in both"
+run record revoke "$VC_CERT" --as vc-root.key --reason "issued in error" > /dev/null
+run checkpoint create --log-key vc-log.key > /dev/null
+run export "$VC_CERT" --disclose name,programme --log-key vc-log.key --out vc-revoked.cbor > /dev/null
+[ "$(vc_compare vc.jwt vc-revoked.cbor vc-list.jwt)" = False ] || fail "a list that hides a revocation fails in both"
+run credential status --as vc-cred.key --url "$VC_URL" --out vc-list2.jwt > /dev/null
+[ "$(vc_compare vc.jwt vc-revoked.cbor vc-list2.jwt)" = True ] || fail "a revoked credential verifies as revoked"
+COMPARED=$((COMPARED + 3))
+code=0; pyverify credential vc.jwt > /dev/null 2>&1 || code=$?
+[ "$code" = 1 ] || fail "credential: --evidence is required"
+export KANHE_LEDGER="$WORK/a"
+
 # --- The verifier's own tests against testvectors/ ---------------------------------
 echo "Unit tests against testvectors/"
 (cd "$VERIFIER" && "$PYTHON" -m unittest discover -s tests 2>&1 | tail -3)

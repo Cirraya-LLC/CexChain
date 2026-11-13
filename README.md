@@ -123,7 +123,8 @@ vectors (`testvectors/`), the [examples](examples/), the tests, and the tools. B
 - **Built on open standards.** Deterministic CBOR (RFC 8949), COSE signatures (RFC 9052), Merkle
   trees and proofs as in RFC 9162, C2SP's witness protocols (tlog-witness, tlog-cosignature) for
   [open witness networks](#open-witness-networks), RFC 3161 time stamps, WebAuthn passkeys,
-  PKCS #11 tokens, and MCP for AI agents.
+  PKCS #11 tokens, MCP for AI agents, and, for [certificates in wallets](#in-a-digital-wallet),
+  W3C Verifiable Credentials 2.0 secured with JOSE, Bitstring Status List, and did:web.
 - **Deterministic core.** No floating point, no unordered iteration, and injected time and randomness. This makes deterministic simulation testing possible.
 
 ## Installing
@@ -170,6 +171,34 @@ kanhe-console certificate print --type example.org.diploma/1 --out pages \
 The console's Certificates screen does the same in a browser, a batch approved with one passkey
 tap. The details, and `certificate list`, `show`, and `withdraw`: [the console's
 README](apps/console/README.md).
+
+### In a digital wallet
+
+A certificate can also be handed over as a **W3C Verifiable Credential** (VCDM 2.0, secured with
+JOSE: `application/vc+jwt`), for a wallet to hold and any standard verifier to check: the
+signature, the issuer (a `did:web` of your server's address), and a Bitstring Status List for
+revocation. It claims exactly the fields the certificate's address discloses. What a credential
+alone cannot show, Kanhe adds: the credential key that signs it is a device on your ledger, and
+it endorses each record it issues, so the ledger's witnessed history shows every credential
+issued, by which key, and when, and its status list is computed from the ledger, where a
+revocation cannot be hidden.
+
+```sh
+kanhe credential key add Credentials --key-out credentials.key --as root.key
+kanhe serve --log-key log.key --credential-key credentials.key \
+    --credential-url https://ledger.example.com      # its DID document and status lists, to anyone
+kanhe credential issue TOKEN --as credentials.key --url https://ledger.example.com \
+    --name "Diploma in Nursing" --out diploma.jwt --log-key log.key
+kanhe credential verify diploma.jwt --ledger-id LEDGER_ID   # the standard checks, then the record
+```
+
+`credential list`, `show`, `status`, `did-document`, `revoke`, and `key list`/`revoke` complete
+it. On the console, an owner turns credentials on with two taps on the Certificates screen
+(`kanhe-console credential allow`), and each valid certificate then downloads as a credential
+(`kanhe-console certificate credential`). The [browser verifier](#browser-verifier) checks a
+credential file too, fetching its record's evidence from the address it names. The profile, with
+its test vectors: [spec/credentials.md](spec/credentials.md); the independent Python verifier
+checks credentials as well.
 
 ## Quick start
 
@@ -277,6 +306,7 @@ The `kanhe` tool controls every part of a ledger:
 | Delegations | `delegation grant`, `delegation list`, `delegation show`, `delegation revoke` |
 | Records | `record issue`, `record list`, `record show`, `record history`, `record versions`, `record fields`, `record file list\|get\|add\|remove`, `record endorse`, `record transition`, `record revoke`, `record types`, `record publish`, `record published`, `record unpublish` |
 | Claims | `claim issue`, `claim list`, `claim show`, `claim revoke` |
+| Credentials | `credential key add\|list\|revoke`, `credential issue`, `credential list`, `credential show`, `credential revoke`, `credential status`, `credential did-document`, `credential verify` |
 | Trust nodes | `trust member add\|list\|show\|suspend\|resume\|end\|revoke` (a trust node's), `trust node add\|list\|remove\|fetch` (a member's) |
 | Proofs | `checkpoint create`, `checkpoint list`, `checkpoint show`, `checkpoint cosign-request`, `checkpoint add-cosignature`, `checkpoint timestamp`, `checkpoint add-timestamp`, `checkpoint timestamps`, `checkpoint note`, `checkpoint network-cosign`, `checkpoint network-cosignatures`, `proof inclusion`, `proof consistency`, `proof state`, `receipt` |
 | Witnesses | `witness add-log`, `witness cosign`, `witness status`, `witness remove-log`; `witness register`, `witness registered`, `witness unregister` (public witnesses, and open networks' with `--vkey`); `witness network-entry` |
@@ -998,8 +1028,8 @@ What the chain does not do yet, as of this version (the Bo language's own are in
 - **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
   ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
   of a cluster's member does not hold them.
-- **W3C Verifiable Credentials:** a certificate is Kanhe evidence; it cannot yet be exported as a
-  Verifiable Credential for a digital wallet to hold. That is planned.
+- **Credentials** are secured with JOSE; SD-JWT VC, which the EU's digital identity wallet asks
+  for, is planned.
 - **`KANHE_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
   `--allow-clock-offset`); a ledger keeps the later times it recorded.
 

@@ -13,6 +13,8 @@ The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
 Bo, the language contracts are written in, has its own reference: [`bo.md`](bo.md).
 
+Records handed over as W3C Verifiable Credentials, which change nothing in the protocol, have a profile of their own: [`credentials.md`](credentials.md).
+
 **Changes in v0.17.** The protocol is Kanhe, formerly CexChain. Every protocol string changes with the name: the reserved record-type prefix is `kanhe.` (six bytes), so the mechanism types are `kanhe.access-request/1` to `kanhe.membership/1`, and the content types and every other string the protocol signs or hashes say `kanhe` where they said `cexchain`. Objects under the old name are not Kanhe objects and verify as nothing here; the wire protocol stays version 1, since the content types already tell the two apart. `state_rules_version` 4. The earlier revisions below are written under the new name.
 
 **Changes in v0.16.** Trust nodes: a record of the new mechanism type `kanhe.membership/1` is a ledger's word that another ledger belongs to the organization or person it names, as it checked them (section 6). An evidence bundle may carry such memberships of its own ledger (key 9), each the complete evidence of the membership on the trust node's ledger. A verifier states, for each, the trust node, named from the verifier's own list and never from the evidence, whom it names, and where the membership stood when the record was registered and at the membership's checkpoint (section 11). A server may serve a ledger's membership (section 16). The ledger rules change for the new type only; the wire protocol stays version 1, and a bundle without key 9, and a log without memberships, verify as before.
@@ -835,7 +837,7 @@ This section is informative. The reference implementation serves a ledger over H
 
 | Scope | Routes |
 |---|---|
-| none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=`, `GET /c/{token}` (a published record, below), `GET /m/{ledger}` (a membership, v0.16, below) |
+| none | `GET /healthz`, `GET /v1/checkpoint[?size=N]`, `GET /v1/consistency?old=&new=`, `GET /c/{token}` (a published record, below), `GET /m/{ledger}` (a membership, v0.16, below), and on a server with a credential key `GET /.well-known/did.json`, `GET /did.json`, `GET /status/{N}` ([`credentials.md`](credentials.md), section 8) |
 | read | `GET /metrics`, `/v1/status`, `/v1/entries?start=&count=`, `/v1/genesis`, `/v1/checkpoints`, `/v1/cosignatures`, `/v1/timestamps` (v0.11), `/v1/network-cosignatures` (v0.13), `/v1/inclusion?index=&size=`, `/v1/statements/{id}`, `/v1/receipts/{index}`, `/v1/state/{id}`, `/v1/evidence/{record}`, `/v1/vault/public-key`, `/v1/vault/records/{record}`, `/v1/vault/files/{record}`, `/v1/vault/files/{record}/{index}`, `/v1/contracts?start=&count=`, `/v1/contracts/{contract}`, `/v1/contracts/instances/{instance}`, `/v1/contracts/calls`, `/v1/contracts/calls/{call}`, `/v1/requests` (v0.8), `/v1/contracts/due`; on a server with the search index, `/v1/records`, `/v1/records/{id}`, `/v1/records/{id}/versions`, `/v1/instances`, `/v1/reports/records`, `/v1/reports/instances` |
 | submit | `POST /v1/statements`, `POST /v1/contracts/calls`, `PUT /v1/vault/files/{record}/{index}` |
 | admin | `POST /v1/checkpoint`, `POST /v1/cosignatures`, `POST /v1/timestamps` (v0.11), `POST /v1/network-cosignatures` (v0.13), `DELETE /v1/vault/files/{record}/{index}`, `GET`, `POST /v1/published`, `DELETE /v1/published/{token}` |

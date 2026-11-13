@@ -16,6 +16,7 @@
 #include <kanhe/core/crypto.hpp>
 #include <kanhe/core/error.hpp>
 #include <kanhe/ledger/ledger.hpp>
+#include <kanhe/node/credentials.hpp>
 #include <kanhe/node/network_witnesses.hpp>
 #include <kanhe/node/server.hpp>
 
@@ -24,7 +25,8 @@
 /// defines them; everything else is JSON. Errors are
 ///   {"error": {"code": "<Errc name>", "message": "..."}}
 ///
-/// Open:   GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=
+/// Open:   GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=, /c/TOKEN,
+///         /m/LEDGER, and with credentials /.well-known/did.json, /did.json, /status/N
 /// read:   GET /metrics, /v1/status, /v1/entries?start=&count=,
 ///         /v1/checkpoints?start=&count=, /v1/cosignatures?start=&count=,
 ///         /v1/timestamps?start=&count=, /v1/network-cosignatures?start=&count=,
@@ -126,6 +128,11 @@ struct ApiOptions {
         std::function<void()> stopping{};
     };
     std::vector<Extension> extensions;
+    /// Credentials (spec/credentials.md): with a credential key and its base
+    /// URL, the server answers GET /.well-known/did.json, /did.json, and
+    /// /status/N to anyone, from the ledger's state, signing status lists
+    /// with the key.
+    std::optional<CredentialService> credentials;
     /// The web console: answers every request whose path is /console or
     /// under /console/, before the API's routes and without their tokens
     /// (the console checks its own sessions), answered through the callback,

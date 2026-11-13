@@ -287,6 +287,27 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         }
         options.expiry_grace = std::chrono::seconds(seconds);
     }
+    if (const auto key = args.get("credential-key")) {
+        const auto url = args.get("credential-url");
+        if (!url) {
+            throw UsageError{"--credential-key goes with --credential-url (the base URL "
+                             "credentials name, e.g. https://ledger.example.com)"};
+        }
+        auto base = verifier::parse_base_url(*url);
+        if (!base) {
+            throw UsageError{"--credential-url: " + base.error()};
+        }
+        auto signer = load_signer(*key, args);
+        if (signer->algorithm() != crypto::SigAlg::esp256) {
+            throw UsageError{"--credential-key is an esp256 key (kanhe credential key add)"};
+        }
+        std::shared_ptr<const crypto::Signer> shared = std::move(signer);
+        options.credentials =
+            node::CredentialService{.key = [shared] { return shared; },
+                                    .base = [fixed = *base] { return std::optional(fixed); }};
+    } else if (args.has("credential-url")) {
+        throw UsageError{"--credential-url goes with --credential-key"};
+    }
     // An application served beside the API (the console, the index) adds
     // its parts to the options.
     if (defaults.before_open) {
@@ -368,6 +389,8 @@ int serve(const Args& args, const ServeDefaults& defaults) {
                                                  ? Json(nullptr)
                                                  : Json(options.timestamp_authority)},
                      {"keeper", options.keeper != nullptr},
+                     {"credentials",
+                      options.credentials ? Json(options.credentials->base()->did) : Json(nullptr)},
                      {"network_witnesses",
                       options.note_key ? Json(options.network_witnesses.size()) : Json(nullptr)},
                      {"clock_offset_ms", ledger::SystemClock::offset()}};
@@ -382,6 +405,11 @@ int serve(const Args& args, const ServeDefaults& defaults) {
         }
         if (options.log_keys.empty()) {
             std::println("no --log-key: receipts, evidence, and checkpoints are not served");
+        }
+        if (options.credentials) {
+            const auto issuer = options.credentials->base();
+            std::println("credentials: issuer {}, its DID document at {}", issuer->did,
+                         issuer->did_document_url);
         }
         if (options.keeper) {
             std::println(

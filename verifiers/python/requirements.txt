@@ -3,3 +3,6 @@
 cryptography==50.0.2
 cffi==2.1.1
 pycparser==3.12
+# Not used by the verifier: tests/verifiers/python_verifier.sh checks Kanhe credentials'
+# signatures with it, a widely used JOSE library, as any wallet would.
+PyJWT==2.15.1

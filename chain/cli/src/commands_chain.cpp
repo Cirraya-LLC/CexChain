@@ -476,6 +476,152 @@ std::vector<CommandSpec> chain_commands() {
          1,
          signing({reason_option}),
          cmd_claim_revoke},
+        {{"credential", "key", "add"},
+         "Register a credential key: a device that signs records' W3C credentials",
+         "Credentials",
+         "NAME",
+         1,
+         1,
+         signing({{"key", "KEY",
+                   "Its key (esp256): a public key file, private key file, or pkcs11: URI"},
+                  {"key-out", "FILE", "Make a new esp256 key for it here instead (encrypted)"},
+                  {"types", "TYPES",
+                   "The record types whose credentials it issues, comma-separated (default: any)"},
+                  {"days", "N", "Its delegation is valid for N days from now"},
+                  {"until", "DATE", "Its delegation is valid until DATE"}}),
+         cmd_credential_key_add,
+         "Registers a device with an ECDSA P-256 key (esp256, which wallets accept), and grants\n"
+         "it a delegation to endorse records and nothing else. It issues a credential by\n"
+         "endorsing the record as credential/N/I (its status list entry), so the ledger shows\n"
+         "every credential issued, by which key, and when (spec/credentials.md).\n\n"
+         "  kanhe credential key add Credentials --key-out credentials.key --as root.key"},
+        {{"credential", "key", "list"},
+         "List the credential keys, with the credentials each issued",
+         "Credentials",
+         "",
+         0,
+         0,
+         with({ledger_option}),
+         cmd_credential_key_list},
+        {{"credential", "key", "revoke"},
+         "Revoke a credential key: its keys leave the DID document",
+         "Credentials",
+         "ACTOR",
+         1,
+         1,
+         signing({reason_option}),
+         cmd_credential_key_revoke,
+         "For a key that was lost or stolen. Credentials it signed then fail a standard\n"
+         "verifier's check; issue them again with another credential key."},
+        {{"credential", "issue"},
+         "Issue a published record's W3C Verifiable Credential",
+         "Credentials",
+         "TOKEN",
+         1,
+         1,
+         signing({{"url", "URL",
+                   "The base URL your server is reached at, which the credential names "
+                   "(default: --server's)"},
+                  {"name", "TEXT", "The credential's name, e.g. Diploma in Nursing"},
+                  {"metadata", "KEYS",
+                   "Public metadata entries to claim too, comma-separated (the fields the "
+                   "address discloses always are)"},
+                  {"out", "FILE", "Write the credential here (default: print it)"},
+                  signing_log_key_option}),
+         cmd_credential_issue,
+         "TOKEN is a published record's (record publish, certificate issue). The credential\n"
+         "claims exactly what its address discloses, from the record's evidence, verified\n"
+         "here: a W3C Verifiable Credential (VCDM 2.0) secured with JOSE (application/vc+jwt),\n"
+         "signed as --as, a credential key (credential key add). The first time, the key\n"
+         "endorses the record as credential/N/I, its status list entry; issued again, the\n"
+         "credential keeps that entry and is signed with the key's current key.\n"
+         "The issuer is the did:web of --url: serve --credential-key and --credential-url\n"
+         "there, so that wallets find its DID document and status lists.\n\n"
+         "  kanhe credential issue Xq3... --as credentials.key --url https://ledger.example.com "
+         "\\\n"
+         "      --name \"Diploma in Nursing\" --out diploma.jwt --log-key log.key"},
+        {{"credential", "list"},
+         "List the credentials the ledger shows, with each record's status",
+         "Credentials",
+         "",
+         0,
+         0,
+         with({ledger_option, {"type", "TYPE", "Only records of this type"}}),
+         cmd_credential_list,
+         "Each record endorsed as credential/N/I: live, revoked, or replaced."},
+        {{"credential", "show"},
+         "Show a record's credentials: status entry, issuer, status",
+         "Credentials",
+         "RECORD",
+         1,
+         1,
+         with({ledger_option}),
+         cmd_credential_show},
+        {{"credential", "revoke"},
+         "Revoke a credential: its record is revoked",
+         "Credentials",
+         "RECORD",
+         1,
+         1,
+         signing({reason_option}),
+         cmd_credential_revoke,
+         "A credential is revoked with its record: the status lists then say so, and the\n"
+         "record's evidence too. A newer version of the record (record register --supersedes)\n"
+         "also sets its old credentials' bits."},
+        {{"credential", "status"},
+         "Show a status list, or write it signed for a static host",
+         "Credentials",
+         "[N]",
+         0,
+         1,
+         with({ledger_option,
+               {"out", "FILE", "Write the signed status list credential here (with --as, --url)"},
+               {"as", "KEY", "The credential key that signs it (with --out)"},
+               {"url", "URL", "The base URL (with --out; default: --server's)"},
+               passphrase_file_option}),
+         cmd_credential_status,
+         "A status list is computed from the ledger: bit I of list N is set when a record\n"
+         "endorsed as credential/N/I is revoked or replaced. serve --credential-key serves\n"
+         "them at /status/N as the ledger is when asked; --out writes one for a static host."},
+        {{"credential", "did-document"},
+         "Print the issuer's DID document (did:web), or write it for a static host",
+         "Credentials",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"url", "URL", "The base URL (default: --server's)"},
+               {"key", "KEY", "Include this credential key, even before it issued anything"},
+               {"out", "FILE", "Write it here"},
+               passphrase_file_option}),
+         cmd_credential_did_document,
+         "Every key of every unrevoked credential key that issued a credential, current and\n"
+         "earlier, and the ledger id as its KanheLedger service. serve --credential-key serves\n"
+         "it at /.well-known/did.json (and /did.json, for a base URL with a path)."},
+        {{"credential", "verify"},
+         "Verify a W3C credential, and the record behind it on the issuer's ledger",
+         "Credentials",
+         "FILE",
+         1,
+         1,
+         with({{"ledger-id", "ID", "The issuer's ledger id, learned out of band"},
+               {"evidence", "FILE", "The record's evidence (default: fetched from the credential)"},
+               {"did-document", "FILE", "The issuer's DID document (default: fetched)"},
+               {"status-list", "FILE", "The status list credential (default: fetched)"},
+               {"offline", "", "Fetch nothing: check only what the files give (--evidence needed)"},
+               {"no-fetch", "", "Fetch only the evidence, not the DID document or status list"},
+               {"allow-http", "", "Fetch http:// addresses (tests and local servers only)"},
+               {"ca-file", "FILE", "CA certificates (PEM) to trust when fetching"},
+               {"witness", "PUBKEY", "Trust this witness's public key file", false, true},
+               {"tsa-root", "FILE",
+                "Trust time-stamp authorities under this root certificate (PEM or DER)", false,
+                true}}),
+         cmd_credential_verify,
+         "Checks the credential as a standard verifier would (the signature, the DID document,\n"
+         "the status list), and then the record behind it: its evidence verifies, the record\n"
+         "was endorsed as this credential by the device whose key signed it, and every claim,\n"
+         "the issuer's name, and the date are what the evidence shows. A status list that\n"
+         "disagrees with the ledger fails. Exit status 3 when it does not verify."},
         {{"trust", "member", "add"},
          "Register a membership: your word that a ledger belongs to whom you name",
          "Trust nodes",
@@ -1223,6 +1369,12 @@ std::vector<CommandSpec> chain_commands() {
                 "Fire the time rules that are due and expire overdue requests, signing as this "
                 "keeper (keeper add; file or pkcs11: URI); in a cluster, the leader does"},
                {"keeper-interval", "SECONDS", "How often the keeper looks (default: 60)"},
+               {"credential-key", "KEY",
+                "Serve the issuer's DID document and credential status lists, signing them as "
+                "this credential key (credential key add; file or pkcs11: URI)"},
+               {"credential-url", "URL",
+                "The base URL credentials name, where this server is reached (with "
+                "--credential-key)"},
                {"expiry-grace", "SECONDS",
                 "The keeper expires a request this long after its deadline (default: 900)"},
                {"allow-clock-offset", "",
@@ -1232,7 +1384,9 @@ std::vector<CommandSpec> chain_commands() {
          cmd_serve,
          "Routes (API v1; binary objects are CBOR or COSE, everything else JSON):\n"
          "  open:    GET /healthz, /v1/checkpoint[?size=N], /v1/consistency?old=&new=,\n"
-         "           /c/TOKEN (a published record's evidence: record publish)\n"
+         "           /c/TOKEN (a published record's evidence: record publish),\n"
+         "           /m/LEDGER (a membership), and with --credential-key\n"
+         "           /.well-known/did.json, /did.json, /status/N (credential issue)\n"
          "  read:    GET /metrics, /v1/status, /v1/entries?start=&count=, /v1/checkpoints,\n"
          "           /v1/cosignatures, /v1/inclusion?index=&size=, /v1/statements/ID,\n"
          "           /v1/receipts/INDEX, /v1/state/ID, /v1/evidence/RECORD,\n"

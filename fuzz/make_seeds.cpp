@@ -52,6 +52,8 @@
 #include <kanhe/crypto/openssl.hpp>
 #include <kanhe/ledger/backup.hpp>
 #include <kanhe/ledger/ledger.hpp>
+#include <kanhe/verifier/credentials.hpp>
+#include <kanhe/verifier/gzip.hpp>
 
 #include "support/timestamp_authority.hpp"
 
@@ -1332,6 +1334,44 @@ void published_seeds(const Seeds& seeds) {
              "encode"));
 }
 
+/// A credential, signed; a status list; a base URL; a role; GZIP of ours and
+/// of another encoder (Python's, one dynamic block).
+void credential_seeds(const Seeds& seeds) {
+    const crypto::openssl::Provider provider;
+    const auto key = must(crypto::openssl::KeyPair::generate(crypto::SigAlg::esp256), "key");
+    const auto base = *kanhe::verifier::parse_base_url("https://ledger.example.com");
+    kanhe::verifier::CredentialContent c;
+    c.base = base;
+    c.organization = "Example College";
+    c.name = "Diploma";
+    c.registered_at = 1'791'244'800'000;
+    c.subject = {{"name", "Chan Siu Ming"}, {"year", 2026}};
+    c.entry = {.list = 1, .index = 94'567};
+    c.token = "AAAAAAAAAAAAAAAAAAAAAA";
+    c.ledger = *kanhe::protocol::to_id(Bytes(32, 1));
+    c.record = *kanhe::protocol::to_id(Bytes(32, 2));
+    const auto credential = must(kanhe::verifier::sign_credential(
+                                     key, provider, base.did, kanhe::verifier::credential_json(c)),
+                                 "sign");
+    seeds.write("credential_fuzz", "credential", as_bytes(credential));
+    Bytes bits(kanhe::verifier::status_list_bytes, 0);
+    kanhe::verifier::set_status_bit(bits, 94'567);
+    seeds.write("credential_fuzz", "status-list",
+                as_bytes(kanhe::verifier::encode_status_list(bits)));
+    seeds.write("credential_fuzz", "base-url",
+                as_bytes(std::string_view("https://example.com:8443/kanhe")));
+    seeds.write("credential_fuzz", "role", as_bytes(std::string_view("credential/1/94567")));
+    seeds.write("gzip_fuzz", "status-list", ByteView(kanhe::verifier::gzip_compress(bits)));
+    seeds.write("gzip_fuzz", "python",
+                ByteView(must(kanhe::from_hex(
+                                  "1f8b08000000000002ffedced109c3300c45d155b49ab15f1d11552e92edac1f"
+                                  "434ad2150afabc0f818ea05418b1fb4021b96ac2f8c5ab0db959793a1b0ab473"
+                                  "12ca4d0415bf53e18fb477a283bbc2fd6e4c5e2719a4c39cb53e43de122b794f"
+                                  "7df8370cb3edebd59e74c35d12cc60063398c10c66308319cc6006f3af982781"
+                                  "0c05166b0c0000"),
+                              "hex")));
+}
+
 void timestamp_seeds(const Seeds& seeds) {
     const test::TimestampAuthority authority;
     const std::array<std::uint8_t, 32> imprint{};
@@ -1366,6 +1406,7 @@ int main(int argc, char** argv) {
         pending_call_seeds(seeds);
         record_file_seeds(seeds);
         published_seeds(seeds);
+        credential_seeds(seeds);
         claim_seeds(seeds);
         membership_seeds(seeds);
         form_seeds(seeds);

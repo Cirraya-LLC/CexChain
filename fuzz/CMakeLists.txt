@@ -26,6 +26,10 @@ kanhe_add_fuzzer(protocol_parse_fuzz kanhe::crypto_openssl kanhe::ledger)
 kanhe_add_fuzzer(claim_fuzz)
 # Memberships' metadata (spec v0.16), inside every membership proof.
 kanhe_add_fuzzer(membership_fuzz)
+# Credentials (spec/credentials.md): a JWS, its JSON, the addresses it names,
+# base URLs, roles; and a status list's GZIP, from any issuer.
+kanhe_add_fuzzer(credential_fuzz kanhe::verifier)
+kanhe_add_fuzzer(gzip_fuzz kanhe::verifier)
 # The state in a snapshot file, its contracts' code the v0.6 vectors' contract.
 kanhe_add_fuzzer(state_snapshot_fuzz)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -133,7 +137,7 @@ endif()
 
 # Valid inputs to start the corpora from (an ordinary program, not a fuzzer).
 add_executable(make_seeds make_seeds.cpp)
-target_link_libraries(make_seeds PRIVATE kanhe::ledger kanhe::crypto_openssl
+target_link_libraries(make_seeds PRIVATE kanhe::ledger kanhe::crypto_openssl kanhe::verifier
     nlohmann_json::nlohmann_json OpenSSL::Crypto)
 # The test time-stamp authority (tests/support).
 target_include_directories(make_seeds PRIVATE ${PROJECT_SOURCE_DIR}/tests)

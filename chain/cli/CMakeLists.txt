@@ -56,6 +56,7 @@ kanhe_program(kanhe
     src/cmd_actors.cpp
     src/cmd_cluster.cpp
     src/cmd_contracts.cpp
+    src/cmd_credentials.cpp
     src/cmd_evidence.cpp
     src/cmd_executor.cpp
     src/cmd_keeper.cpp

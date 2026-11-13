@@ -29,6 +29,7 @@
 #include <kanhe/node/api.hpp>
 #include <kanhe/node/cluster.hpp>
 #include <kanhe/node/contracts.hpp>
+#include <kanhe/node/credentials.hpp>
 #include <kanhe/node/keeper.hpp>
 #include <kanhe/node/network_witnesses.hpp>
 #include <kanhe/node/peers.hpp>
@@ -197,6 +198,9 @@ enum class Endpoint {
     /// GET /m/LEDGER: the evidence of this ledger's newest membership naming
     /// that ledger, for anyone (spec v0.16, trust.hpp).
     membership_evidence,
+    /// GET /.well-known/did.json, /did.json, /status/N: the issuer's DID
+    /// document and status lists, for anyone (credentials.hpp).
+    credential,
     vault_public_key,
     vault_record,
     /// GET /v1/vault/files/RECORD: the indexes of its kept files.
@@ -1664,6 +1668,30 @@ struct LedgerApi::State {
             }
             finish(done, principal, membership_evidence(text));
         });
+    }
+
+    // ---- credentials (credentials.hpp) --------------------------------------
+
+    /// GET /.well-known/did.json, /did.json, /status/N, from the state as it
+    /// is now: a revocation shows at once.
+    http::Response credential(std::string_view path) const {
+        http::Response out;
+        ledger->read_state([&](const protocol::LedgerState& s) {
+            out = credential_response(
+                *provider, *options.credentials, s, path, clock->now(),
+                [&](std::uint64_t index) -> Result<protocol::SignedStatement> {
+                    const auto bytes = ledger->entry(index);
+                    if (!bytes) {
+                        return std::unexpected(bytes.error());
+                    }
+                    const auto entry = protocol::decode_log_entry(*bytes);
+                    if (!entry) {
+                        return std::unexpected(entry.error());
+                    }
+                    return protocol::parse_statement(*provider, entry->statement, s.hash());
+                });
+        });
+        return out;
     }
 
     // ---- published records -----------------------------------------------
@@ -3841,8 +3869,9 @@ struct LedgerApi::State {
 
     /// The route for a request, or the answer if it has none.
     /// `extension_reads`: a GET no route answers goes to the extensions.
-    static std::variant<Routed, http::Response> classify(const http::Request& r,
-                                                         const bool extension_reads) {
+    /// `credentials`: the server answers the credential paths.
+    static std::variant<Routed, http::Response>
+    classify(const http::Request& r, const bool extension_reads, const bool credentials) {
         const std::string_view path = r.path;
         const bool get = r.method == "GET";
         const bool post = r.method == "POST";
@@ -3969,6 +3998,11 @@ struct LedgerApi::State {
             } else {
                 return method_not_allowed("GET, PUT, DELETE");
             }
+        } else if (credentials && credential_path(path)) {
+            if (!get) {
+                return method_not_allowed("GET");
+            }
+            found = Routed{Endpoint::credential, Access::open};
         } else if (match("/c/")) {
             if (!get) {
                 return method_not_allowed("GET");
@@ -4098,6 +4132,8 @@ struct LedgerApi::State {
             return published_evidence(rest);
         case Endpoint::membership_evidence:
             return membership_evidence(rest);
+        case Endpoint::credential:
+            return credential(r.path);
         case Endpoint::published_list:
             return published_list();
         case Endpoint::publish:
@@ -4275,7 +4311,8 @@ struct LedgerApi::State {
                        return r.path == p || (r.path.starts_with(p) && r.path[p.size()] == '/');
                    });
         };
-        auto classified = classify(r, std::ranges::any_of(options.extensions, read_by_extension));
+        auto classified = classify(r, std::ranges::any_of(options.extensions, read_by_extension),
+                                   options.credentials.has_value());
         if (auto* response = std::get_if<http::Response>(&classified)) {
             finish(done, {}, std::move(*response));
             return;

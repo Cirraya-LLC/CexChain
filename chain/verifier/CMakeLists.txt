@@ -4,6 +4,9 @@
 # Rendering of verification results, shared by the command line and the
 # browser verifier. Portable C++23 like core; JSON via nlohmann/json.
 add_library(kanhe_verifier
+    src/credentials.cpp
+    src/gzip.cpp
+    src/jcs.cpp
     src/report.cpp)
 add_library(kanhe::verifier ALIAS kanhe_verifier)
 

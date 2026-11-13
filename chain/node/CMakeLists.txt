@@ -8,6 +8,7 @@ add_library(kanhe_node
     src/api.cpp
     src/client.cpp
     src/contracts.cpp
+    src/credentials.cpp
     src/record_files.cpp
     src/cluster.cpp
     src/executor.cpp
@@ -30,7 +31,7 @@ add_library(kanhe_node
 add_library(kanhe::node ALIAS kanhe_node)
 target_include_directories(kanhe_node PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(kanhe_node
-    PUBLIC kanhe::ledger nlohmann_json::nlohmann_json
+    PUBLIC kanhe::ledger kanhe::verifier nlohmann_json::nlohmann_json
     PRIVATE kanhe_asio kanhe_nuraft OpenSSL::SSL)
 # The ledger's record checksum, for the Raft log.
 target_include_directories(kanhe_node PRIVATE "${PROJECT_SOURCE_DIR}/chain/ledger/src")
