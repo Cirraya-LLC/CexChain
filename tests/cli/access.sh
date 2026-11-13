@@ -235,7 +235,9 @@ b access fetch --peer factory --request "$ASK" --out a1.cbor | contains 'fetched
 b access accept a1.cbor --as b-root.key --log-key b-log.key --send > accepted3.txt
 contains 'ACCEPTED: Example Factory confirms that, in its example.document/1' accepted3.txt
 contains 'result is "pass" and price is below 2000' accepted3.txt
-if contains '1200' accepted3.txt; then fail "the price left the factory"; fi
+# The price as a value of its own: ids and digests may contain the digits.
+PRICE='(^|[^0-9A-Za-z])1200([^0-9A-Za-z]|$)'
+if contains -E "$PRICE" accepted3.txt; then fail "the price left the factory"; fi
 for _ in $(seq 1 50); do
     [ "$(f access list --json | json '[i["acknowledged"] for i in d if i["kind"]=="answer"][0]')" = True ] && break
     sleep 0.1
@@ -247,7 +249,7 @@ b access list --json | json 'sum(1 for i in d if i["kind"]=="receipt")' | contai
 # Its evidence states the condition, never the fields.
 run verify a1.cbor --ledger-id "$F_ID" --json > claim-report.json
 json 'd["record"]["claim"]["for"]' < claim-report.json | contains "$ASK"
-if contains '1200' claim-report.json; then fail "the price left the factory"; fi
+if contains -E "$PRICE" claim-report.json; then fail "the price left the factory"; fi
 # A condition that does not hold is not answered unless asked; an answer for
 # another request's record, or a tampered one, is not accepted.
 b access request --peer factory --record "$RECORD" --purpose "big loan" --if 'price > 5000' \
