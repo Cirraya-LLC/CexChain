@@ -188,6 +188,9 @@ struct Prepared {
     /// Signed by the organization's root key, after the owner's passkey
     /// (checked by the console; the statement carries no presence).
     bool as_organization = false;
+    /// The console's own key for a machine of its own (the credential key):
+    /// `new_key` sealed under this name once signed, kept, linked to nobody.
+    std::optional<std::string> seal_as;
 };
 
 inline constexpr protocol::Timestamp approval_lifetime = 2 * 60'000;
@@ -322,6 +325,11 @@ public:
     using Respond = std::function<void(http::Response)>;
     void handle(const http::Request& request, Respond respond) const;
 
+    /// Where this console's API is reached: its public URL, or its first
+    /// name on this computer; empty until it listens. Its certificates'
+    /// addresses, and its credentials' issuer, name it.
+    [[nodiscard]] std::string api_url() const;
+
 private:
     [[nodiscard]] http::Response route(const http::Request& request) const;
     /// The answer to a request that fails the checks every request passes
@@ -410,7 +418,6 @@ private:
     [[nodiscard]] http::Response inbox_route(const http::Request& request) const;
     [[nodiscard]] http::Response inbox_open_route(const http::Request& request) const;
     void exchange_send_route(const http::Request& request, Respond respond) const;
-    [[nodiscard]] std::string api_url() const;
     [[nodiscard]] std::string store_upload(const std::string& user, const std::string& name,
                                            const Bytes& content) const;
     [[nodiscard]] std::variant<nlohmann::json, http::Response>
@@ -450,6 +457,8 @@ private:
         std::optional<std::string> model;
         std::optional<std::string> model_version;
         bool as_organization = false;
+        /// See Prepared::seal_as.
+        std::optional<std::string> seal_as;
     };
     [[nodiscard]] std::variant<PersonStep, http::Response>
     person_step(const Signed& who, const nlohmann::json& intent) const;
@@ -467,6 +476,12 @@ private:
     /// .../TOKEN/page (?language=), and DELETE .../TOKEN to withdraw one.
     [[nodiscard]] http::Response certificates_route(const http::Request& request) const;
     [[nodiscard]] http::Response batch_start_route(const http::Request& request) const;
+    /// POST .../TOKEN/credential: the certificate as a W3C Verifiable
+    /// Credential (spec/credentials.md), signed by the console's credential
+    /// key, which endorses the record as it the first time.
+    [[nodiscard]] http::Response issue_credential(const Signed& signer,
+                                                  const Certificate& certificate,
+                                                  const std::string& address) const;
     struct Batch {
         std::string user;
         Kind kind;
@@ -493,6 +508,12 @@ private:
     /// The console's machine on the ledger, if the first run made it.
     [[nodiscard]] std::optional<protocol::Id>
     machine_actor(const protocol::LedgerState& state) const;
+    /// The console's credential key on the ledger: the device whose key it
+    /// keeps sealed as credential_key_name, if registered and unrevoked.
+    [[nodiscard]] std::optional<protocol::Id>
+    credential_actor(const protocol::LedgerState& state) const;
+    /// That key's public half, if the console keeps one.
+    [[nodiscard]] std::optional<crypto::PublicKey> credential_public_key() const;
     [[nodiscard]] std::filesystem::path issued_list(const Kind& kind, std::string_view table) const;
     [[nodiscard]] std::vector<Certificate>
     certificates_now(const protocol::LedgerState& state) const;

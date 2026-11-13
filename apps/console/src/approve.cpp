@@ -245,6 +245,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
         std::optional<std::string> model;
         std::optional<std::string> model_version;
         bool as_organization = false;
+        std::optional<std::string> seal_as;
     } machine;
     std::variant<protocol::Body, std::string> body = std::string();
     if (action == "contract.deploy") {
@@ -294,8 +295,9 @@ http::Response Console::prepare_route(const http::Request& request) const {
         person_key = std::move(p.new_key);
         person = std::move(p.person);
         activity = std::move(p.activity);
-        machine = {p.hand_out, p.agent, std::move(p.model), std::move(p.model_version),
-                   p.as_organization};
+        machine = {p.hand_out,         p.agent,
+                   std::move(p.model), std::move(p.model_version),
+                   p.as_organization,  std::move(p.seal_as)};
     } else if (action.starts_with("access.") && action != "access.answer") {
         // A request to a party, a grant of a request received, or a receipt
         // for a delivery: a record of this ledger's, its note private.
@@ -516,6 +518,7 @@ http::Response Console::prepare_route(const http::Request& request) const {
     prepared.agent = machine.agent;
     prepared.model = std::move(machine.model);
     prepared.model_version = std::move(machine.model_version);
+    prepared.seal_as = std::move(machine.seal_as);
     summary["consents"] = prepared.bundles.size();
     prepared.user = signer.user;
     prepared.key = machine.as_organization ? std::string(root_key_name) : user->key;
@@ -675,6 +678,10 @@ Console::sign_approval(const http::Request& request) const {
                        prepared->model,
                        prepared->model_version,
                        services_.clock->now() + 10 * 60'000};
+        } else if (prepared->new_key && prepared->seal_as) {
+            // The console's own machine key (its credential key): kept under
+            // its name, linked to no person.
+            services_.keys->seal(*prepared->seal_as, *prepared->new_key);
         } else if (prepared->new_key) {
             key_name = "person-" + to_hex(signed_statement->id.bytes()).substr(0, 16);
             services_.keys->seal(key_name, *prepared->new_key);

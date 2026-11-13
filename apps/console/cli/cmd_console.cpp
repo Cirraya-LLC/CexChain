@@ -40,9 +40,11 @@
 #include <kanhe/ledger/environment.hpp>
 #include <kanhe/ledger/storage.hpp>
 #include <kanhe/node/api.hpp>
+#include <kanhe/node/credentials.hpp>
 #include <kanhe/node/record_files.hpp>
 #include <kanhe/node/server.hpp>
 #include <kanhe/search/served.hpp>
+#include <kanhe/verifier/credentials.hpp>
 
 #include "console_commands.hpp"
 #include "output.hpp"
@@ -472,6 +474,33 @@ bool open_in_browser(const std::string& target) {
     return true;
 }
 
+/// The console's credential key, while it has one and is unlocked: what its
+/// server signs status lists with (spec/credentials.md).
+std::shared_ptr<const crypto::Signer> credential_key(const console::KeyStore& keys) {
+    if (!keys.unlocked() || !std::ranges::any_of(keys.keys(), [](const auto& k) {
+            return k.name == console::credential_key_name;
+        })) {
+        return nullptr;
+    }
+    return std::make_shared<crypto::openssl::KeyPair>(keys.open(console::credential_key_name));
+}
+
+/// The DID document and status lists, served under the console's address
+/// (known once it listens) once an owner turned credentials on.
+void serve_credentials(node::ApiOptions& options, const console::KeyStore& keys,
+                       const std::shared_ptr<console::Console>& web) {
+    options.credentials = node::CredentialService{
+        .key = [&keys] { return credential_key(keys); },
+        .base = [weak = std::weak_ptr(web)]() -> std::optional<verifier::BaseUrl> {
+            const auto console = weak.lock();
+            if (!console) {
+                return std::nullopt;
+            }
+            auto base = verifier::parse_base_url(console->api_url());
+            return base ? std::optional(std::move(*base)) : std::nullopt;
+        }};
+}
+
 /// A person's console: the console at once, the ledger's API once the first
 /// run has made the ledger or the console is unlocked (DeferredApi).
 int run_person_console(const Args& args, const std::filesystem::path& dir,
@@ -530,6 +559,7 @@ int run_person_console(const Args& args, const std::filesystem::path& dir,
             options.log_keys.push_back(
                 std::make_shared<crypto::openssl::KeyPair>(keys.open("log")));
         }
+        serve_credentials(options, keys, web);
         // The console's machine, set up at the first run: the ledger's
         // registrar and keeper while the console is unlocked.
         if (std::ranges::any_of(
@@ -700,6 +730,7 @@ void serve_console_too(const Args& args, const std::filesystem::path& dir,
             web->handle(r, std::move(respond));
         };
         options.extensions.push_back(parts->served->extension(dir));
+        serve_credentials(options, *parts->keys, parts->web);
     };
     defaults.after_open = [parts](node::LedgerApi& api) {
         console::Console& web = *parts->web;

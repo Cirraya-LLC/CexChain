@@ -30,6 +30,10 @@ inline constexpr std::string_view owner_key_name = "owner";
 /// ledger's registrar (recording calls once the consents they wait for are
 /// in) and keeper (firing time rules, expiring requests) while unlocked.
 inline constexpr std::string_view machine_key_name = "machine";
+/// The console's credential key (ES256), once an owner turns credentials on:
+/// a device that endorses certificates as the W3C credentials it signs
+/// (spec/credentials.md).
+inline constexpr std::string_view credential_key_name = "credentials";
 inline constexpr std::string_view machine_name = "console";
 /// The console's witness of its parties' ledgers: it cosigns their
 /// checkpoints when they extend what it cosigned before. Not on the ledger;

@@ -99,6 +99,21 @@ kanhe-console settings show
   kanhe-console certificate print --type example.org.diploma/1 --out pages \
       --url https://ledger.example.com --language zh-Hant
   ```
+
+  **In digital wallets.** A certificate can also be handed over as a W3C Verifiable Credential
+  ([spec/credentials.md](../../spec/credentials.md)). An owner turns credentials on with two taps
+  in "In digital wallets": the console makes a credential key of its own (ECDSA P-256, kept sealed
+  with its other keys), registers it as a device, and lets it endorse records and nothing else
+  (`credential allow`). Each valid certificate then has a Credential button that downloads it as
+  a `.jwt`, signed by that key, which endorses the record the first time: the ledger records every
+  credential issued. The console's server serves the issuer's DID document and status lists at its
+  address, so a wallet checks the credential, and a Kanhe verifier the record behind it.
+
+  ```sh
+  kanhe-console credential allow
+  kanhe-console certificate credential --type example.org.diploma/1 --out wallet \
+      --url https://ledger.example.com
+  ```
 - **Claims.** "Confirm a condition" on a document's page confirms that its fields meet a
   condition without showing them ("monthly_salary is above HKD 30,000.00", not the salary): the
   console checks the conditions against the document's private data, the page checks the claim's

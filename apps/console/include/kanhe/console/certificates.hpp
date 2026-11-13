@@ -86,6 +86,11 @@ void append_issued(const std::filesystem::path& path, std::size_t line, const Is
 printed_disclosures(const crypto::Provider& provider, crypto::HashAlg hash, const Kind& kind,
                     const std::vector<protocol::RecordField>& fields);
 
+/// The printed fields that are public (in the record's metadata), in the
+/// kind's order: what a certificate's credential claims beside the fields
+/// its address discloses.
+[[nodiscard]] std::vector<std::string> printed_public_fields(const Kind& kind);
+
 /// A certificate as it is: published, of a kind that prints fields.
 struct Certificate {
     std::string token;

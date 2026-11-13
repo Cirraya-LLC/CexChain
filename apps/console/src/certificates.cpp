@@ -401,6 +401,17 @@ void append_issued(const std::filesystem::path& path, std::size_t line, const Is
     }
 }
 
+std::vector<std::string> printed_public_fields(const Kind& kind) {
+    std::vector<std::string> out;
+    for (const std::string& name : kind.printed) {
+        const auto field = std::ranges::find(kind.fields, name, &KindField::name);
+        if (field != kind.fields.end() && !field->is_private) {
+            out.push_back(name);
+        }
+    }
+    return out;
+}
+
 std::vector<protocol::FieldDisclosure>
 printed_disclosures(const crypto::Provider& provider, crypto::HashAlg hash, const Kind& kind,
                     const std::vector<protocol::RecordField>& fields) {

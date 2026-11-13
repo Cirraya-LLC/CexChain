@@ -25,6 +25,8 @@
 #include <kanhe/console/setup.hpp>
 #include <kanhe/core/bytes.hpp>
 #include <kanhe/core/protocol/claims.hpp>
+#include <kanhe/crypto/openssl.hpp>
+#include <kanhe/node/credentials.hpp>
 #include <kanhe/node/executor.hpp>
 #include <kanhe/node/keeper.hpp>
 #include <kanhe/node/tokens.hpp>
@@ -410,6 +412,55 @@ Console::machine_step(const Signed& who, const nlohmann::json& intent) const {
         static_cast<void>(is_agent);
         PersonStep step{protocol::Body{protocol::DelegationGrantBody{*actor, std::move(scope)}},
                         nullptr, intent.value("name", ""), "automation.delegate"};
+        step.as_organization = true;
+        return step;
+    }
+    if (action == "machine.credentials") {
+        // Certificates as W3C credentials (spec/credentials.md): the console
+        // gets a credential key of its own (ES256), registered as a device
+        // that may endorse records and nothing else. Two approvals by an
+        // owner, each the organization's word: the device, then its
+        // delegation; each asks again for what is still missing.
+        if (who.role != Role::owner) {
+            return error(403, "forbidden",
+                         "only an owner turns credentials on (the organization signs it)");
+        }
+        std::optional<protocol::Id> actor;
+        bool ready = false;
+        served->read_state([&](const protocol::LedgerState& state) {
+            actor = credential_actor(state);
+            ready = actor && node::is_credential_key(state, *state.actor(*actor));
+        });
+        if (ready) {
+            return error(409, "conflict", "credentials are on already");
+        }
+        if (!actor) {
+            std::shared_ptr<const crypto::openssl::KeyPair> made;
+            auto key = credential_public_key();
+            if (!key) {
+                auto generated = crypto::openssl::KeyPair::generate(crypto::SigAlg::esp256);
+                if (!generated) {
+                    return error(500, "internal", "the credential key could not be made");
+                }
+                made = std::make_shared<const crypto::openssl::KeyPair>(std::move(*generated));
+                key = made->public_key();
+            }
+            PersonStep step{protocol::Body{protocol::ActorRegisterBody{protocol::ActorKind::device,
+                                                                       "Credentials", *key,
+                                                                       std::nullopt, std::nullopt}},
+                            made, "Credentials", "credentials.register"};
+            step.as_organization = true;
+            if (made) {
+                step.seal_as = std::string(credential_key_name);
+            }
+            return step;
+        }
+        protocol::Scope scope;
+        scope.statement_types = {protocol::StatementType::record_endorse};
+        scope.may_delegate = false;
+        scope.require_presence = false;
+        PersonStep step{protocol::Body{protocol::DelegationGrantBody{*actor, std::move(scope)}},
+                        nullptr, "Credentials", "credentials.allow"};
         step.as_organization = true;
         return step;
     }

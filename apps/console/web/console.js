@@ -1728,6 +1728,7 @@ async function certificatesScreen() {
         ["certificates.by_console", (k) => (k.granted ? t("certificates.allowed_yes")
             : listed.may_grant ? allowButton(k, notice) : t("certificates.allowed_not_yet"))],
     ], listed.kinds));
+    parts.push(credentialsSection(listed, notice));
     parts.push(...table(t("certificates.list"), [
         ["certificates.printed", (c) => c.fields.map((f) => f.value).join(" · ")],
         ["certificates.kind", (c) => c.kind],
@@ -1740,6 +1741,70 @@ async function certificatesScreen() {
         parts.push(issueForm(listed));
     }
     show(...parts);
+}
+
+/// Certificates as W3C credentials, for digital wallets: on once an owner
+/// gives the console a credential key (two taps: the device, then what it
+/// may do), each certificate then downloads as one.
+function credentialsSection(listed, notice) {
+    const c = listed.credentials || { state: "off" };
+    const section = el("section", {}, el("h2", { text: t("credentials.title") }));
+    if (c.state === "on") {
+        section.append(el("p", { class: "hint", text: t("credentials.on_intro", { issuer: c.issuer ?? "-" }) }));
+        if (c.problem) {
+            section.append(el("p", { class: "notice", text: t("credentials.no_issuer", { problem: c.problem }) }));
+        }
+        return section;
+    }
+    section.append(el("p", { class: "hint", text: t("credentials.off_intro") }));
+    if (!listed.may_grant) {
+        section.append(el("p", { text: t("credentials.owner_turns_on") }));
+        return section;
+    }
+    const button = el("button", { type: "button", text: t(c.state === "registered" ? "credentials.finish" : "credentials.turn_on") });
+    button.addEventListener("click", () => turnCredentialsOn(notice));
+    section.append(button);
+    return section;
+}
+
+/// Each tap approves what is still missing, until the server says they are on.
+async function turnCredentialsOn(notice) {
+    let prepared;
+    try {
+        prepared = await api("POST", "prepare", { action: "machine.credentials" });
+    } catch (error) {
+        if (error.status === 409) {
+            state.flash = t("credentials.turned_on");
+            route();
+            return;
+        }
+        notice.replaceChildren(problem(t("error.server", { message: error.message })));
+        return;
+    }
+    await approveScreen(prepared, new Map(), async () => {
+        await turnCredentialsOn(notice);
+        return TAKEN;
+    });
+}
+
+/// A certificate as a W3C credential (a compact JWS), saved as TOKEN.jwt.
+async function downloadCredential(c, notice) {
+    const headers = {};
+    const token = stored(sessionStorage, SESSION);
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    try {
+        const response = await fetch(`api/certificates/${c.token}/credential`,
+                                     { method: "POST", headers, credentials: "omit", cache: "no-store" });
+        if (!response.ok) {
+            const answer = await response.json().catch(() => ({}));
+            throw new ApiError(response.status, answer?.error?.message ?? String(response.status));
+        }
+        saveText(await response.text(), `${c.token}.jwt`, "application/vc+jwt");
+    } catch (error) {
+        notice.replaceChildren(problem(t("error.server", { message: error.message })));
+    }
 }
 
 /// The organization lets the console's machine issue certificates of a
@@ -1794,6 +1859,12 @@ function certificateActions(c, listed, notice) {
         }
     });
     const buttons = [qr, " ", c.status === "valid" ? page : null];
+    if (listed.may_issue && listed.credentials?.state === "on" && c.status === "valid") {
+        const credential = el("button", { type: "button", text: t("certificates.credential"),
+                                          "aria-label": t("certificates.credential_label", { what }) });
+        credential.addEventListener("click", () => downloadCredential(c, notice));
+        buttons.push(" ", credential);
+    }
     if (listed.may_issue) {
         const withdraw = el("button", { type: "button", text: t("certificates.withdraw"),
                                         "aria-label": t("certificates.withdraw_label", { what }) });

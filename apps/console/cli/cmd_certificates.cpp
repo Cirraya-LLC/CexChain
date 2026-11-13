@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <kanhe/client/credentials.hpp>
 #include <kanhe/console/activity.hpp>
 #include <kanhe/console/certificates.hpp>
 #include <kanhe/console/keystore.hpp>
@@ -23,6 +24,8 @@
 #include <kanhe/core/protocol/claims.hpp>
 #include <kanhe/core/protocol/record.hpp>
 #include <kanhe/ledger/environment.hpp>
+#include <kanhe/node/credentials.hpp>
+#include <kanhe/verifier/credentials.hpp>
 
 #include "console_commands.hpp"
 #include "output.hpp"
@@ -198,6 +201,138 @@ int cmd_certificate_allow(const Args& args) {
     } else {
         std::println("the console's machine may now issue {} certificates (delegation {})",
                      kind.name, short_id(granted));
+    }
+    return exit_ok;
+}
+
+int cmd_credential_allow(const Args& args) {
+    Session session(args);
+    const std::filesystem::path state = console::state_directory(args.console_ledger());
+    console::KeyStore keys(state);
+    unlock_console_keys(keys, args);
+    // The console's credential key: kept sealed, or made now.
+    std::optional<crypto::PublicKey> key;
+    for (const console::SealedKeyInfo& k : keys.keys()) {
+        if (k.name == console::credential_key_name) {
+            key = k.public_key;
+        }
+    }
+    if (!key) {
+        const auto made = unwrap(crypto::openssl::KeyPair::generate(crypto::SigAlg::esp256),
+                                 "making the credential key");
+        keys.seal(console::credential_key_name, made);
+        key = made.public_key();
+    }
+    std::optional<protocol::Id> actor;
+    for (const auto& [id, a] : session.state().actors()) {
+        if (!a.revoked && a.kind == protocol::ActorKind::device && a.key == *key) {
+            actor = protocol::Id(a.id);
+        }
+    }
+    // The organization's word, signed with the root key the console keeps
+    // sealed, as an owner gives it on the Certificates screen.
+    const auto root = keys.open(console::root_key_name);
+    std::optional<protocol::Id> registered;
+    if (!actor) {
+        registered =
+            session.submit(root,
+                           protocol::ActorRegisterBody{protocol::ActorKind::device, "Credentials",
+                                                       *key, std::nullopt, std::nullopt},
+                           std::nullopt);
+        actor = registered;
+    }
+    std::optional<protocol::Id> granted;
+    if (!node::is_credential_key(session.state(), *session.state().actor(*actor))) {
+        protocol::Scope scope;
+        scope.statement_types = {protocol::StatementType::record_endorse};
+        granted = session.submit(root, protocol::DelegationGrantBody{*actor, std::move(scope)},
+                                 std::nullopt);
+    }
+    const std::string thumbprint =
+        unwrap(verifier::jwk_thumbprint(shared_provider(), *key), "the key's thumbprint");
+    record(args, "credentials.allow", {{"actor", hex_id(*actor)}});
+    if (args.json()) {
+        print_json({{"actor", hex_id(*actor)},
+                    {"registered", registered ? Json(hex_id(*registered)) : Json(nullptr)},
+                    {"delegation", granted ? Json(hex_id(*granted)) : Json(nullptr)},
+                    {"thumbprint", thumbprint}});
+    } else if (!registered && !granted) {
+        std::println("credentials are on already: the console's credential key is {}",
+                     short_id(*actor));
+    } else {
+        std::println("credentials are on: the console's credential key is {} (thumbprint {}); "
+                     "its server serves the DID document and status lists at its address",
+                     short_id(*actor), thumbprint);
+    }
+    return exit_ok;
+}
+
+int cmd_certificate_credential(const Args& args) {
+    Session session(args);
+    const auto kinds = certificate_kinds(args);
+    const auto all = certificates(session, kinds);
+    std::vector<const console::Certificate*> chosen;
+    if (const auto type = args.get("type")) {
+        if (!args.positional().empty()) {
+            throw UsageError{"give tokens or --type, not both"};
+        }
+        for (const console::Certificate& c : all) {
+            if (c.type == *type && c.status == "valid") {
+                chosen.push_back(&c);
+            }
+        }
+    } else {
+        for (const std::string& token : args.positional()) {
+            chosen.push_back(&find_certificate(all, token));
+        }
+    }
+    if (chosen.empty()) {
+        throw UsageError{"give the certificates' tokens, or --type TYPE for every valid one"};
+    }
+    auto base = verifier::parse_base_url(address_base(args, session));
+    if (!base) {
+        throw UsageError{"--url: " + base.error()};
+    }
+    const std::filesystem::path state = console::state_directory(args.console_ledger());
+    console::KeyStore keys(state);
+    unlock_console_keys(keys, args);
+    if (!std::ranges::any_of(keys.keys(), [](const console::SealedKeyInfo& k) {
+            return k.name == console::credential_key_name;
+        })) {
+        throw CommandError{"credentials are not on: kanhe-console credential allow"};
+    }
+    const crypto::openssl::KeyPair key = keys.open(console::credential_key_name);
+    const LogKey log_key =
+        session.remote()
+            ? LogKey{}
+            : LogKey{true, [&keys] {
+                         return std::unique_ptr<crypto::Signer>(
+                             std::make_unique<crypto::openssl::KeyPair>(keys.open("log")));
+                     }};
+    const std::filesystem::path out = args.need("out");
+    std::filesystem::create_directories(out);
+    Json done = Json::array();
+    for (const console::Certificate* c : chosen) {
+        client::CredentialRequest request;
+        request.token = c->token;
+        request.base = *base;
+        request.name = c->kind;
+        request.metadata = console::printed_public_fields(kinds.at(c->type));
+        const auto issued = client::issue_credential(session, key, request, log_key);
+        const std::filesystem::path file = out / (c->token + ".jwt");
+        write_file(file, as_bytes(issued.credential + "\n"), true);
+        done.push_back({{"token", c->token},
+                        {"record", hex_id(issued.record)},
+                        {"file", file.string()},
+                        {"list", issued.entry.list},
+                        {"index", issued.entry.index},
+                        {"again", !issued.endorsement.has_value()}});
+        if (!args.json()) {
+            std::println("{}  {}  {}", c->token, field_summary(*c), file.string());
+        }
+    }
+    if (args.json()) {
+        print_json(done);
     }
     return exit_ok;
 }

@@ -218,6 +218,36 @@ run actor show --ledger "$SCRIPTED" "$BY" --json | json 'd["kind"]' | contains -
 run kanhe-console activity --ledger "$SCRIPTED" --json | contains "certificates.issue" ||
     fail "the console's log says so"
 
+# Certificates as W3C credentials (spec/credentials.md): off at first; the
+# console's own credential key, registered and allowed with the organization's
+# root key it keeps; then a credential per certificate, its claims the printed
+# fields, issued again with the same status entry.
+VC=(--ledger "$SCRIPTED" --unlock-file unlock.txt --out vc --url https://academy.example)
+expect_exit 2 kanhe-console certificate credential --type "$TYPE" "${VC[@]}"
+contains "credential allow" out.txt || fail "credentials are off at first"
+run kanhe-console credential allow --ledger "$SCRIPTED" --unlock-file unlock.txt --json > on.json
+[ "$(json 'd["registered"] is not None and d["delegation"] is not None' < on.json)" = True ] ||
+    fail "the credential key registered and allowed"
+run kanhe-console credential allow --ledger "$SCRIPTED" --unlock-file unlock.txt | contains "on already"
+run credential key list --ledger "$SCRIPTED" --json | json 'd[0]["name"]' | contains -x Credentials
+cert credential --type "$TYPE" "${VC[@]}" --json > vc.json
+[ "$(json 'len(d)' < vc.json)" = 3 ] || fail "a credential per certificate"
+VC_TOKEN="$(json 'd[0]["token"]' < vc.json)"
+VC_INDEX="$(json 'd[0]["index"]' < vc.json)"
+python3 -c "import base64,json,sys; p=open(sys.argv[1]).read().split('.')[1]; print(json.dumps(json.loads(base64.urlsafe_b64decode(p + '=' * (-len(p) % 4)))))" \
+    "vc/$VC_TOKEN.jwt" > vc-payload.json
+[ "$(json '(d["issuer"]["id"], d["name"])' < vc-payload.json)" = "('did:web:academy.example', 'Diploma')" ] ||
+    fail "the issuer and the kind's name"
+json 'sorted(d["credentialSubject"])' < vc-payload.json | contains -x "\['degree', 'name', 'year'\]" ||
+    fail "the printed fields, the public year among them"
+[ "$(run credential list --ledger "$SCRIPTED" --json | json 'len(d)')" = 3 ] || fail "the ledger shows three"
+cert credential "$VC_TOKEN" "${VC[@]}" --json | json '(d[0]["again"], d[0]["index"])' |
+    contains -x "(True, $VC_INDEX)" || fail "issued again: the same entry"
+run kanhe-console activity --ledger "$SCRIPTED" --json | contains "credentials.allow" ||
+    fail "the console's log says credentials are on"
+run kanhe-console credential allow --help | contains -- '--json'
+cert credential --help | contains -- '--json'
+
 # The console's machine may answer parties' questions too, once allowed (spec v0.15).
 run kanhe-console answers allow --ledger "$SCRIPTED" --unlock-file unlock.txt --json |
     json 'd["machine"]' | contains -x "$BY" || fail "the same machine answers"

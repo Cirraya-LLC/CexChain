@@ -137,6 +137,29 @@ async function tap(page, what) {
     assert.equal(report.disclosed_fields.grades, undefined, "the grades stay sealed");
     assert.equal(report.events[0].actor.kind, "device");
 
+    // Certificates as W3C credentials: Alice turns them on (two taps: the
+    // console's credential key registered, then allowed); a certificate
+    // downloads as one, which a standard check and the record behind it pass:
+    // the console's server gives its DID document and status list.
+    await a.getByRole("button", { name: "Turn credentials on" }).click();
+    await tap(a);
+    await tap(a);
+    await a.getByText("Credentials are on: each valid certificate now downloads as a credential.").waitFor();
+    await a.getByText(/issued by did:web:localhost%3A/).waitFor();
+    const fetching = a.waitForEvent("download");
+    fetching.catch(() => {});
+    await a.getByRole("button", { name: "Download the certificate of Chan, Tai Man BSc as a W3C credential" }).click();
+    const credentialFile = path.join(work, "diploma.jwt");
+    await (await fetching).saveAs(credentialFile);
+    const checked = JSON.parse(run("credential", "verify", credentialFile, "--allow-http", "--ledger-id", named[1], "--json"));
+    assert.equal(checked.verified, true, JSON.stringify(checked.problems));
+    assert.equal(checked.credential.subject.name, "Chan, Tai Man");
+    assert.equal(checked.credential.subject.grades, undefined, "the grades stay sealed");
+    assert.equal(checked.credential.name, "Diploma");
+    assert.deepEqual(checked.did_document.problems, []);
+    assert.equal(checked.status_list.revoked, false);
+    assert.equal(checked.credential_key.name, "Credentials");
+
     // Withdrawn: the address finds nothing; the same table issues nothing.
     await a.getByRole("button", { name: "Withdraw the certificate of Wong Siu Ming MSc" }).click();
     await a.getByText(/The certificate of Wong Siu Ming MSc is taken down/).waitFor();

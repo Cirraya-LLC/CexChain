@@ -47,6 +47,8 @@ int cmd_console_session_revoke(const Args& args);
 /// or recovery code typed on the terminal.
 void unlock_console_keys(console::KeyStore& keys, const Args& args);
 int cmd_certificate_allow(const Args& args);
+int cmd_credential_allow(const Args& args);
+int cmd_certificate_credential(const Args& args);
 int cmd_answers_allow(const Args& args);
 int cmd_certificate_issue(const Args& args);
 int cmd_certificate_list(const Args& args);

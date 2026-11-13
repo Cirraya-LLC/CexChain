@@ -194,6 +194,41 @@ std::vector<CommandSpec> console_commands() {
          "registrar and keeper) a delegation to register records of TYPE only, signed with the\n"
          "root key the console keeps sealed, as an owner does on the Certificates screen. The\n"
          "certificates it issues then show as issued by the organization's device."},
+        {{"credential", "allow"},
+         "Turn credentials on: the console gets a key that issues certificates as W3C credentials",
+         "Certificates",
+         "",
+         0,
+         0,
+         with({ledger_option,
+               {"unlock-file", "FILE",
+                "The console's passphrase or recovery code (default: asked on the terminal)"}}),
+         cmd_credential_allow,
+         "Makes the console's credential key (ECDSA P-256, which wallets accept), kept sealed\n"
+         "with its other keys, and registers it as a device that may endorse records and\n"
+         "nothing else, signed with the root key the console keeps, as an owner does on the\n"
+         "Certificates screen. The console's server then serves the issuer's DID document and\n"
+         "status lists at its address (spec/credentials.md)."},
+        {{"certificate", "credential"},
+         "Write certificates as W3C Verifiable Credentials, for digital wallets",
+         "Certificates",
+         "[TOKEN...]",
+         0,
+         100000,
+         with({ledger_option,
+               {"type", "TYPE", "Every valid certificate of this kind"},
+               {"out", "DIR", "Where the credentials go (TOKEN.jwt each)", true},
+               {"url", "URL",
+                "The console's public address, the issuer's (default: the server's, in client "
+                "mode)"},
+               {"unlock-file", "FILE",
+                "The console's passphrase or recovery code (default: asked on the terminal)"},
+               {"sheet", "FILE", "The kind's sheet (default: the console's kinds)"}}),
+         cmd_certificate_credential,
+         "Each credential claims the fields printed on the certificate, signed by the\n"
+         "console's credential key (credential allow), which endorses the certificate's record\n"
+         "the first time; issued again, it keeps its status list entry. Check one with\n"
+         "kanhe credential verify, or in the verifier page."},
         {{"answers", "allow"},
          "Let the console's machine answer parties' questions by itself",
          "Parties",

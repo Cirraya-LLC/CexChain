@@ -32,7 +32,9 @@
 #include <kanhe/core/cbor.hpp>
 #include <kanhe/core/protocol/presence.hpp>
 #include <kanhe/node/contracts.hpp>
+#include <kanhe/node/credentials.hpp>
 #include <kanhe/node/published.hpp>
+#include <kanhe/verifier/credentials.hpp>
 
 #include "responses.hpp"
 
@@ -89,6 +91,31 @@ std::optional<protocol::Id> Console::machine_actor(const protocol::LedgerState& 
                 actor.key == k.public_key) {
                 return protocol::Id(actor.id);
             }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<crypto::PublicKey> Console::credential_public_key() const {
+    if (services_.keys == nullptr) {
+        return std::nullopt;
+    }
+    for (const SealedKeyInfo& k : services_.keys->keys()) {
+        if (k.name == credential_key_name) {
+            return k.public_key;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<protocol::Id> Console::credential_actor(const protocol::LedgerState& state) const {
+    const auto key = credential_public_key();
+    if (!key) {
+        return std::nullopt;
+    }
+    for (const auto& [id, actor] : state.actors()) {
+        if (!actor.revoked && actor.kind == protocol::ActorKind::device && actor.key == *key) {
+            return protocol::Id(actor.id);
         }
     }
     return std::nullopt;
@@ -153,6 +180,7 @@ http::Response Console::certificates_route(const http::Request& request) const {
                                              !base.contains("://127.")},
                            {"may_issue", manages},
                            {"may_grant", signer.role == Role::owner}};
+        const auto issuer = verifier::parse_base_url(base);
         const protocol::Timestamp now = services_.clock->now();
         served->read_state([&](const protocol::LedgerState& state) {
             const auto machine = machine_actor(state);
@@ -162,10 +190,26 @@ http::Response Console::certificates_route(const http::Request& request) const {
                                         {"printed", kind.printed},
                                         {"granted", may_issue(state, machine, type, now)}});
             }
+            // Certificates as W3C credentials, once an owner turned them on:
+            // the console's credential key, and the issuer its address names.
+            const auto credential = credential_actor(state);
+            const bool on = credential && node::is_credential_key(state, *state.actor(*credential));
+            const auto entries = node::credential_entries(state);
+            out["credentials"] = {
+                {"state", on           ? "on"
+                          : credential ? "registered"
+                                       : "off"},
+                {"issuer", issuer ? nlohmann::json(issuer->did) : nlohmann::json()},
+                {"problem", issuer ? nlohmann::json() : nlohmann::json(issuer.error())}};
             for (const Certificate& c : certificates_now(state)) {
                 nlohmann::json j = certificate_json(c, base + "/c/" + c.token);
                 j["verify_url"] = verifier_link(verifier_url, state.ledger_id(), c.record,
                                                 base + "/c/" + c.token);
+                const auto entry = credential
+                                       ? node::credential_entry_of(entries, c.record, *credential)
+                                       : std::nullopt;
+                j["credential"] = entry ? nlohmann::json(verifier::credential_role(entry->entry))
+                                        : nlohmann::json();
                 out["certificates"].push_back(std::move(j));
             }
         });
@@ -338,9 +382,140 @@ http::Response Console::certificates_route(const http::Request& request) const {
         r.headers.emplace_back("Content-Security-Policy", "sandbox; default-src 'none'");
         return r;
     }
+    if (what == "/credential" && request.method == "POST") {
+        if (!manages) {
+            return error(403, "forbidden", "owners and admins issue credentials");
+        }
+        return issue_credential(signer, *certificate, base);
+    }
     http::Response refused = error(405, "unsupported", "method not allowed");
-    refused.headers.emplace_back("Allow", what.empty() ? "DELETE" : "GET");
+    refused.headers.emplace_back("Allow", what.empty()            ? "DELETE"
+                                          : what == "/credential" ? "POST"
+                                                                  : "GET");
     return refused;
+}
+
+http::Response Console::issue_credential(const Signed& signer, const Certificate& certificate,
+                                         const std::string& address) const {
+    const ledger::Ledger* served = ledger();
+    const Submit submit = submitter();
+    const Evidence source = evidence();
+    if (served == nullptr || !submit || !source || services_.keys == nullptr ||
+        !services_.keys->unlocked()) {
+        return error(423, "locked", "the console is locked: unlock it first");
+    }
+    const auto base = verifier::parse_base_url(address);
+    if (!base) {
+        return error(409, "conflict",
+                     "credentials name the console's address as their issuer, and it cannot be "
+                     "one: " +
+                         base.error());
+    }
+    const auto public_key = credential_public_key();
+    std::optional<protocol::Id> actor;
+    std::optional<node::CredentialEntry> existing;
+    std::vector<node::CredentialEntry> entries;
+    bool ready = false;
+    served->read_state([&](const protocol::LedgerState& state) {
+        actor = credential_actor(state);
+        ready = actor && node::is_credential_key(state, *state.actor(*actor));
+        entries = node::credential_entries(state);
+        if (actor) {
+            existing = node::credential_entry_of(entries, certificate.record, *actor);
+        }
+    });
+    if (!public_key || !ready) {
+        return error(409, "conflict", "credentials are not on: an owner turns them on first");
+    }
+    // The published address's evidence, as anyone holding it gets it.
+    auto exported = std::make_shared<std::promise<Result<Bytes>>>();
+    auto future = exported->get_future();
+    source(certificate.record,
+           [exported](Result<Bytes> bundle) { exported->set_value(std::move(bundle)); });
+    if (future.wait_for(register_wait) != std::future_status::ready) {
+        return error(503, "unavailable", "the ledger did not give the evidence in time");
+    }
+    const Result<Bytes> plain = future.get();
+    const auto published =
+        node::load_published(services_.directory.parent_path(), certificate.token);
+    auto bundle = plain ? protocol::decode_bundle(*plain)
+                        : Result<protocol::EvidenceBundle>(std::unexpected(plain.error()));
+    if (!bundle || !published) {
+        return error(500, "internal", "the certificate's evidence could not be made");
+    }
+    bundle->disclosures = published->disclosures;
+    const auto encoded = protocol::encode_bundle(*bundle);
+    protocol::VerifyOptions verify;
+    verify.expected_ledger = served->id();
+    const auto report = encoded
+                            ? protocol::verify_bundle(*services_.provider, *encoded, verify)
+                            : Result<protocol::EvidenceReport>(std::unexpected(encoded.error()));
+    if (!report) {
+        return error(500, "internal", "the certificate's evidence does not verify");
+    }
+    ledger::SystemEntropy entropy;
+    const verifier::StatusEntry entry =
+        existing ? existing->entry : node::choose_status_entry(entries, entropy);
+    std::vector<std::string> metadata;
+    if (const auto kinds = certificate_kinds(services_.directory);
+        kinds.contains(certificate.type)) {
+        metadata = printed_public_fields(kinds.at(certificate.type));
+    }
+    auto content = verifier::credential_content(*report, *base, certificate.token, entry, metadata,
+                                                certificate.kind);
+    if (!content) {
+        return error(409, "conflict", content.error());
+    }
+    const crypto::openssl::KeyPair key = services_.keys->open(credential_key_name);
+    if (!existing) {
+        // The first time: the credential key endorses the record as this
+        // credential, the ledger's witnessed account of the issue.
+        std::optional<Bytes> statement;
+        served->read_state([&](const protocol::LedgerState& state) {
+            const auto delegation =
+                node::choose_delegation(state, *actor, protocol::StatementType::record_endorse,
+                                        certificate.type, services_.clock->now());
+            protocol::Statement s;
+            s.ledger_id = state.ledger_id();
+            s.actor_id = *actor;
+            s.delegation_id = delegation;
+            s.issued_at = services_.clock->now();
+            s.nonce = services_.entropy->bytes<16>();
+            s.body =
+                protocol::RecordEndorseBody{certificate.record, verifier::credential_role(entry)};
+            if (auto made = protocol::sign_statement(key, *services_.provider, state.hash(), s)) {
+                statement = std::move(made->encoded);
+            }
+        });
+        if (!statement) {
+            return error(500, "internal", "the endorsement could not be signed");
+        }
+        auto answered = std::make_shared<std::promise<http::Response>>();
+        auto registered = answered->get_future();
+        submit(std::move(*statement), false,
+               [answered](http::Response r) { answered->set_value(std::move(r)); });
+        if (registered.wait_for(register_wait) != std::future_status::ready) {
+            return error(503, "unavailable", "the ledger did not register the credential in time");
+        }
+        const http::Response r = registered.get();
+        if (r.status < 200 || r.status >= 300) {
+            return r;
+        }
+        log_activity(signer.user, "certificates.credential",
+                     {{"record", to_hex(certificate.record.bytes())},
+                      {"entry", verifier::credential_role(entry)}});
+    }
+    const auto credential = verifier::sign_credential(key, *services_.provider, base->did,
+                                                      verifier::credential_json(*content));
+    if (!credential) {
+        return error(500, "internal", "the credential could not be signed");
+    }
+    http::Response r;
+    r.status = 200;
+    r.content_type = std::string(verifier::credential_media_type);
+    r.body.assign(credential->begin(), credential->end());
+    secure(r);
+    return r;
 }
 
 http::Response Console::batch_start_route(const http::Request& request) const {
