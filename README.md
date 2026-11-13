@@ -1093,4 +1093,11 @@ large changes in an issue first.
 Licensed under the [Apache License, Version 2.0](LICENSE). Third-party components and their
 licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Copyright 2026 Cirraya.
+## Who makes it
+
+Kanhe is made by **Cirraya Limited** (霄矩有限公司), a company in Hong Kong: Business
+Registration No. 81117476, Room 18, 2/F, Tuspark, 118 Wai Yip Street, Kwun Tong, Hong Kong.
+Write to [kanhe@cirraya.com](mailto:kanhe@cirraya.com); security reports as in
+[SECURITY.md](SECURITY.md).
+
+Copyright 2026 Cirraya Limited.
