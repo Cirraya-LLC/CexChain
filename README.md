@@ -1,19 +1,27 @@
 # Kanhe
 
-**Register, move, and prove anything, under rules you define.**
+**Certificates and records anyone can verify, trusting no one.**
 
 Kanhe was called CexChain until November 2026; the repository's old addresses lead here.
 
-Kanhe keeps a verifiable history of anything you choose to keep: a document, a photo, a
-camera lent to a friend, an approval, a membership, a debt. You decide what a thing is, the
-rules it follows, and whose agreement each step needs. Every step is signed by the person,
-AI agent, or device that took it, and anyone can verify the whole history offline, without
-trusting your database or any platform. It runs for one person on one computer, and for
-organizations on servers and clusters, with ledgers that work with each other's.
+**Certificates, checked with a scan.** A school, a training centre, an employer, or a
+laboratory issues diplomas, transcripts, proofs of employment, or test reports from a table,
+each with a QR code. Whoever receives one scans it and sees in seconds who issued it, when,
+whether it was revoked or replaced since, and that nothing in it has changed, with only the
+fields the issuer chose to print shown. No account, nothing to install, no phone call to
+confirm; and the issuer needs nobody else to join anything. See [Certificates](#certificates).
 
-Like a spreadsheet, Kanhe knows nothing of what you keep in it: there are no built-in
-purchase orders, invoices, or certificates. Those are things you define, and the
-[examples](examples/) show how such things are built.
+**Underneath, a chain for anything.** Kanhe keeps a verifiable history of whatever you choose
+to keep: a document, an approval, a membership, a debt, a step an AI agent took. You decide
+what a thing is, the rules it follows, and whose agreement each step needs. Every step is
+signed by the person, AI agent, or device that took it, and anyone can verify the whole
+history offline, without trusting your database or any platform. It runs for one person on one
+computer, and for organizations on servers and clusters, with ledgers that work with each
+other's.
+
+Like a spreadsheet, the chain knows nothing of what you keep in it: a certificate is a kind of
+record you define in the console, and the [examples](examples/) show how other things are
+built.
 
 > **Alpha: pre-release software.** The protocol specification (revision v0.17) is a draft and may change,
 > and so may interfaces and file formats; ledgers and evidence made with this version may need
@@ -112,7 +120,10 @@ vectors (`testvectors/`), the [examples](examples/), the tests, and the tools. B
   - international algorithms (Ed25519, ECDSA P-256)
   - Chinese national standards (SM2, SM3, SM4)
   - post-quantum algorithms (ML-DSA, SLH-DSA)
-- **Standards-aligned.** Deterministic CBOR, COSE, RFC 9162 Merkle trees, IETF SCITT, W3C Verifiable Credentials, MCP, and A2A.
+- **Built on open standards.** Deterministic CBOR (RFC 8949), COSE signatures (RFC 9052), Merkle
+  trees and proofs as in RFC 9162, C2SP's witness protocols (tlog-witness, tlog-cosignature) for
+  [open witness networks](#open-witness-networks), RFC 3161 time stamps, WebAuthn passkeys,
+  PKCS #11 tokens, and MCP for AI agents.
 - **Deterministic core.** No floating point, no unordered iteration, and injected time and randomness. This makes deterministic simulation testing possible.
 
 ## Installing
@@ -133,6 +144,28 @@ On macOS, a `.pkg` installs all four programs in `/usr/local/bin`. Every program
 shell completion. Removing a package keeps every ledger, console, and backup. Updates come the
 same way: a newer package, through the platform's package manager or the releases page. To build
 from source instead, see [Building](#building).
+
+## Certificates
+
+An issuer defines a kind of certificate once, issues a whole table of them, and prints each with
+its QR code. Scanning the code fetches the certificate's evidence from the issuer's own server,
+as it is then (revoked or replaced included), and the [browser verifier](#browser-verifier)
+checks it on the spot and shows the outcome first, in English or in Simplified or Traditional
+Chinese. The printed fields are disclosed; the others stay sealed. A ledger of the issuer's own
+(see the [quick start](#quick-start)) and the console are all it takes:
+
+```sh
+kanhe-console kind add diploma.json      # its fields, and "printed": ["name", "degree", "year"]
+kanhe-console certificate allow example.org.diploma/1    # the console's machine may issue them
+kanhe-console certificate issue example.org.diploma/1 --csv class-of-2026.csv \
+    --machine --out issued.csv --url https://ledger.example.com
+kanhe-console certificate print --type example.org.diploma/1 --out pages \
+    --url https://ledger.example.com --language zh-Hant
+```
+
+The console's Certificates screen does the same in a browser, a batch approved with one passkey
+tap. The details, and `certificate list`, `show`, and `withdraw`: [the console's
+README](apps/console/README.md).
 
 ## Quick start
 
@@ -961,6 +994,8 @@ What the chain does not do yet, as of this version (the Bo language's own are in
 - **Kept files** (`record issue --keep-files`, `record file add`) are kept by a single server or
   ledger directory: a cluster refuses them for now (it would not replicate them), and a backup
   of a cluster's member does not hold them.
+- **W3C Verifiable Credentials:** a certificate is Kanhe evidence; it cannot yet be exported as a
+  Verifiable Credential for a digital wallet to hold. That is planned.
 - **`KANHE_CLOCK_OFFSET`** is for demonstrations and tests only (`serve` refuses it without
   `--allow-clock-offset`); a ledger keeps the later times it recorded.
 
